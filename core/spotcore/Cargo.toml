@@ -28,6 +28,9 @@ librespot-oauth = { git = "https://github.com/librespot-org/librespot", rev = "d
 ] }
 uniffi = { workspace = true, features = ["tokio"] }
 thiserror = "2"
+log = "0.4"
+regex = "1"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]

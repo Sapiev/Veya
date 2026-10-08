@@ -4,6 +4,11 @@
 
 use librespot_core::SpotifyUri;
 
+mod logging;
+mod redact;
+
+pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
+
 uniffi::setup_scaffolding!();
 
 /// Errors surfaced to Swift as the `SpotCoreError` enum.
