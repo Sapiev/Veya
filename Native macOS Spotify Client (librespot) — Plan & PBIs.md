@@ -196,10 +196,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-003, PBI-004
 
-- [ ] Uses librespot's `OAuthClient` with PKCE; the browser opens via `ASWebAuthenticationSession` and returns through a loopback redirect.
-- [ ] Scopes requested are the minimum needed for streaming, library and playlist read/modify.
-- [ ] Cancelling or failing login shows a clear error and a retry button.
-- [ ] Client ID choice (librespot's shared ID vs user-supplied) is recorded in an ADR, with the trade-offs.
+**Status:** In review (`feat/pbi-101-oauth`).
+
+- [x] PKCE flow in `spotcore` on the `oauth2` crate (librespot's `OAuthClient` cannot expose the URL or validate `state`; see ADR-002); the browser opens via `ASWebAuthenticationSession` and returns through a loopback redirect.
+- [x] Scopes requested are the minimum needed for streaming, library and playlist read/modify.
+- [x] Cancelling or failing login shows a clear error and a retry button.
+- [x] Client ID choice (librespot's shared ID vs user-supplied) is recorded in an ADR, with the trade-offs.
 
 #### PBI-102 · Store credentials and auto sign-in
 
