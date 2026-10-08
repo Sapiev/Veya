@@ -11,3 +11,6 @@
 # macOS / Xcode per-user state
 .DS_Store
 xcuserdata/
+
+# Per-developer signing overrides (see Config/Shared.xcconfig)
+/Config/Local.xcconfig

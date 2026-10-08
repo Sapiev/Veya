@@ -1,0 +1,16 @@
+// Project-wide baseline inherited by every target.
+// Forks change identity here, or override it in an untracked Local.xcconfig.
+VEYA_BUNDLE_ID_PREFIX = org.veya
+DEVELOPMENT_TEAM =
+
+SDKROOT = macosx
+SUPPORTED_PLATFORMS = macosx
+MACOSX_DEPLOYMENT_TARGET = 14.0
+
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+SWIFT_APPROACHABLE_CONCURRENCY = YES
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
+
+#include? "Local.xcconfig"

@@ -27,6 +27,20 @@ This produces `SpotCoreKit/spotcoreFFI.xcframework` and the generated Swift
 bindings, which Xcode needs to resolve the `SpotCoreKit` package. After that,
 the `Veya` scheme rebuilds the core automatically when `core/` changes.
 
+### Signing
+
+Without a team, Xcode signs the app to run locally. To sign with your own
+team or bundle ID prefix, create `Config/Local.xcconfig` (gitignored):
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+VEYA_BUNDLE_ID_PREFIX = com.example
+```
+
+Do not pick a team in Xcode's Signing & Capabilities tab. Xcode writes it
+into `project.pbxproj`, where it overrides every contributor's
+`Local.xcconfig`.
+
 ## Making a change
 
 1. Fork and create a branch off `main`.
