@@ -154,9 +154,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M1 · **Depends on:** PBI-003
 
-- [ ] Rust `log`/`tracing` output bridged to `os.Logger` with subsystem per module.
-- [ ] Help › Export Diagnostics writes a zip of the last 24 h of logs with tokens and usernames redacted.
-- [ ] No telemetry is sent anywhere by default.
+**Status:** In review (`feat/pbi-006-logging`, stacked on `build/pbi-005-ci`).
+
+- [x] Rust `log`/`tracing` output bridged to `os.Logger` with subsystem per module. (Subsystem per crate, category per module path; trace is never enabled because librespot logs raw tokens there.)
+- [x] Help › Export Diagnostics writes a zip of the last 24 h of logs with tokens and usernames redacted.
+- [x] No telemetry is sent anywhere by default. (Documented in the README privacy section.)
 
 ## Risks, open questions and Definition of Done
 
