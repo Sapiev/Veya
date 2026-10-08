@@ -90,10 +90,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 2 · **Milestone:** M0 · **Depends on:** none
 
-- [ ] Repo created with the layout in "Tech stack"; MIT LICENSE, README with "unofficial, not affiliated with Spotify" notice.
-- [ ] CONTRIBUTING, CODE_OF_CONDUCT, SECURITY.md, issue templates (bug, feature), PR template with DoD checklist.
+**Status:** In progress - branch protection pending (repo has no GitHub remote yet).
+
+- [x] Repo created with the layout in "Tech stack"; MIT LICENSE, README with "unofficial, not affiliated with Spotify" notice.
+- [x] CONTRIBUTING, CODE_OF_CONDUCT, SECURITY.md, issue templates (bug, feature), PR template with DoD checklist.
 - [ ] Branch protection on `main`: PR + 1 review + green CI.
-- [ ] ADR-001 records the Swift + Rust/UniFFI architecture decision.
+- [x] ADR-001 records the Swift + Rust/UniFFI architecture decision.
 
 #### PBI-002 · Rust core crate with librespot
 
@@ -101,10 +103,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M0 · **Depends on:** PBI-001
 
-- [ ] `core/spotcore` depends on librespot 0.8.x crates (core, playback, connect, metadata, oauth) pinned to a git rev.
-- [ ] Builds for `aarch64-apple-darwin` and `x86_64-apple-darwin` with the `rustls-tls` backend (no OpenSSL dependency).
-- [ ] Default librespot audio backends disabled; only our sink is compiled.
-- [ ] `cargo clippy -D warnings` and `cargo test` pass.
+**Status:** Done (merged to `main`).
+
+- [x] `core/spotcore` depends on librespot 0.8.x crates (core, playback, connect, metadata, oauth) pinned to a git rev.
+- [x] Builds for `aarch64-apple-darwin` and `x86_64-apple-darwin` with the `rustls-tls` backend (no OpenSSL dependency).
+- [x] Default librespot audio backends disabled; only our sink is compiled.
+- [x] `cargo clippy -D warnings` and `cargo test` pass.
 
 #### PBI-003 · UniFFI bindings and xcframework build
 
@@ -112,10 +116,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M0 · **Depends on:** PBI-002
 
-- [ ] `scripts/build-xcframework.sh` produces a universal static xcframework plus generated Swift sources.
-- [ ] `SpotCoreKit` Swift package wraps it; a sample `version()` call works from the app.
-- [ ] Xcode build phase rebuilds Rust only when `core/` changes (incremental build under 10 s when unchanged).
-- [ ] Async Rust functions surface as Swift `async throws`; Rust errors map to a Swift `SpotCoreError` enum.
+**Status:** Done (merged to `main`).
+
+- [x] `scripts/build-xcframework.sh` produces a universal static xcframework plus generated Swift sources.
+- [x] `SpotCoreKit` Swift package wraps it; a sample `version()` call works from the app.
+- [x] Xcode build phase rebuilds Rust only when `core/` changes (incremental build under 10 s when unchanged).
+- [x] Async Rust functions surface as Swift `async throws`; Rust errors map to a Swift `SpotCoreError` enum.
 
 #### PBI-004 · Xcode app skeleton
 
@@ -123,9 +129,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 2 · **Milestone:** M0 · **Depends on:** PBI-003
 
-- [ ] macOS 14 deployment target, Swift 6 language mode, strict concurrency complete.
-- [ ] Entitlements: App Sandbox, network client, network server (for Connect zeroconf), audio output.
-- [ ] Debug and Release configs; `.xcconfig` files hold the bundle ID and team ID so forks can change them in one place.
+**Status:** Done - awaiting PR (`build/pbi-004-app-skeleton`).
+
+- [x] macOS 14 deployment target, Swift 6 language mode, strict concurrency complete.
+- [x] Entitlements: App Sandbox, network client, network server (for Connect zeroconf), audio output. (Sandboxed playback needs no entitlement; only audio input has one.)
+- [x] Debug and Release configs; `.xcconfig` files hold the bundle ID and team ID so forks can change them in one place.
 
 #### PBI-005 · CI pipeline
 
@@ -133,10 +141,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M0 · **Depends on:** PBI-003, PBI-004
 
-- [ ] GitHub Actions on `macos-latest`: Rust build + clippy + tests, xcframework build, `xcodebuild test`.
-- [ ] SwiftLint and SwiftFormat checks; rustfmt check.
-- [ ] Cargo and SPM caches; PR pipeline under 15 minutes.
-- [ ] Dependabot for Cargo, SPM and Actions.
+**Status:** In review (`build/pbi-005-ci`) - pipeline timing unverified until the repo has a GitHub remote.
+
+- [x] GitHub Actions on `macos-latest`: Rust build + clippy + tests, xcframework build, `xcodebuild test`. (Pinned to `macos-26`: the project needs Xcode 26.)
+- [x] SwiftLint and SwiftFormat checks; rustfmt check.
+- [ ] Cargo and SPM caches; PR pipeline under 15 minutes. (Caches in place; timing unverified until the first GitHub run.)
+- [x] Dependabot for Cargo, SPM and Actions.
 
 #### PBI-006 · Logging and diagnostics
 
