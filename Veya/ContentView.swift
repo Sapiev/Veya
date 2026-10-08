@@ -1,9 +1,10 @@
+import SpotCoreKit
 import SwiftUI
 import Playgrounds
 
 struct ContentView: View {
     var body: some View {
-        Text("Hello, world!")
+        Text("spotcore \(version())")
             .padding()
     }
 }

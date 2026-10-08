@@ -6,6 +6,34 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		000000000000000200000000 /* SpotCore */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 000000000000000210000000 /* Build configuration list for PBXAggregateTarget "SpotCore" */;
+			buildPhases = (
+				000000000000000220000000 /* Build spotcore xcframework */,
+			);
+			dependencies = (
+			);
+			name = SpotCore;
+			productName = SpotCore;
+		};
+/* End PBXAggregateTarget section */
+
+/* Begin PBXBuildFile section */
+		000000000000000131000000 /* SpotCoreKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000160000000 /* SpotCoreKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		000000000000000151000000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000200000000;
+			remoteInfo = SpotCore;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Veya.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Veya.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -22,6 +50,7 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				000000000000000131000000 /* SpotCoreKit in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -56,10 +85,16 @@
 			);
 			buildRules = (
 			);
+			dependencies = (
+				000000000000000150000000 /* PBXTargetDependency */,
+			);
 			fileSystemSynchronizedGroups = (
 				000000000000000000000010 /* Veya */,
 			);
 			name = Veya;
+			packageProductDependencies = (
+				000000000000000160000000 /* SpotCoreKit */,
+			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* Veya.app */;
 			productType = "com.apple.product-type.application";
@@ -88,12 +123,16 @@
 			);
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				000000000000000300000000 /* XCLocalSwiftPackageReference "SpotCoreKit" */,
+			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				000000000000000100000000 /* Veya */,
+				000000000000000200000000 /* SpotCore */,
 			);
 		};
 /* End PBXProject section */
@@ -106,6 +145,26 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		000000000000000220000000 /* Build spotcore xcframework */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build spotcore xcframework";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/scripts/build-xcframework.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		000000000000000120000000 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -113,6 +172,14 @@
 			);
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		000000000000000150000000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000200000000 /* SpotCore */;
+			targetProxy = 000000000000000151000000 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "Veya" */ = {
@@ -321,6 +388,22 @@
 			};
 			name = Release;
 		};
+		000000000000000211000000 /* Debug configuration for PBXAggregateTarget "SpotCore" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		000000000000000212000000 /* Release configuration for PBXAggregateTarget "SpotCore" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -340,7 +423,30 @@
 			);
 			defaultConfigurationName = Release;
 		};
+		000000000000000210000000 /* Build configuration list for PBXAggregateTarget "SpotCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000211000000 /* Debug configuration for PBXAggregateTarget "SpotCore" */,
+				000000000000000212000000 /* Release configuration for PBXAggregateTarget "SpotCore" */,
+			);
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		000000000000000300000000 /* XCLocalSwiftPackageReference "SpotCoreKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = SpotCoreKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		000000000000000160000000 /* SpotCoreKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000300000000 /* XCLocalSwiftPackageReference "SpotCoreKit" */;
+			productName = SpotCoreKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000000 /* Project object */;
 }
