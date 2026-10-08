@@ -100,6 +100,17 @@ Avoid long explanations, architecture essays, repeating requirements
 back, or explaining standard libraries/framework basics. Assume an
 experienced engineer. Return only what's needed to move the work forward.
 
+## PBI completion
+
+A PBI is not finished until the plan doc
+(`Native macOS Spotify Client (librespot) — Plan & PBIs.md`) is updated
+in the same commit set (a `docs:` commit):
+- Tick `- [x]` each acceptance criterion verified against the repo;
+  leave unmet ones `- [ ]` with a short parenthetical reason.
+- Set the `**Status:**` line under Priority: `In progress`,
+  `In review (<branch>)`, or `Done (merged to develop)`.
+- Update the Status line again when the branch is merged.
+
 ## Other conventions
 
 - Never commit changes unless explicitly asked; leave changes
