@@ -14,3 +14,6 @@ xcuserdata/
 
 # Per-developer signing overrides (see Config/Shared.xcconfig)
 /Config/Local.xcconfig
+
+# Pinned linters from scripts/install-linters.sh
+/.tools/
