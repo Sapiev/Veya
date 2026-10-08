@@ -2530,7 +2530,10 @@ dependencies = [
  "librespot-metadata",
  "librespot-oauth",
  "librespot-playback",
+ "log",
+ "regex",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "uniffi",
 ]

@@ -16,3 +16,5 @@ ENABLE_APP_SANDBOX = YES
 ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES
 // Spotify Connect zeroconf discovery runs a local HTTP listener.
 ENABLE_INCOMING_NETWORK_CONNECTIONS = YES
+// Help > Export Diagnostics saves through NSSavePanel.
+ENABLE_USER_SELECTED_FILES = readwrite

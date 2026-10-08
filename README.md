@@ -32,6 +32,16 @@ for the roadmap, architecture and PBIs.
 - Downloading or exporting audio for offline use.
 - Ad blocking, Windows/Linux builds, iOS.
 
+## Privacy and diagnostics
+
+Veya sends no telemetry, analytics or crash reports. Logs stay on your Mac:
+they go to the unified log (Console.app, subsystem prefix is the app's bundle
+ID) and to daily files under `~/Library/Containers/<bundle ID>/Data/Library/Logs/Veya`,
+kept for about three days. To report a bug, choose **Help > Export
+Diagnostics**: it saves a zip of the last 24 hours of logs, with tokens,
+usernames and email addresses redacted, wherever you choose. Nothing is
+uploaded; you decide whether to attach it to an issue.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the
