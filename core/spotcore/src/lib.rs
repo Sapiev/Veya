@@ -4,9 +4,11 @@
 
 use librespot_core::SpotifyUri;
 
+mod auth;
 mod logging;
 mod redact;
 
+pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
 
 uniffi::setup_scaffolding!();

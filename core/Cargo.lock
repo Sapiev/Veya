@@ -2525,13 +2525,16 @@ dependencies = [
 name = "spotcore"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "librespot-connect",
  "librespot-core",
  "librespot-metadata",
- "librespot-oauth",
  "librespot-playback",
  "log",
+ "oauth2",
  "regex",
+ "reqwest",
+ "sha2",
  "thiserror 2.0.21",
  "time",
  "tokio",

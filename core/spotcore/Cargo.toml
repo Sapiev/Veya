@@ -23,15 +23,21 @@ librespot-connect = { git = "https://github.com/librespot-org/librespot", rev = 
 librespot-metadata = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
-librespot-oauth = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
-    "rustls-tls-native-roots",
-] }
 uniffi = { workspace = true, features = ["tokio"] }
 thiserror = "2"
 log = "0.4"
 regex = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+oauth2 = { version = "5.0", default-features = false, features = ["reqwest"] }
+# librespot-oauth already enables webpki roots in the graph; the feature is
+# named here only so auth.rs can switch those roots off.
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls-native-roots",
+    "rustls-tls-webpki-roots-no-provider",
+] }
 
 [dev-dependencies]
+base64 = "0.22"
+sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

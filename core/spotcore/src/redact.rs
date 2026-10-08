@@ -21,7 +21,13 @@ static RULES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+", "$1 <redacted>"),
         (
-            r#"(?i)("?\b(?:access_token|refresh_token|auth_token|client_secret|password|auth_data|auth_blob|blob|client_?key|username|user_name)\b"?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|\[[^\]\n]*\]|[^\s,;&)}\]]+)"#,
+            r#"(?i)("?\b(?:access_token|refresh_token|auth_token|client_secret|password|auth_data|auth_blob|blob|client_?key|code_verifier|username|user_name)\b"?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|\[[^\]\n]*\]|[^\s,;&)}\]]+)"#,
+            "${1}<redacted>",
+        ),
+        // OAuth callback and PKCE parameters; a bare `code` key is too common
+        // elsewhere ("status code: 400"), so only the URL/form form matches.
+        (
+            r#"([?&](?:code|state|code_verifier|code_challenge)=)[^&\s#"']+"#,
             "${1}<redacted>",
         ),
         // librespot: "Authenticated as 'name'", "Login error for user \"name\"".
@@ -164,6 +170,24 @@ mod tests {
     }
 
     #[test]
+    fn scrubs_oauth_callback_and_pkce_params() {
+        assert_eq!(
+            r("GET /login?code=AQBx-1_9&state=Zk3q HTTP/1.1"),
+            "GET /login?code=<redacted>&state=<redacted> HTTP/1.1"
+        );
+        assert_eq!(
+            r("authorize?client_id=abc&code_challenge=E9Mel&code_challenge_method=S256"),
+            "authorize?client_id=abc&code_challenge=<redacted>&code_challenge_method=S256"
+        );
+        assert_eq!(
+            r("grant_type=authorization_code&code=AQB&code_verifier=dBjf"),
+            "grant_type=authorization_code&code=<redacted>&code_verifier=<redacted>"
+        );
+        assert_eq!(r("code_verifier: dBjf"), "code_verifier: <redacted>");
+        assert_eq!(r("status code: 400"), "status code: 400");
+    }
+
+    #[test]
     fn scrubs_user_uris_and_emails() {
         assert_eq!(
             r("spotify:user:alice99:collection"),
@@ -249,6 +273,7 @@ mod tests {
             format!("Bearer {TOKEN} access_token={TOKEN} alice@example.com spotify:user:bob"),
             r#"{"password": "x y"}"#.to_owned(),
             "GET /user/alice/rootlist from /Users/jane/x".to_owned(),
+            "/login?code=abc&state=def".to_owned(),
         ];
         for input in inputs {
             let once = r(&input);
