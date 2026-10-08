@@ -196,7 +196,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-003, PBI-004
 
-**Status:** In review (`feat/pbi-101-oauth`).
+**Status:** Done (merged to develop).
 
 - [x] PKCE flow in `spotcore` on the `oauth2` crate (librespot's `OAuthClient` cannot expose the URL or validate `state`; see ADR-002); the browser opens via `ASWebAuthenticationSession` and returns through a loopback redirect.
 - [x] Scopes requested are the minimum needed for streaming, library and playlist read/modify.
