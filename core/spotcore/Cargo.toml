@@ -1,0 +1,34 @@
+[package]
+name = "spotcore"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+description = "Thin Rust core wrapping librespot for the Veya macOS app"
+
+[lib]
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+librespot-core = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-playback = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-connect = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-metadata = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+librespot-oauth = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "rustls-tls-native-roots",
+] }
+uniffi = { workspace = true, features = ["tokio"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
