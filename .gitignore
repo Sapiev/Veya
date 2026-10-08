@@ -14,3 +14,9 @@ xcuserdata/
 
 # Per-developer signing overrides (see Config/Shared.xcconfig)
 /Config/Local.xcconfig
+
+# SPM clone dir used by CI xcodebuild runs
+/.build/
+
+# Pinned linters from scripts/install-linters.sh
+/.tools/

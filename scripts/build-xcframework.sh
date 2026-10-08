@@ -129,8 +129,11 @@ rm -f "$STAMP"
 # rustup resolves core/rust-toolchain.toml from the cwd, and bindgen's
 # `cargo metadata` needs the workspace as cwd.
 cd "$CORE"
+# CI must build the shipped library from exactly the committed Cargo.lock.
+LOCKED=()
+[[ -n "${CI:-}" ]] && LOCKED=(--locked)
 for target in "${TARGETS[@]}"; do
-    clean_env cargo build -p spotcore \
+    clean_env cargo build ${LOCKED[@]+"${LOCKED[@]}"} -p spotcore \
         --target "$target" --profile "$CARGO_PROFILE"
 done
 
@@ -145,7 +148,7 @@ for target in "${TARGETS[@]}"; do
 done
 clean_env lipo -create -output "$STAGING/libspotcore.a" "${SLICES[@]}"
 
-clean_env cargo run --quiet -p uniffi-bindgen -- \
+clean_env cargo run ${LOCKED[@]+"${LOCKED[@]}"} --quiet -p uniffi-bindgen -- \
     generate --library "$CORE/target/${TARGETS[0]}/$PROFILE/libspotcore.a" \
     --language swift --out-dir "$STAGING/swift"
 
@@ -165,5 +168,6 @@ mv "$STAGING/spotcoreFFI.xcframework" "$XCFRAMEWORK"
 if ! cmp -s "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"; then
     mv "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"
 fi
+rm -rf "$STAGING"
 echo "$FINGERPRINT" > "$STAMP"
 echo "built $XCFRAMEWORK ($PROFILE)"

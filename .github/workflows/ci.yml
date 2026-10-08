@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install linters
+        run: |
+          scripts/install-linters.sh
+          echo "$GITHUB_WORKSPACE/.tools/bin" >> "$GITHUB_PATH"
+      - name: SwiftLint
+        run: swiftlint lint --quiet --reporter github-actions-logging
+      - name: SwiftFormat
+        run: swiftformat --lint .
+      # rustfmt only; overrides rust-toolchain.toml so clippy and the
+      # cross-target std libraries are not downloaded.
+      - name: Install rustfmt
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+      - name: rustfmt
+        working-directory: core
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: cargo fmt --all --check
+
+  build-test:
+    # Veya.xcodeproj (objectVersion 90) needs Xcode 26, the image default.
+    runs-on: macos-26
+    # A cold cache compiles librespot three times (host debug, two release
+    # arches); a timeout saves no cache, so every later run would be cold too.
+    timeout-minutes: 60
+    env:
+      SPM_DIR: ${{ github.workspace }}/.build/spm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Reads core/rust-toolchain.toml; must run before rust-cache so the
+      # cache key includes the resolved rustc version.
+      - name: Install Rust toolchain
+        working-directory: core
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: core -> target
+      - name: Clippy
+        working-directory: core
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Rust tests
+        working-directory: core
+        run: cargo test --workspace --locked
+      - name: Build xcframework
+        run: scripts/build-xcframework.sh release
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SPM_DIR }}
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.swift', '**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+      - name: SpotCoreKit tests
+        working-directory: SpotCoreKit
+        run: >-
+          xcodebuild test
+          -scheme SpotCoreKit
+          -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath "$SPM_DIR"
+      # Release reuses the xcframework above; the build phase sees a fresh stamp and skips Rust.
+      - name: Build app
+        run: >-
+          xcodebuild build
+          -project Veya.xcodeproj
+          -scheme Veya
+          -configuration Release
+          -destination 'generic/platform=macOS'
+          -clonedSourcePackagesDirPath "$SPM_DIR"
+          CODE_SIGNING_ALLOWED=NO
+      # The scheme pre-action ignores its exit code and logs here instead.
+      - name: Upload xcframework pre-action log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcframework-preaction-log
+          path: core/target/xcframework-preaction.log
+          if-no-files-found: ignore

@@ -48,7 +48,8 @@ into `project.pbxproj`, where it overrides every contributor's
    in the same PR.
 3. Add or update tests for new logic (Swift Testing / XCUITest, `cargo test`).
 4. Run SwiftLint/SwiftFormat and `cargo clippy -D warnings` / `rustfmt` where
-   applicable.
+   applicable. `scripts/install-linters.sh` installs the versions CI pins
+   into `.tools/bin`.
 5. Update docs and CHANGELOG, and add an ADR under `docs/adr/` for any
    architectural decision.
 
