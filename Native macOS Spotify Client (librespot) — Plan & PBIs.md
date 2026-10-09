@@ -405,7 +405,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `SearchService` in `spotcore` (`searchview/km/v4` over spclient, grouped results, per-type pages, typed `SearchError`) and `SearchModel` in SpotCoreKit (250 ms debounce, stale responses dropped, "See all" paging, fallback provider hook) on `feat/pbi-305-search`; search UI and a Web API provider pending.
+**Status:** In progress - `SearchService` in `spotcore` (`searchview/km/v4` over spclient, grouped results, per-type pages, typed `SearchError`) and `SearchModel` in SpotCoreKit (250 ms debounce, stale responses dropped, "See all" paging, fallback provider hook) merged to develop; search UI and a Web API provider pending.
 
 - [ ] Search uses the internal search endpoint via spclient (not the Web API, which caps dev-mode results at 10). (`SearchService` calls `/searchview/km/v4/search` over spclient; response shape not checked against a live account.)
 - [x] Queries are debounced (250 ms) and stale responses cancelled.
