@@ -405,12 +405,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `SearchService` in `spotcore` (`searchview/km/v4` over spclient, grouped results, per-type pages, typed `SearchError`) and `SearchModel` in SpotCoreKit (250 ms debounce, stale responses dropped, "See all" paging, fallback provider hook) merged to develop; search UI and a Web API provider pending.
+**Status:** In progress - `SearchService` in `spotcore` (`searchview/km/v4` over spclient, grouped results, per-type pages, typed `SearchError`) and `SearchModel` in SpotCoreKit (250 ms debounce, stale responses dropped, "See all" paging, fallback provider hook) merged to develop; search screen merged with PBI-405 (`SearchView`, `SessionHandle.makeSearch`); a Web API provider is still pending.
 
 - [ ] Search uses the internal search endpoint via spclient (not the Web API, which caps dev-mode results at 10). (`SearchService` calls `/searchview/km/v4/search` over spclient; response shape not checked against a live account.)
 - [x] Queries are debounced (250 ms) and stale responses cancelled.
-- [ ] Results grouped by type with "See all" pagination per type. (Grouping and `SearchModel.loadMore` done; no UI yet.)
-- [ ] If the internal endpoint fails, a typed error is shown and the optional Web API provider is used when configured. (`SearchModel.failure` is typed and a `fallback` provider is used when passed; no Web API provider or error UI yet.)
+- [x] Results grouped by type with "See all" pagination per type. (Search screen shows a section per type with a Show More button that loads the next page, PBI-405.)
+- [ ] If the internal endpoint fails, a typed error is shown and the optional Web API provider is used when configured. (`SearchModel.failure` is typed and a `fallback` provider is used when passed; the search screen shows the failure with Try Again (PBI-405); no Web API provider yet.)
 
 #### PBI-306 · Podcasts and episodes
 
@@ -510,9 +510,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-305, PBI-401
 
-- [ ] ⌘F / ⌘L focuses the search field from anywhere.
-- [ ] Top result plus sections per type; keyboard navigation through results; Return plays.
-- [ ] Recent searches stored locally and clearable.
+**Status:** In review (`feat/pbi-405-search-ui`)
+
+- [x] ⌘F / ⌘L focuses the search field from anywhere. (Go > Search is ⌘F; ⌘L is a window shortcut; both open the Search route and focus its field.)
+- [x] Top result plus sections per type; keyboard navigation through results; Return plays. (Up/Down move the selection while the field keeps focus, Return or double-click plays tracks and episodes; albums, playlists, artists and shows open their page, which offers play once PBI-404 lands.)
+- [x] Recent searches stored locally and clearable. (SpotCoreKit `RecentSearches` in UserDefaults, newest first, de-duplicated, at most 10; recorded on Return or opening a result; cleared by the Clear button and on sign-out.)
 
 #### PBI-406 · Queue panel
 

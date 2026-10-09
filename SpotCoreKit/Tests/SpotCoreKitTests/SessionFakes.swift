@@ -155,6 +155,10 @@ final class FakeSession: SessionHandle {
         StubPlaylists(rootlist: .success([]), pages: [])
     }
 
+    func makeSearch() -> any SearchServiceProtocol {
+        FakeSearch()
+    }
+
     @MainActor
     func makePlayer(observer _: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
         PlayerConnection(player: FakePlayer(), engine: nil)

@@ -23,6 +23,13 @@
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
+        /// Each launch starts with no recent searches and default settings.
+        private static func freshDefaults() -> UserDefaults {
+            let suite = "veya-ui-test"
+            UserDefaults().removePersistentDomain(forName: suite)
+            return UserDefaults(suiteName: suite)!
+        }
+
         /// A typo in a test must fail loudly, not launch against real Spotify.
         static func current() -> UITestScenario? {
             guard let name = ProcessInfo.processInfo.environment[environmentKey] else { return nil }
@@ -46,7 +53,8 @@
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
-                artworkLoader: nil
+                artworkLoader: nil,
+                defaults: Self.freshDefaults()
             )
         }
     }
@@ -152,6 +160,10 @@
 
         func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
             ScenarioPlaylists()
+        }
+
+        func makeSearch() -> any SearchServiceProtocol {
+            ScenarioSearch()
         }
 
         @MainActor
@@ -282,6 +294,33 @@
                 try? await Task.sleep(for: .seconds(3600))
             }
             return .rootlist
+        }
+    }
+
+    /// "test" finds a track section with one more page, an artist and an album;
+    /// "fail" fails; anything else finds nothing.
+    private final nonisolated class ScenarioSearch: SearchServiceProtocol {
+        func search(query: String, limit _: UInt32) async throws -> [SearchGroup] {
+            let query = query.lowercased()
+            if query.contains("fail") { throw SearchError.Request(message: "ui-test") }
+            guard query.contains("test") else { return [] }
+            return [
+                SearchGroup(kind: .track, total: 4, offset: 0, hits: (1 ... 3).map(Self.track)),
+                SearchGroup(kind: .artist, total: 1, offset: 0, hits: [
+                    SearchHit(uri: "spotify:artist:ui-test", name: "Test Artist", subtitle: "Artist", artwork: [], explicit: false),
+                ]),
+                SearchGroup(kind: .album, total: 1, offset: 0, hits: [
+                    SearchHit(uri: "spotify:album:ui-test", name: "Test Album", subtitle: "Test Artist", artwork: [], explicit: false),
+                ]),
+            ]
+        }
+
+        func page(query _: String, kind: SearchKind, offset: UInt32, limit _: UInt32) async throws -> SearchGroup {
+            SearchGroup(kind: kind, total: 4, offset: offset, hits: kind == .track && offset == 3 ? [Self.track(4)] : [])
+        }
+
+        private static func track(_ n: Int) -> SearchHit {
+            SearchHit(uri: likedSongURI(n), name: "Song \(n)", subtitle: "Test Artist", artwork: [], explicit: false)
         }
     }
 

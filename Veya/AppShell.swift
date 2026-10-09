@@ -16,12 +16,17 @@ struct AppShell: View {
     @State private var library: LibraryModel
     @State private var settings = PlaybackSettings()
     @State private var player: PlayerModel?
+    @State private var search: SearchModel
+    @State private var searchFocusRequest = 0
+    private let recentSearches: RecentSearches
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     /// Read by the queue inspector (PBI-406).
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?) {
+    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches) {
         self.session = session
+        self.recentSearches = recentSearches
+        _search = State(initialValue: SearchModel(service: session.makeSearch()))
         let metadata = session.makeMetadata(store: metadataStore)
         self.metadata = metadata
         _playlists = State(initialValue: PlaylistModel(playlists: session.makePlaylists(store: metadataStore)))
@@ -34,6 +39,8 @@ struct AppShell: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             switch history.current {
+            case .search:
+                SearchView(search: search, recent: recentSearches, player: player, history: history, focusRequest: searchFocusRequest)
             case .likedSongs:
                 LikedSongs(library: library, player: player, playlists: playlists, history: history)
             default:
@@ -51,6 +58,13 @@ struct AppShell: View {
             }
         }
         .focusedSceneValue(\.navigationHistory, history)
+        .focusedSceneValue(\.focusSearch, focusSearch)
+        .background {
+            // ⌘F is in the Go menu; ⌘L is the browser habit for the same thing.
+            Button("Search", action: focusSearch)
+                .keyboardShortcut("l")
+                .hidden()
+        }
         .background(SwipeNavigation(history: history))
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let player {
@@ -73,6 +87,11 @@ struct AppShell: View {
                 logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
             }
         }
+    }
+
+    private func focusSearch() {
+        history.navigate(to: .search)
+        searchFocusRequest += 1
     }
 
     private var selection: Binding<Route?> {
@@ -229,9 +248,14 @@ private struct SwipeNavigation: View {
 /// Go menu: ⌘[ and ⌘] like Finder and Safari.
 struct NavigationCommands: Commands {
     @FocusedValue(\.navigationHistory) private var history
+    @FocusedValue(\.focusSearch) private var focusSearch
 
     var body: some Commands {
         CommandMenu("Go") {
+            Button("Search") { focusSearch?() }
+                .keyboardShortcut("f")
+                .disabled(focusSearch == nil)
+            Divider()
             Button("Back") { history?.back() }
                 .keyboardShortcut("[")
                 .disabled(history?.canGoBack != true)

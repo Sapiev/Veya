@@ -10,12 +10,14 @@ import SwiftUI
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
     private let metadataStore: MetadataStore?
+    @State private var recentSearches: RecentSearches
 
     init() {
         Diagnostics.startLogging()
         let dependencies = AppDependencies.make()
         artworkLoader = dependencies.artworkLoader
         metadataStore = dependencies.metadataStore
+        _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
         let session = SessionModel(
             store: dependencies.store,
             refreshTokenStore: dependencies.refreshTokenStore,
@@ -39,7 +41,7 @@ import SwiftUI
 
     var body: some Scene {
         Window("Veya", id: "main") {
-            ContentView(session: session, signIn: signIn, metadataStore: metadataStore) {
+            ContentView(session: session, signIn: signIn, metadataStore: metadataStore, recentSearches: recentSearches) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)

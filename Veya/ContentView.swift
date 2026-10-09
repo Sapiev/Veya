@@ -5,6 +5,7 @@ struct ContentView: View {
     let session: SessionModel
     let signIn: SignInModel
     let metadataStore: MetadataStore?
+    let recentSearches: RecentSearches
     let signOut: () -> Void
 
     var body: some View {
@@ -13,6 +14,10 @@ struct ContentView: View {
                 if state == .signedIn, let credentials = signIn.takeCredentials() {
                     session.connect(tokens: credentials.tokens)
                 }
+            }
+            .onChange(of: session.state) { _, state in
+                // Another account may sign in next; its searches are its own.
+                if state == .signedOut { recentSearches.clear() }
             }
     }
 
@@ -25,7 +30,7 @@ struct ContentView: View {
             SignInView(model: signIn)
         case .ready:
             if let handle = session.session {
-                AppShell(session: handle, metadataStore: metadataStore)
+                AppShell(session: handle, metadataStore: metadataStore, recentSearches: recentSearches)
                     .id(ObjectIdentifier(handle))
                     .overlay(alignment: .top) {
                         ReconnectBanner(connection: session.connection)
@@ -159,6 +164,7 @@ private struct ReconnectBanner: View {
         ),
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
         metadataStore: nil,
+        recentSearches: RecentSearches(defaults: UserDefaults(suiteName: "preview")!),
         signOut: {}
     )
 }
