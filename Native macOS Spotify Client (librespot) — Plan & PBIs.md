@@ -283,10 +283,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-201
 
-- [ ] `spotcore` exposes `load(uri, start_ms, autoplay)`, `play`, `pause`, `seek`, `next`, `previous`, `stop`.
-- [ ] Accepts track, episode, album, playlist and artist URIs via librespot 0.8's `SpotifyUri`.
-- [ ] Play/pause takes effect within 100 ms; a new track starts within 1 s on broadband.
-- [ ] Player events (playing, paused, track changed, position every 1 s, end of track, unavailable) are emitted on the event stream.
+**Status:** In progress - `SpotPlayer` merged to develop; latency not yet measured with a real account (`examples/live_player.rs`).
+
+- [x] `spotcore` exposes `load(uri, start_ms, autoplay)`, `play`, `pause`, `seek`, `next`, `previous`, `stop`.
+- [x] Accepts track, episode, album, playlist and artist URIs via librespot 0.8's `SpotifyUri`.
+- [ ] Play/pause takes effect within 100 ms; a new track starts within 1 s on broadband. (Needs a signed-in listening check; no app UI drives the player yet.)
+- [x] Player events (playing, paused, track changed, position every 1 s, end of track, unavailable) are emitted on the event stream.
 
 #### PBI-203 · Play queue, shuffle and repeat
 
