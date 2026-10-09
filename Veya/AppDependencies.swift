@@ -10,6 +10,7 @@ struct AppDependencies {
     var browser: any SignInBrowser
     var startFlow: SignInFlowStarter
     var artworkLoader: ArtworkLoader?
+    var metadataStore: MetadataStore?
 
     static func make() -> AppDependencies {
         #if DEBUG
@@ -17,6 +18,7 @@ struct AppDependencies {
                 return scenario.dependencies
             }
         #endif
+        let metadataStore = openMetadataStore()
         return AppDependencies(
             store: KeychainCredentialStore(
                 service: Bundle.main.bundleIdentifier ?? "Veya",
@@ -26,10 +28,11 @@ struct AppDependencies {
                 service: Bundle.main.bundleIdentifier ?? "Veya",
                 account: "spotify-refresh-token"
             ),
-            connector: SpotSessionConnector(audioCache: openAudioCache(), metadataStore: openMetadataStore()),
+            connector: SpotSessionConnector(audioCache: openAudioCache(), metadataStore: metadataStore),
             browser: WebAuthenticationBrowser(),
             startFlow: SignInModel.startLoginFlow,
-            artworkLoader: ArtworkLoader(directory: cachesDirectory.appending(path: "Artwork"))
+            artworkLoader: ArtworkLoader(directory: cachesDirectory.appending(path: "Artwork")),
+            metadataStore: metadataStore
         )
     }
 

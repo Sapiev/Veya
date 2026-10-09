@@ -60,9 +60,11 @@ final class FailingMetadata: MetadataServiceProtocol {
 final class StubPlaylists: PlaylistServiceProtocol {
     private let rootlist: Result<[RootlistEntry], PlaylistError>
     private let pages: [String: PlaylistPage]
+    private let cached: [RootlistEntry]
 
-    init(rootlist: Result<[RootlistEntry], PlaylistError>, pages: [PlaylistPage]) {
+    init(rootlist: Result<[RootlistEntry], PlaylistError>, pages: [PlaylistPage], cached: [RootlistEntry] = []) {
         self.rootlist = rootlist
+        self.cached = cached
         self.pages = Dictionary(uniqueKeysWithValues: pages.map { ($0.uri, $0) })
     }
 
@@ -75,7 +77,7 @@ final class StubPlaylists: PlaylistServiceProtocol {
         return page
     }
 
-    func cachedRootlist() -> [RootlistEntry] { [] }
+    func cachedRootlist() -> [RootlistEntry] { cached }
     func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
     func followerCount(uri _: String) async throws -> UInt64 { 0 }
     func waitForChange() async -> PlaylistChange { .rootlist }

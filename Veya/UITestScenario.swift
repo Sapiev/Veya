@@ -142,6 +142,10 @@
         func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
             ScenarioMetadata()
         }
+
+        func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
+            ScenarioPlaylists()
+        }
     }
 
     /// An empty library that never changes.
@@ -160,6 +164,40 @@
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3600))
             }
+        }
+    }
+
+    /// One playlist that never changes; contents are empty.
+    private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
+        private static let rootlist: [RootlistEntry] = [
+            .playlist(uri: "spotify:playlist:ui-test", name: "Road Trip", owner: "ui-test", trackCount: 0, parent: nil),
+        ]
+
+        func cachedRootlist() -> [RootlistEntry] {
+            Self.rootlist
+        }
+
+        func rootlist() async throws -> [RootlistEntry] {
+            Self.rootlist
+        }
+
+        func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? {
+            nil
+        }
+
+        func page(uri _: String, from _: UInt32, length _: UInt32) async throws -> PlaylistPage {
+            throw PlaylistError.Request(message: "ui-test")
+        }
+
+        func followerCount(uri _: String) async throws -> UInt64 {
+            0
+        }
+
+        func waitForChange() async -> PlaylistChange {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3600))
+            }
+            return .rootlist
         }
     }
 

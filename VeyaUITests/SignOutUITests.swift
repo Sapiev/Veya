@@ -1,16 +1,7 @@
 import XCTest
 
-/// PBI-104: sign out from the signed-in view and from the Account menu.
+/// PBI-104: sign out from the Account menu.
 final class SignOutUITests: XCTestCase {
-    @MainActor func testSignOutButtonReturnsToSignIn() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-
-        app.buttons["Sign Out"].click()
-
-        XCTAssertTrue(app.signInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
     @MainActor func testAccountMenuSignOutReturnsToSignIn() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))

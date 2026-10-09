@@ -150,6 +150,10 @@ final class FakeSession: SessionHandle {
     func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
         FakeMetadata()
     }
+
+    func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
+        StubPlaylists(rootlist: .success([]), pages: [])
+    }
 }
 
 enum Credential: Equatable {
