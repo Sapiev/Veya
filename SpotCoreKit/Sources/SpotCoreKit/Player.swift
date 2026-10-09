@@ -153,6 +153,40 @@ public final class PlayerModel {
         }
     }
 
+    /// Plays `uris` from `index`; `context` seeds radio once the list runs out.
+    public func play(_ uris: [String], from index: Int, context: String? = nil) {
+        guard uris.indices.contains(index) else { return }
+        perform("play") {
+            try player.loadTracks(uris: uris, startIndex: UInt32(index), contextUri: context, autoplay: true)
+        }
+    }
+
+    /// Puts `uris` at the front of Up Next, keeping their order.
+    public func playNext(_ uris: [String]) {
+        perform("queue") {
+            for uri in uris.reversed() {
+                try player.playNext(uri: uri)
+            }
+        }
+    }
+
+    public func addToQueue(_ uris: [String]) {
+        perform("queue") {
+            for uri in uris {
+                try player.addToQueue(uri: uri)
+            }
+        }
+    }
+
+    private func perform(_ action: String, _ body: () throws -> Void) {
+        do {
+            try body()
+        } catch {
+            // Type name only: messages may carry server text.
+            log(.warn, "Couldn't \(action): \(String(describing: type(of: error)))")
+        }
+    }
+
     public func togglePlayPause() {
         isPlaying ? player.pause() : player.play()
     }
