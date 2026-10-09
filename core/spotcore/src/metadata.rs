@@ -1,8 +1,10 @@
 //! Typed metadata for tracks, albums, artists, episodes and shows, fetched in
-//! batches through extended metadata and cached for the service's lifetime.
+//! batches through extended metadata, cached in memory and in the metadata
+//! store.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use indexmap::IndexMap;
 use librespot_core::date::Date;
@@ -17,11 +19,15 @@ use librespot_protocol::extended_metadata::{
 };
 use librespot_protocol::extension_kind::ExtensionKind;
 use protobuf::{EnumOrUnknown, Message};
+use serde::{Deserialize, Serialize};
 
 use crate::session::SpotSession;
+use crate::store::MetadataStore;
 
 const BATCH_SIZE: usize = 100;
 const CACHE_CAPACITY: usize = 5_000;
+/// Older stored items count as misses, so playability changes reconcile.
+const STORE_MAX_AGE: i64 = 7 * 24 * 60 * 60;
 const DEFAULT_IMAGE_URL: &str = "https://i.scdn.co/image/{file_id}";
 
 /// Failures of a whole `items` call. Per-item failures are `ItemError`.
@@ -36,7 +42,7 @@ pub enum MetadataError {
 }
 
 /// Why one requested item has no metadata.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum ItemError {
     NotFound,
     Malformed,
@@ -47,14 +53,14 @@ pub enum ItemError {
 }
 
 /// Whether the signed-in account may play the item in its country now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum Playability {
     Playable,
     RegionLocked,
     NotYetReleased,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum ArtworkSize {
     Small,
     Default,
@@ -62,7 +68,7 @@ pub enum ArtworkSize {
     XLarge,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct Artwork {
     pub url: String,
     pub size: ArtworkSize,
@@ -71,14 +77,14 @@ pub struct Artwork {
     pub height: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct ItemRef {
     pub uri: String,
     pub name: String,
 }
 
 /// Artwork lists run smallest first.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct TrackMetadata {
     pub uri: String,
     pub title: String,
@@ -90,7 +96,7 @@ pub struct TrackMetadata {
     pub artwork: Vec<Artwork>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct AlbumMetadata {
     pub uri: String,
     pub title: String,
@@ -100,14 +106,14 @@ pub struct AlbumMetadata {
     pub artwork: Vec<Artwork>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct ArtistMetadata {
     pub uri: String,
     pub name: String,
     pub artwork: Vec<Artwork>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct EpisodeMetadata {
     pub uri: String,
     pub title: String,
@@ -119,7 +125,7 @@ pub struct EpisodeMetadata {
     pub artwork: Vec<Artwork>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct ShowMetadata {
     pub uri: String,
     pub name: String,
@@ -130,7 +136,7 @@ pub struct ShowMetadata {
     pub episodes: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum MetadataItem {
     Track { track: TrackMetadata },
     Album { album: AlbumMetadata },
@@ -144,20 +150,23 @@ pub enum MetadataItem {
 pub struct MetadataService {
     session: Arc<SpotSession>,
     cache: Mutex<Lru>,
+    store: Option<Arc<MetadataStore>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl MetadataService {
     #[uniffi::constructor]
-    pub fn new(session: Arc<SpotSession>) -> Arc<Self> {
+    pub fn new(session: Arc<SpotSession>, store: Option<Arc<MetadataStore>>) -> Arc<Self> {
         Arc::new(Self {
             session,
             cache: Mutex::new(Lru::new(CACHE_CAPACITY)),
+            store,
         })
     }
 
-    /// One entry per URI, in input order. Cached items cost no request; the
-    /// rest go out in batches of up to 100. Failed items are not cached.
+    /// One entry per URI, in input order. Items in memory or stored within
+    /// the last 7 days cost no request; the rest go out in batches of up to
+    /// 100. Failed items are not cached.
     pub async fn items(&self, uris: Vec<String>) -> Result<Vec<MetadataItem>, MetadataError> {
         let requested = uris
             .iter()
@@ -166,8 +175,9 @@ impl MetadataService {
 
         let mut found = HashMap::new();
         let mut missing = Vec::new();
+        let generation = self.generation();
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.hot();
             let mut seen = HashSet::new();
             for item in requested.iter().filter(|i| seen.insert(i.key.as_str())) {
                 match cache.get(&item.key) {
@@ -178,8 +188,19 @@ impl MetadataService {
                 }
             }
         }
+        if let Some(store) = &self.store {
+            let hits = from_store(store, &mut missing, now());
+            let mut cache = self.hot();
+            for (key, item) in hits {
+                if cache.generation == generation {
+                    cache.insert(key.clone(), item.clone());
+                }
+                found.insert(key, item);
+            }
+        }
 
         for batch in missing.chunks(BATCH_SIZE) {
+            let generation = self.generation();
             let session = self.session.current_session();
             let response = session
                 .spclient()
@@ -189,9 +210,15 @@ impl MetadataService {
                     message: e.to_string(),
                 })?;
             let decoded = decode(&response, batch, &Context::of(&session));
-            let mut cache = self.cache.lock().unwrap();
+            if let Some(store) = &self.store {
+                to_store(store, generation, &decoded, now());
+            }
+            let mut cache = self.hot();
             for (key, item) in decoded {
-                if !matches!(item, MetadataItem::Unavailable { .. }) {
+                // Items fetched across a clear are returned but not kept.
+                if cache.generation == generation
+                    && !matches!(item, MetadataItem::Unavailable { .. })
+                {
                     cache.insert(key.clone(), item.clone());
                 }
                 found.insert(key, item);
@@ -203,6 +230,59 @@ impl MetadataService {
             .map(|item| found[&item.key].clone())
             .collect())
     }
+}
+
+impl MetadataService {
+    fn generation(&self) -> u64 {
+        self.store.as_ref().map_or(0, |store| store.generation())
+    }
+
+    fn hot(&self) -> MutexGuard<'_, Lru> {
+        hot(&self.cache, self.generation())
+    }
+}
+
+/// The memory cache, emptied first when the store was cleared since it
+/// filled, so a clear drops memory too.
+fn hot(cache: &Mutex<Lru>, generation: u64) -> MutexGuard<'_, Lru> {
+    let mut lru = cache.lock().unwrap();
+    if lru.generation != generation {
+        lru.entries.clear();
+        lru.generation = generation;
+    }
+    lru
+}
+
+/// Returns the fresh store hits and leaves the rest in `missing`.
+fn from_store(
+    store: &MetadataStore,
+    missing: &mut Vec<Requested>,
+    now: i64,
+) -> HashMap<String, MetadataItem> {
+    let keys: Vec<&str> = missing.iter().map(|item| item.key.as_str()).collect();
+    let hits: HashMap<String, MetadataItem> = store.metadata_items(&keys, now - STORE_MAX_AGE);
+    missing.retain(|item| !hits.contains_key(&item.key));
+    hits
+}
+
+fn to_store(
+    store: &MetadataStore,
+    generation: u64,
+    decoded: &HashMap<String, MetadataItem>,
+    now: i64,
+) {
+    let items: Vec<(&str, &MetadataItem)> = decoded
+        .iter()
+        .filter(|(_, item)| !matches!(item, MetadataItem::Unavailable { .. }))
+        .map(|(key, item)| (key.as_str(), item))
+        .collect();
+    store.put_metadata_items(generation, &items, now);
+}
+
+fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,6 +580,8 @@ fn item_ref(id: &SpotifyUri, name: &str) -> ItemRef {
 struct Lru {
     entries: IndexMap<String, MetadataItem>,
     capacity: usize,
+    /// Store generation the entries were cached under.
+    generation: u64,
 }
 
 impl Lru {
@@ -507,6 +589,7 @@ impl Lru {
         Self {
             entries: IndexMap::with_capacity(capacity),
             capacity,
+            generation: 0,
         }
     }
 
@@ -809,5 +892,46 @@ mod tests {
         lru.insert("a".into(), item(ItemError::Malformed));
         assert_eq!(lru.entries.len(), 1);
         assert_eq!(lru.get("a"), Some(item(ItemError::Malformed)));
+    }
+
+    #[test]
+    fn store_keeps_decoded_items_until_they_age_out() {
+        let store = crate::store::tests::temp_store("metadata");
+        let bytes = track_message(None).write_to_bytes().unwrap();
+        let batch = [
+            Requested::parse(TRACK).unwrap(),
+            Requested::parse(ALBUM).unwrap(),
+        ];
+        let decoded = decode(
+            &response(vec![
+                entry(TRACK, 200, Some(bytes)),
+                entry(ALBUM, 404, None),
+            ]),
+            &batch,
+            &context("US"),
+        );
+        to_store(&store, store.generation(), &decoded, 1_000);
+
+        let mut missing = batch.to_vec();
+        let hits = from_store(&store, &mut missing, 1_000 + STORE_MAX_AGE);
+        assert_eq!(hits[TRACK], decoded[TRACK]);
+        assert_eq!(missing.len(), 1, "unavailable items are not stored");
+        assert_eq!(missing[0].key, ALBUM);
+
+        let mut missing = batch.to_vec();
+        assert!(from_store(&store, &mut missing, 1_001 + STORE_MAX_AGE).is_empty());
+        assert_eq!(missing.len(), 2);
+    }
+
+    #[test]
+    fn memory_cache_empties_when_the_store_generation_moves() {
+        let cache = Mutex::new(Lru::new(2));
+        let item = MetadataItem::Unavailable {
+            uri: "x".into(),
+            error: ItemError::NotFound,
+        };
+        hot(&cache, 0).insert("a".into(), item.clone());
+        assert_eq!(hot(&cache, 0).get("a"), Some(item));
+        assert_eq!(hot(&cache, 1).get("a"), None);
     }
 }

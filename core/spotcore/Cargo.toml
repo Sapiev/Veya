@@ -46,6 +46,7 @@ indexmap = "2"
 futures-util = { version = "0.3", default-features = false }
 http = "1"
 percent-encoding = "2"
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [dev-dependencies]
 base64 = "0.22"

@@ -1,6 +1,7 @@
 //! The user's playlists through spclient's playlist4 endpoints: the root list
 //! with its folders, playlist contents page by page, follower counts, and
-//! dealer pushes that report changes made on other devices.
+//! dealer pushes that report changes made on other devices. Root lists and
+//! fetched pages persist in the metadata store.
 
 use std::sync::Arc;
 
@@ -9,11 +10,13 @@ use librespot_core::Session;
 use librespot_protocol::playlist4_external::{Item, MetaItem, SelectedListContent};
 use percent_encoding::percent_decode_str;
 use protobuf::Message as _;
+use serde::{Deserialize, Serialize};
 
 use crate::library::decode_fields;
 use crate::metadata::{Artwork, ArtworkSize, image_url_template};
 use crate::push::PushWatch;
 use crate::session::SpotSession;
+use crate::store::MetadataStore;
 
 const ROOTLIST_PAGE: usize = 120;
 const PUSH_URI: &str = "hm://playlist/";
@@ -45,7 +48,7 @@ impl From<protobuf::Error> for PlaylistError {
 
 /// One root list row in server order. `parent` is the URI of the enclosing
 /// folder, `None` at the top level.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
 pub enum RootlistEntry {
     Folder {
         uri: String,
@@ -61,7 +64,7 @@ pub enum RootlistEntry {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct PlaylistTrack {
     pub uri: String,
     pub added_by: String,
@@ -71,7 +74,7 @@ pub struct PlaylistTrack {
 
 /// One window of a playlist. Pages from different `revision`s may not line
 /// up, so restart from offset 0 when it changes.
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
 pub struct PlaylistPage {
     pub uri: String,
     pub revision: String,
@@ -99,21 +102,33 @@ pub enum PlaylistChange {
 #[derive(uniffi::Object)]
 pub struct PlaylistService {
     session: Arc<SpotSession>,
+    store: Option<Arc<MetadataStore>>,
     push: PushWatch,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl PlaylistService {
     #[uniffi::constructor]
-    pub fn new(session: Arc<SpotSession>) -> Arc<Self> {
+    pub fn new(session: Arc<SpotSession>, store: Option<Arc<MetadataStore>>) -> Arc<Self> {
         Arc::new(Self {
             session,
+            store,
             push: PushWatch::new(PUSH_URI),
         })
     }
 
+    /// The stored root list from the last `rootlist` call, empty when none.
+    pub fn cached_rootlist(&self) -> Vec<RootlistEntry> {
+        let username = self.session.current_session().username();
+        self.store
+            .as_ref()
+            .and_then(|store| store.rootlist(&username))
+            .unwrap_or_default()
+    }
+
     /// The whole root list, folders included, in server order.
     pub async fn rootlist(&self) -> Result<Vec<RootlistEntry>, PlaylistError> {
+        let generation = self.generation();
         let session = self.session.current_session();
         let mut items = Vec::new();
         let mut metas = Vec::new();
@@ -134,7 +149,17 @@ impl PlaylistService {
                 break;
             }
         }
-        Ok(rootlist_entries(&session.username(), &items, &metas))
+        let username = session.username();
+        let entries = rootlist_entries(&username, &items, &metas);
+        if let Some(store) = &self.store {
+            store.put_rootlist(generation, &username, &entries);
+        }
+        Ok(entries)
+    }
+
+    /// The stored window when every track in it is stored, without a request.
+    pub fn cached_page(&self, uri: String, from: u32, length: u32) -> Option<PlaylistPage> {
+        cached_page(self.store.as_deref()?, uri, from, length)
     }
 
     /// Up to `length` tracks starting at `from`, with the list's attributes.
@@ -145,11 +170,16 @@ impl PlaylistService {
         length: u32,
     ) -> Result<PlaylistPage, PlaylistError> {
         let id = playlist_id(&uri)?;
+        let generation = self.generation();
         let session = self.session.current_session();
         let endpoint = format!("/playlist/v2/playlist/{id}?from={from}&length={length}");
         let bytes = get(&session, &endpoint).await?;
         let content = SelectedListContent::parse_from_bytes(&bytes)?;
-        Ok(page_of(uri, &content, &image_url_template(&session)))
+        let page = page_of(uri, &content, &image_url_template(&session));
+        if let Some(store) = &self.store {
+            persist_page(store, generation, &page);
+        }
+        Ok(page)
     }
 
     pub async fn follower_count(&self, uri: String) -> Result<u64, PlaylistError> {
@@ -170,6 +200,48 @@ impl PlaylistService {
             }
         }
     }
+}
+
+impl PlaylistService {
+    fn generation(&self) -> u64 {
+        self.store.as_ref().map_or(0, |store| store.generation())
+    }
+}
+
+/// Stores the attributes as a page without tracks; tracks go in by position.
+fn persist_page(store: &MetadataStore, generation: u64, page: &PlaylistPage) {
+    let attributes = PlaylistPage {
+        offset: 0,
+        tracks: Vec::new(),
+        ..page.clone()
+    };
+    store.put_playlist(
+        generation,
+        &page.uri,
+        &page.revision,
+        &attributes,
+        page.offset,
+        &page.tracks,
+    );
+}
+
+/// Some only when the playlist is stored with every position in
+/// `[from, min(from + length, total))`.
+fn cached_page(store: &MetadataStore, uri: String, from: u32, length: u32) -> Option<PlaylistPage> {
+    let (attributes, tracks): (PlaylistPage, Vec<(u32, PlaylistTrack)>) =
+        store.playlist(&uri, from..from.saturating_add(length))?;
+    let end = from.saturating_add(length).min(attributes.total);
+    // Positions are unique and in range, so a full count means no gaps.
+    let tracks: Vec<_> = tracks
+        .into_iter()
+        .filter(|(position, _)| *position < end)
+        .map(|(_, track)| track)
+        .collect();
+    (tracks.len() as u32 == end.saturating_sub(from)).then_some(PlaylistPage {
+        offset: from,
+        tracks,
+        ..attributes
+    })
 }
 
 async fn get(session: &Session, endpoint: &str) -> Result<Vec<u8>, PlaylistError> {
@@ -508,5 +580,94 @@ mod tests {
         drop(out);
         assert_eq!(decode_popcount(&bytes).unwrap(), 1234);
         assert!(decode_popcount(&[0x08]).is_err());
+    }
+
+    fn stored_page(revision: &str, total: u32, offset: u32, uris: &[&str]) -> PlaylistPage {
+        PlaylistPage {
+            uri: format!("{PLAYLIST_PREFIX}{ID}"),
+            revision: revision.into(),
+            name: "List".into(),
+            description: String::new(),
+            owner: "o".into(),
+            collaborative: false,
+            artwork: Vec::new(),
+            total,
+            offset,
+            tracks: uris
+                .iter()
+                .map(|uri| PlaylistTrack {
+                    uri: (*uri).into(),
+                    added_by: String::new(),
+                    added_at: 0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn cached_page_needs_every_position_up_to_total() {
+        let store = crate::store::tests::temp_store("playlist-window");
+        let uri = format!("{PLAYLIST_PREFIX}{ID}");
+        assert_eq!(cached_page(&store, uri.clone(), 0, 2), None);
+
+        persist_page(
+            &store,
+            store.generation(),
+            &stored_page("r", 5, 0, &["a", "b"]),
+        );
+        persist_page(
+            &store,
+            store.generation(),
+            &stored_page("r", 5, 3, &["d", "e"]),
+        );
+
+        let page = cached_page(&store, uri.clone(), 0, 2).unwrap();
+        assert_eq!((page.offset, page.tracks.len()), (0, 2));
+        assert_eq!(cached_page(&store, uri.clone(), 1, 2), None, "gap at 2");
+        let tail = cached_page(&store, uri.clone(), 3, 10).unwrap();
+        assert_eq!(tail, stored_page("r", 5, 3, &["d", "e"]));
+        assert_eq!(cached_page(&store, uri, 5, 10).unwrap().tracks, vec![]);
+    }
+
+    #[test]
+    fn new_revision_drops_stored_tracks() {
+        let store = crate::store::tests::temp_store("playlist-revision");
+        let uri = format!("{PLAYLIST_PREFIX}{ID}");
+        persist_page(
+            &store,
+            store.generation(),
+            &stored_page("r1", 4, 0, &["a", "b"]),
+        );
+        persist_page(
+            &store,
+            store.generation(),
+            &stored_page("r2", 4, 2, &["c", "d"]),
+        );
+
+        assert_eq!(cached_page(&store, uri.clone(), 0, 2), None);
+        let page = cached_page(&store, uri, 2, 2).unwrap();
+        assert_eq!(page.revision, "r2");
+    }
+
+    #[test]
+    fn rootlist_round_trips_per_user() {
+        let store = crate::store::tests::temp_store("rootlist");
+        let entries = vec![
+            RootlistEntry::Folder {
+                uri: "spotify:user:u:folder:f".into(),
+                name: "F".into(),
+                parent: None,
+            },
+            RootlistEntry::Playlist {
+                uri: format!("{PLAYLIST_PREFIX}{ID}"),
+                name: "P".into(),
+                owner: "u".into(),
+                track_count: 3,
+                parent: Some("spotify:user:u:folder:f".into()),
+            },
+        ];
+        store.put_rootlist(store.generation(), "u", &entries);
+        assert_eq!(store.rootlist::<Vec<RootlistEntry>>("u"), Some(entries));
+        assert_eq!(store.rootlist::<Vec<RootlistEntry>>("other"), None);
     }
 }
