@@ -221,7 +221,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-102
 
-**Status:** In progress - session-layer reconnect on `feat/pbi-103-reconnect`; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
+**Status:** In progress - session-layer reconnect merged to develop; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
 
 - [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s). (Access point timeout and backoff done; dealer close waits on PBI-501, which starts the dealer.)
 - [x] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
