@@ -159,6 +159,10 @@ final class FakeSession: SessionHandle {
         FakeSearch()
     }
 
+    func makeRecentlyPlayed(accessToken _: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
+        StubRecentlyPlayed(.success(RecentlyPlayed(tracks: [], contexts: [])))
+    }
+
     @MainActor
     func makePlayer(observer _: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
         PlayerConnection(player: FakePlayer(), engine: nil)

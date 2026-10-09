@@ -16,6 +16,8 @@ public protocol SessionHandle: AnyObject, Sendable {
     /// Without `store` the playlists are fetched again on every launch.
     func makePlaylists(store: MetadataStore?) -> any PlaylistServiceProtocol
     func makeSearch() -> any SearchServiceProtocol
+    /// Web API plays; `accessToken` needs the `user-read-recently-played` scope.
+    func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider
     /// Starts audio output and a player whose events go to `observer`.
     @MainActor func makePlayer(observer: any PlayerObserver, settings: PlaybackSettings) async throws -> PlayerConnection
 }
@@ -35,6 +37,10 @@ extension SpotSession: SessionHandle {
 
     public func makeSearch() -> any SearchServiceProtocol {
         SearchService(session: self)
+    }
+
+    public func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
+        WebAPIRecentlyPlayed(accessToken: accessToken)
     }
 }
 
