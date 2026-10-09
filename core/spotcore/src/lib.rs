@@ -12,6 +12,7 @@ mod library;
 mod logging;
 mod metadata;
 mod player;
+mod push;
 mod queue;
 mod reconnect;
 mod redact;
