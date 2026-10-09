@@ -74,22 +74,14 @@ struct SearchView: View {
                 recent.add(query)
             }
         } else if search.state == .failed {
-            VStack(spacing: 12) {
-                Text("Couldn't search. Check your connection and try again.")
-                    .foregroundStyle(.secondary)
-                Button("Try Again") { search.search(search.query) }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            FailedState(title: "Couldn't Search") { search.search(search.query) }
         } else if search.groups.allSatisfy(\.hits.isEmpty) {
-            Group {
-                if search.state == .searching {
-                    ProgressView()
-                } else {
-                    Text("No results for “\(search.query)”")
-                        .foregroundStyle(.secondary)
-                }
+            if search.state == .searching {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView.search(text: search.query)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             results
         }
@@ -217,9 +209,11 @@ private struct RecentSearchesView: View {
 
     var body: some View {
         if recent.queries.isEmpty {
-            Text("Search for artists, songs, albums or podcasts.")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ContentUnavailableView(
+                "No Recent Searches",
+                systemImage: "magnifyingglass",
+                description: Text("Search for artists, songs, albums or podcasts.")
+            )
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {

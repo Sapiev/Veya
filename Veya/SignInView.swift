@@ -23,6 +23,10 @@ struct SignInView: View {
                     .font(.largeTitle.weight(.semibold))
                 Text("Veya needs a Spotify Premium account.")
                     .foregroundStyle(.secondary)
+                Text("Veya is an unofficial app, not made or endorsed by Spotify.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 360)
             }
 
             Button(failure == nil ? "Sign In with Spotify…" : "Try Again") {
