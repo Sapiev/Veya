@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-/// App volume, loudness normalisation and output device, persisted across launches.
+/// App volume, loudness normalisation, output device, streaming quality and
+/// audio cache size, persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -29,16 +30,30 @@ public final class PlaybackSettings {
         didSet { defaults.set(outputDeviceUID, forKey: Key.outputDevice) }
     }
 
+    public var bitrate: Bitrate {
+        didSet { defaults.set(bitrate.storedName, forKey: Key.bitrate) }
+    }
+
+    /// Read when the audio cache opens; `SessionModel.setAudioCacheLimit` applies a change.
+    public var audioCacheLimitBytes: UInt64 {
+        didSet { defaults.set(String(audioCacheLimitBytes), forKey: Key.audioCacheLimit) }
+    }
+
+    public static let defaultAudioCacheLimitBytes: UInt64 = 1 << 30
+
     @ObservationIgnored private let defaults: UserDefaults
 
-    /// Defaults to full volume, which leaves the signal unchanged, and Normal
-    /// loudness as Spotify does.
+    /// Defaults to full volume, which leaves the signal unchanged, Normal
+    /// loudness as Spotify does, 320 kbps and a 1 GB cache.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         storedVolume = Self.clamped(defaults.object(forKey: Key.volume) as? Double ?? 1)
         normalises = defaults.object(forKey: Key.normalises) as? Bool ?? true
         loudness = defaults.string(forKey: Key.loudness).flatMap(LoudnessPreset.init(storedName:)) ?? .normal
         outputDeviceUID = defaults.string(forKey: Key.outputDevice)
+        bitrate = defaults.string(forKey: Key.bitrate).flatMap(Bitrate.init(storedName:)) ?? .kbps320
+        audioCacheLimitBytes = defaults.string(forKey: Key.audioCacheLimit).flatMap(UInt64.init)
+            ?? Self.defaultAudioCacheLimitBytes
     }
 
     /// What `SpotPlayer` takes for `volume`.
@@ -61,6 +76,9 @@ public final class PlaybackSettings {
         static let normalises = "playback.normalises"
         static let loudness = "playback.loudness"
         static let outputDevice = "playback.outputDevice"
+        static let bitrate = "playback.bitrate"
+        // A string: UserDefaults has no UInt64 and Int64 would admit negatives.
+        static let audioCacheLimit = "playback.audioCacheLimit"
     }
 }
 
@@ -79,6 +97,26 @@ private extension LoudnessPreset {
         case "quiet": self = .quiet
         case "normal": self = .normal
         case "loud": self = .loud
+        default: return nil
+        }
+    }
+}
+
+private extension Bitrate {
+    /// Stable names, so a reordered Rust enum cannot remap saved choices.
+    var storedName: String {
+        switch self {
+        case .kbps96: "96"
+        case .kbps160: "160"
+        case .kbps320: "320"
+        }
+    }
+
+    init?(storedName: String) {
+        switch storedName {
+        case "96": self = .kbps96
+        case "160": self = .kbps160
+        case "320": self = .kbps320
         default: return nil
         }
     }

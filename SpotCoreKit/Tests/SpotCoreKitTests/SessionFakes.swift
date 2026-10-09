@@ -77,6 +77,7 @@ final class FakeSession: SessionHandle {
         var blob: Data
         var shutdowns = 0
         var wakes = 0
+        var reconnects = 0
         var network: [Bool] = []
         var observer: (any ConnectionObserver)?
     }
@@ -107,6 +108,10 @@ final class FakeSession: SessionHandle {
         box.withLock { $0.network }
     }
 
+    var reconnects: Int {
+        box.withLock { $0.reconnects }
+    }
+
     func push(_ state: ConnectionState) {
         box.withLock { $0.observer }?.onStateChanged(state: state)
     }
@@ -133,6 +138,10 @@ final class FakeSession: SessionHandle {
     func networkChanged(available: Bool) {
         box.withLock { $0.network.append(available) }
     }
+
+    func reconnect() {
+        box.withLock { $0.reconnects += 1 }
+    }
 }
 
 enum Credential: Equatable {
@@ -145,6 +154,8 @@ final class FakeConnector: SessionConnector {
     private struct Box {
         var calls: [Credential] = []
         var waiters: [CheckedContinuation<any SessionHandle, any Error>] = []
+        var cacheLimits: [UInt64] = []
+        var cacheLimitError: (any Error)?
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
@@ -165,6 +176,23 @@ final class FakeConnector: SessionConnector {
 
     var pending: Int {
         box.withLock { $0.waiters.count }
+    }
+
+    var cacheLimits: [UInt64] {
+        box.withLock { $0.cacheLimits }
+    }
+
+    func failCacheLimit(with error: any Error) {
+        box.withLock { $0.cacheLimitError = error }
+    }
+
+    func setAudioCacheLimit(bytes: UInt64) throws {
+        try box.withLock { box in
+            if let error = box.cacheLimitError {
+                throw error
+            }
+            box.cacheLimits.append(bytes)
+        }
     }
 
     func connect(accessToken: String) async throws -> any SessionHandle {

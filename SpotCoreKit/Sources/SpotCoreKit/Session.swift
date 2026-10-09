@@ -8,6 +8,7 @@ public protocol SessionHandle: AnyObject, Sendable {
     func setObserver(observer: any ConnectionObserver)
     func systemDidWake()
     func networkChanged(available: Bool)
+    func reconnect()
 }
 
 extension SpotSession: SessionHandle {}
@@ -16,21 +17,32 @@ public protocol SessionConnector: Sendable {
     func isPremium(accessToken: String) async throws -> Bool
     func connect(accessToken: String) async throws -> any SessionHandle
     func connect(storedCredentials: Data) async throws -> any SessionHandle
+    /// Applies to sessions connected afterwards.
+    func setAudioCacheLimit(bytes: UInt64) throws
 }
 
 public struct SpotSessionConnector: SessionConnector {
-    public init() {}
+    private let audioCache: AudioCache?
+
+    /// Without `audioCache` every play downloads the file again.
+    public init(audioCache: AudioCache? = nil) {
+        self.audioCache = audioCache
+    }
 
     public func isPremium(accessToken: String) async throws -> Bool {
         try await isPremiumAccount(accessToken: accessToken)
     }
 
     public func connect(accessToken: String) async throws -> any SessionHandle {
-        try await SpotSession.connectWithToken(accessToken: accessToken)
+        try await SpotSession.connectWithToken(accessToken: accessToken, cache: audioCache)
     }
 
     public func connect(storedCredentials: Data) async throws -> any SessionHandle {
-        try await SpotSession.connectWithStored(credentials: storedCredentials)
+        try await SpotSession.connectWithStored(credentials: storedCredentials, cache: audioCache)
+    }
+
+    public func setAudioCacheLimit(bytes: UInt64) throws {
+        try audioCache?.setLimitBytes(limitBytes: bytes)
     }
 }
 
@@ -187,6 +199,13 @@ public final class SessionModel {
 
     public func networkChanged(available: Bool) {
         session?.networkChanged(available: available)
+    }
+
+    /// Evicts down to `bytes` at once; the live session reconnects to pick
+    /// up the limit, which stops the current track.
+    public func setAudioCacheLimit(bytes: UInt64) throws {
+        try connector.setAudioCacheLimit(bytes: bytes)
+        session?.reconnect()
     }
 
     private func begin(_ next: SessionState) -> Int {

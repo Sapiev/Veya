@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use spotcore::{
-    AudioOutput, LoginFlow, PlaybackEvent, PlayerObserver, SpotPlayer, SpotSession,
+    AudioOutput, Bitrate, LoginFlow, PlaybackEvent, PlayerObserver, SpotPlayer, SpotSession,
     default_oauth_config,
 };
 
@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(login.authorize_url())
         .status()?;
     let tokens = login.finish().await?;
-    let session = SpotSession::connect_with_token(tokens.access_token).await?;
+    let session = SpotSession::connect_with_token(tokens.access_token, None).await?;
     println!("Signed in.");
 
     let output = AudioOutput::new();
@@ -103,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(Forward(tx.into())),
         u16::MAX,
         None,
+        Bitrate::Kbps320,
     )
     .await?;
 

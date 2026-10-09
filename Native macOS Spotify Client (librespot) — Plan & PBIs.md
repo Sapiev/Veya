@@ -342,9 +342,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-202
 
-- [ ] Quality options 96 / 160 / 320 kbps map to librespot bitrate settings; default 320.
-- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button.
-- [ ] Cached audio is encrypted as librespot stores it and is not exportable.
+**Status:** In review (feat/pbi-207-quality-cache) - `SpotPlayer` takes a `Bitrate` and `set_bitrate` rebuilds it live; `AudioCache` wraps librespot's cache, is shared by every session and reconnect, and `clear` empties it; SpotCoreKit `PlaybackSettings` persists quality and cache cap, and `SessionModel.setAudioCacheLimit` applies a new cap live (evicts at once, then reconnects the session, which stops the current track). Picker and Clear Cache button land with the Settings window, PBI-407.
+
+- [x] Quality options 96 / 160 / 320 kbps map to librespot bitrate settings; default 320.
+- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache in `Caches/<bundle id>/Audio` with librespot's LRU limiter and `AudioCache.clear`; no button until the Settings window, PBI-407.)
+- [x] Cached audio is encrypted as librespot stores it and is not exportable.
 
 ### E3 · Catalog and library
 

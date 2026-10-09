@@ -175,7 +175,7 @@ impl<L: Link> Shared<L> {
                 let woke = std::mem::take(&mut core.wake);
                 if woke || core.link.is_invalid() {
                     if woke {
-                        info!("system woke, forcing reconnect");
+                        info!("forcing reconnect");
                     } else {
                         warn!("session lost, reconnecting");
                     }
@@ -328,13 +328,13 @@ impl<L: Link> Supervisor<L> {
 
     /// Ignored while only the initial credentials exist: a healthy session
     /// must not be torn down to retry with a possibly expired token.
-    pub(crate) fn system_did_wake(&self) {
+    pub(crate) fn reconnect_now(&self) {
         let mut core = lock(&self.shared.core);
         if core.shut_down {
             return;
         }
         if !core.reusable {
-            info!("system woke; no reusable credentials, keeping session");
+            info!("reconnect requested; no reusable credentials, keeping session");
             return;
         }
         core.wake = true;
@@ -694,7 +694,7 @@ mod tests {
     async fn reconnect_on_wake_replaces_live_session() {
         let h = start();
         h.script.push(Step::Succeed);
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
         wait_until(|| connected_count(&h.recorder) == 2).await;
 
         assert!(h.first.is_shut());
@@ -710,7 +710,7 @@ mod tests {
         h.first.kill();
         wait_until(|| h.script.calls().len() == 7).await;
         settle(1).await;
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
         wait_until(|| h.script.calls().len() == 8).await;
         wait_until(|| h.script.calls().len() == 9).await;
 
@@ -756,7 +756,7 @@ mod tests {
             h.first.kill();
             wait_until(|| h.recorder.states().len() == 3).await;
             settle(600).await;
-            h.supervisor.system_did_wake();
+            h.supervisor.reconnect_now();
             h.supervisor.network_changed(true);
             settle(600).await;
 
@@ -777,7 +777,7 @@ mod tests {
         let h = start();
         h.supervisor.shutdown();
         h.supervisor.shutdown();
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
         h.supervisor.network_changed(true);
         h.first.kill();
         settle(600).await;
@@ -819,8 +819,8 @@ mod tests {
         h.script.push(Step::Succeed);
         h.first.kill();
         wait_until(|| h.script.calls().len() == 1).await;
-        h.supervisor.system_did_wake();
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
+        h.supervisor.reconnect_now();
         release.send(()).unwrap();
         wait_until(|| connected_count(&h.recorder) == 3).await;
         settle(60).await;
@@ -870,7 +870,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn reconnect_without_credentials_ignores_wake() {
         let h = start_with(FakeLink::without_credentials(1));
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
         settle(600).await;
 
         assert!(h.script.calls().is_empty());
@@ -886,7 +886,7 @@ mod tests {
         h.first.kill();
         wait_until(|| connected_count(&h.recorder) == 2).await;
         h.script.push(Step::Succeed);
-        h.supervisor.system_did_wake();
+        h.supervisor.reconnect_now();
         wait_until(|| connected_count(&h.recorder) == 3).await;
 
         let calls = h.script.calls();
