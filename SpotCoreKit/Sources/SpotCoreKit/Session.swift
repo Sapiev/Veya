@@ -13,6 +13,8 @@ public protocol SessionHandle: AnyObject, Sendable {
     func makeLibrary(store: MetadataStore?) -> any LibraryServiceProtocol
     /// Without `store` every lookup goes to the network.
     func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol
+    /// Without `store` the playlists are fetched again on every launch.
+    func makePlaylists(store: MetadataStore?) -> any PlaylistServiceProtocol
 }
 
 extension SpotSession: SessionHandle {
@@ -22,6 +24,10 @@ extension SpotSession: SessionHandle {
 
     public func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol {
         MetadataService(session: self, store: store)
+    }
+
+    public func makePlaylists(store: MetadataStore?) -> any PlaylistServiceProtocol {
+        PlaylistService(session: self, store: store)
     }
 }
 
