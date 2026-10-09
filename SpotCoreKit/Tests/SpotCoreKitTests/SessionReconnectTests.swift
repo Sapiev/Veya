@@ -35,7 +35,7 @@ struct SessionReconnectTests {
     private let logs = LogSpy()
 
     private func ready(_ session: FakeSession, store: FakeStore) async throws -> SessionModel {
-        let model = SessionModel(store: store, connector: connector, log: logs.log)
+        let model = SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
         let task = model.restore()
         try await waitUntil { connector.pending == 1 }
         connector.resolve(0, with: .success(session))
@@ -216,7 +216,7 @@ struct SessionReconnectTests {
 
     @Test func rejectionDoesNotDeleteBlobLoadedByEarlierAttempt() async throws {
         let store = FakeStore(blob: storedBlob, saveError: KeychainError(status: -25308))
-        let model = SessionModel(store: store, connector: connector, log: logs.log)
+        let model = SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
         let signedIn = FakeSession()
 
         let restoring = model.restore()
@@ -275,7 +275,7 @@ struct SessionReconnectTests {
     @Test func wakeAndNetworkWithoutSessionAreNoOps() async throws {
         let session = FakeSession()
         let model = try await ready(session, store: FakeStore(blob: storedBlob))
-        let fresh = SessionModel(store: FakeStore(), connector: connector, log: logs.log)
+        let fresh = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
         model.showSignIn()
         model.systemDidWake()
@@ -299,7 +299,7 @@ struct SessionReconnectTests {
     }
 
     @Test func cacheLimitChangeWithoutSessionOnlySetsLimit() throws {
-        let fresh = SessionModel(store: FakeStore(), connector: connector, log: logs.log)
+        let fresh = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
         try fresh.setAudioCacheLimit(bytes: 2 << 30)
 

@@ -14,7 +14,11 @@ import SwiftUI
         Diagnostics.startLogging()
         let dependencies = AppDependencies.make()
         artworkLoader = dependencies.artworkLoader
-        let session = SessionModel(store: dependencies.store, connector: dependencies.connector)
+        let session = SessionModel(
+            store: dependencies.store,
+            refreshTokenStore: dependencies.refreshTokenStore,
+            connector: dependencies.connector
+        )
         session.restore()
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,

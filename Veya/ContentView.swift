@@ -166,7 +166,10 @@ private struct SignedInView: View {
 
 #Preview {
     ContentView(
-        session: SessionModel(store: KeychainCredentialStore(service: "preview", account: "preview")),
+        session: SessionModel(
+            store: KeychainCredentialStore(service: "preview", account: "preview"),
+            refreshTokenStore: KeychainCredentialStore(service: "preview", account: "preview-refresh")
+        ),
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
         signOut: {}
     )

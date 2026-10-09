@@ -9,7 +9,7 @@ struct SessionModelTests {
     private let logs = LogSpy()
 
     private func model(_ store: FakeStore) -> SessionModel {
-        SessionModel(store: store, connector: connector, log: logs.log)
+        SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
     }
 
     @Test func startsRestoringSoSignInNeverFlashes() {

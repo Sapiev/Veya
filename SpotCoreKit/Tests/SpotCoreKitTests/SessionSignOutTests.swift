@@ -9,7 +9,7 @@ struct SessionSignOutTests {
     private let logs = LogSpy()
 
     private func ready(_ session: FakeSession, store: FakeStore) async throws -> SessionModel {
-        let model = SessionModel(store: store, connector: connector, log: logs.log)
+        let model = SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
         let task = model.restore()
         try await waitUntil { connector.pending == 1 }
         connector.resolve(0, with: .success(session))
@@ -60,7 +60,7 @@ struct SessionSignOutTests {
 
     @Test func signOutDuringRestoreDropsLateSession() async throws {
         let store = FakeStore(blob: storedBlob)
-        let model = SessionModel(store: store, connector: connector, log: logs.log)
+        let model = SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
         let late = FakeSession()
 
         let task = model.restore()

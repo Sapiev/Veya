@@ -114,6 +114,10 @@ public final class SessionModel {
     public private(set) var connection: ConnectionStatus = .online
 
     @ObservationIgnored private let store: any CredentialStore
+    @ObservationIgnored private let refreshTokenStore: any CredentialStore
+    /// Web API access for this account; throws `WebAPITokenError.notAvailable`
+    /// until a sign-in stores a refresh token.
+    @ObservationIgnored public let webAPITokens: WebAPITokenProvider
     @ObservationIgnored private let connector: any SessionConnector
     @ObservationIgnored private let log: SessionLog
     @ObservationIgnored private var attempt = 0
@@ -127,10 +131,14 @@ public final class SessionModel {
 
     public init(
         store: any CredentialStore,
+        refreshTokenStore: any CredentialStore,
         connector: any SessionConnector = SpotSessionConnector(),
+        tokenRefresher: any TokenRefresher = SpotTokenRefresher(),
         log: @escaping SessionLog = { logMessage(level: $0, category: "session", message: $1) }
     ) {
         self.store = store
+        self.refreshTokenStore = refreshTokenStore
+        webAPITokens = WebAPITokenProvider(store: refreshTokenStore, refresher: tokenRefresher)
         self.connector = connector
         self.log = log
     }
@@ -173,7 +181,9 @@ public final class SessionModel {
             guard current == attempt else { return }
             do {
                 let session = try await connector.connect(accessToken: accessToken)
-                adopt(session, attempt: current, started: nil)
+                if adopt(session, attempt: current, started: nil), saveRefreshToken(of: tokens) {
+                    await webAPITokens.seed(tokens)
+                }
             } catch {
                 guard current == attempt else { return }
                 state = .failed(SessionFailure(error))
@@ -188,14 +198,21 @@ public final class SessionModel {
     }
 
     /// Ends the session before deleting so no reconnect can save the blob back.
-    /// Safe to repeat; the session ends even if the Keychain delete throws.
+    /// Safe to repeat; the session ends even if a Keychain delete throws, and
+    /// both items are attempted before the first error is rethrown.
     public func signOut() throws {
         _ = begin(.signedOut)
-        do {
-            try store.delete()
-        } catch {
-            log(.warn, "Couldn't delete stored credentials on sign out: \(Self.summary(error))")
-            throw error
+        var failure: (any Error)?
+        for item in [store, refreshTokenStore] {
+            do {
+                try item.delete()
+            } catch {
+                log(.warn, "Couldn't delete stored credentials on sign out: \(Self.summary(error))")
+                failure = failure ?? error
+            }
+        }
+        if let failure {
+            throw failure
         }
         log(.info, "Signed out")
     }
@@ -273,10 +290,11 @@ public final class SessionModel {
         }
     }
 
-    private func adopt(_ session: any SessionHandle, attempt current: Int, started: ContinuousClock.Instant?) {
+    @discardableResult
+    private func adopt(_ session: any SessionHandle, attempt current: Int, started: ContinuousClock.Instant?) -> Bool {
         guard current == attempt else {
             session.shutdown()
-            return
+            return false
         }
         saveCredentials(of: session)
         self.session = session
@@ -286,6 +304,18 @@ public final class SessionModel {
             let elapsed = ContinuousClock.now - started
             let millis = Int(elapsed / .milliseconds(1))
             log(elapsed > Self.readyBudget ? .warn : .info, "Session restored in \(millis) ms")
+        }
+        return true
+    }
+
+    /// Without it only Web API extras (episode progress) go missing, so a failure is logged.
+    private func saveRefreshToken(of tokens: OAuthTokens) -> Bool {
+        do {
+            try refreshTokenStore.save(Data(tokens.refreshToken.utf8))
+            return true
+        } catch {
+            log(.warn, "Couldn't save the refresh token: \(Self.summary(error))")
+            return false
         }
     }
 
