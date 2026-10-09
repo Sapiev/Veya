@@ -41,7 +41,8 @@
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
-                startFlow: { ScenarioFlow(completes: signInCompletes) }
+                startFlow: { ScenarioFlow(completes: signInCompletes) },
+                artworkLoader: nil
             )
         }
     }

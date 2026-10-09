@@ -8,6 +8,7 @@ struct AppDependencies {
     var connector: any SessionConnector
     var browser: any SignInBrowser
     var startFlow: SignInFlowStarter
+    var artworkLoader: ArtworkLoader?
 
     static func make() -> AppDependencies {
         #if DEBUG
@@ -22,15 +23,14 @@ struct AppDependencies {
             ),
             connector: SpotSessionConnector(audioCache: openAudioCache()),
             browser: WebAuthenticationBrowser(),
-            startFlow: SignInModel.startLoginFlow
+            startFlow: SignInModel.startLoginFlow,
+            artworkLoader: ArtworkLoader(directory: cachesDirectory.appending(path: "Artwork"))
         )
     }
 
     /// Playback works without a cache, so a failure to open one is only logged.
     @MainActor private static func openAudioCache() -> AudioCache? {
-        let directory = URL.cachesDirectory
-            .appending(path: Bundle.main.bundleIdentifier ?? "Veya")
-            .appending(path: "Audio")
+        let directory = cachesDirectory.appending(path: "Audio")
         do {
             return try AudioCache(
                 directory: directory.path(percentEncoded: false),
@@ -40,5 +40,9 @@ struct AppDependencies {
             Logger(subsystem: "veya", category: "cache").error("audio cache unavailable: \(error)")
             return nil
         }
+    }
+
+    private static var cachesDirectory: URL {
+        URL.cachesDirectory.appending(path: Bundle.main.bundleIdentifier ?? "Veya")
     }
 }

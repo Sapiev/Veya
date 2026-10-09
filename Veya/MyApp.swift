@@ -8,10 +8,12 @@ import SwiftUI
     @State private var signIn: SignInModel
     @State private var systemEvents: SystemEvents
     @State private var signOutFailed = false
+    private let artworkLoader: ArtworkLoader?
 
     init() {
         Diagnostics.startLogging()
         let dependencies = AppDependencies.make()
+        artworkLoader = dependencies.artworkLoader
         let session = SessionModel(store: dependencies.store, connector: dependencies.connector)
         session.restore()
         NotificationCenter.default.addObserver(
@@ -34,6 +36,7 @@ import SwiftUI
             ContentView(session: session, signIn: signIn) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
+            .environment(\.artworkLoader, artworkLoader)
             .alert("Couldn't Sign Out Completely", isPresented: $signOutFailed) {
                 Button("Try Again") { AccountCommands.signOut(session, failed: $signOutFailed) }
                 Button("Cancel", role: .cancel) {}
