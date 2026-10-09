@@ -19,6 +19,10 @@ const CHANNELS: usize = NUM_CHANNELS as usize;
 /// a whole number of frames, so a frame never straddles the wrap point.
 const RING_SAMPLES: usize = SAMPLE_RATE as usize / 5 * CHANNELS;
 const WRITE_RETRY: Duration = Duration::from_millis(5);
+/// A full ring nobody renders for this long means the engine stopped; the
+/// write fails so librespot pauses instead of blocking its thread forever.
+/// Long enough to ride out an engine restart after a device change.
+const STALL_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
 struct AudioStats {
@@ -28,6 +32,9 @@ struct AudioStats {
     /// is not counted as an underrun.
     primed: AtomicBool,
     underruns: AtomicU64,
+    /// Bumped by every render call, so a blocked writer can tell a slow
+    /// consumer from one that stopped.
+    renders: AtomicU64,
 }
 
 /// One playback output: hands the ring's producer to the player's sink and
@@ -92,12 +99,24 @@ pub struct CoreAudioSink {
 impl CoreAudioSink {
     /// Blocks while the ring is full: that back-pressure paces the decoder.
     fn push(&mut self, mut samples: &[f32]) -> SinkResult<()> {
+        let mut renders = self.stats.renders.load(Relaxed);
+        let mut stalled = Duration::ZERO;
         while !samples.is_empty() {
             if self.producer.is_abandoned() {
                 return Err(SinkError::NotConnected("render handle released".into()));
             }
             let (_, rest) = self.producer.push_partial_slice(samples);
             if rest.len() == samples.len() {
+                let now = self.stats.renders.load(Relaxed);
+                if now == renders {
+                    stalled += WRITE_RETRY;
+                    if stalled >= STALL_TIMEOUT {
+                        return Err(SinkError::OnWrite("audio output stopped rendering".into()));
+                    }
+                } else {
+                    renders = now;
+                    stalled = Duration::ZERO;
+                }
                 std::thread::sleep(WRITE_RETRY);
             }
             samples = rest;
@@ -152,6 +171,7 @@ pub struct RenderHandle {
 
 impl RenderHandle {
     fn render(&mut self, left: &mut [f32], right: &mut [f32]) -> usize {
+        self.stats.renders.fetch_add(1, Relaxed);
         let frames = left.len().min(right.len());
         let n = (self.consumer.slots() / CHANNELS).min(frames);
         if let Ok(chunk) = self.consumer.read_chunk(n * CHANNELS) {
@@ -294,6 +314,18 @@ mod tests {
         }
 
         writer.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn write_fails_when_a_full_ring_stops_being_rendered() {
+        let (_output, mut sink, _handle) = setup();
+        let too_many = vec![0.0; RING_SAMPLES + CHANNELS];
+        let started = std::time::Instant::now();
+
+        let result = sink.write(AudioPacket::Samples(too_many), &mut Converter::new(None));
+
+        assert!(matches!(result, Err(SinkError::OnWrite(_))));
+        assert!(started.elapsed() >= STALL_TIMEOUT);
     }
 
     #[test]

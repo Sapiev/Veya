@@ -61,7 +61,7 @@ public final class AudioEngine {
     /// Nonisolated so the render block is not main-actor isolated: it runs on
     /// the real-time audio thread and must not lock or allocate.
     private nonisolated static func sourceNode(rendering handle: OpaquePointer) -> AVAudioSourceNode {
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)!
         nonisolated(unsafe) let handle = handle
         return AVAudioSourceNode(format: format) { _, _, frameCount, bufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
