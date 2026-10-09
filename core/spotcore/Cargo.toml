@@ -42,6 +42,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls-webpki-roots-no-provider",
 ] }
 rtrb = "0.4.0"
+indexmap = "2"
 
 [dev-dependencies]
 base64 = "0.22"

@@ -2532,6 +2532,7 @@ name = "spotcore"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "indexmap",
  "librespot-connect",
  "librespot-core",
  "librespot-metadata",

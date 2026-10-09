@@ -9,6 +9,7 @@ mod audio;
 mod auth;
 mod cache;
 mod logging;
+mod metadata;
 mod player;
 mod queue;
 mod reconnect;
@@ -20,6 +21,10 @@ pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
 pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
 pub use cache::{AudioCache, CacheError};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
+pub use metadata::{
+    AlbumMetadata, ArtistMetadata, Artwork, ArtworkSize, EpisodeMetadata, ItemError, ItemRef,
+    MetadataError, MetadataItem, MetadataService, Playability, TrackMetadata,
+};
 pub use player::{Bitrate, LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
 pub use reconnect::{ConnectionObserver, ConnectionState};
 pub use session::{SessionError, SpotSession};
