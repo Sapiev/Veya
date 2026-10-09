@@ -246,7 +246,7 @@ veya/
 
 **UI tests:** `SignOutUITests` (button, Account menu, menu disabled when signed out).
 
-- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end and Keychain delete done; playback, metadata cache and audio cache do not exist yet: PBI-202, PBI-308, PBI-207.)
+- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end, Keychain delete and metadata cache clear done; playback stop and audio cache clear not wired into sign-out yet: PBI-202, PBI-207.)
 - [x] App returns to the sign-in screen without a relaunch.
 
 #### PBI-105 · Premium and region checks
@@ -385,7 +385,7 @@ veya/
 
 - [ ] Collection is loaded through the spclient collection endpoints, paginated, and kept fresh via dealer push updates. (Done in `spotcore` `library.rs`; no app UI yet, and not yet checked against a live account.)
 - [ ] Liking/unliking a track or saving an album updates the server and the UI optimistically, rolling back on error. (Server write in `LibraryService::set_saved`, optimistic update and rollback in `LibraryModel`; no app UI uses them yet.)
-- [ ] Liked Songs with 10,000 tracks loads its first screen in under 1 s from cache. (The cached 10,000-item list decodes in under 250 ms; track titles still need the network until PBI-308.)
+- [ ] Liked Songs with 10,000 tracks loads its first screen in under 1 s from cache. (The cached 10,000-item list decodes in under 250 ms; track titles now come from the PBI-308 metadata store; no app screen renders the list yet.)
 
 #### PBI-304 · Playlists (root list and contents)
 
@@ -442,9 +442,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-- [ ] SQLite (GRDB) stores library, playlists and item metadata with revision IDs; schema migrations are versioned.
-- [ ] Launch renders from cache first, then reconciles with the server (stale-while-revalidate).
-- [ ] Cache is cleared on sign-out and has a Reset button in Settings.
+**Status:** In review (feat/pbi-308-metadata-cache)
+
+- [x] SQLite stores library, playlists and item metadata with revision IDs; schema migrations are versioned. (`rusqlite` in `spotcore` instead of GRDB, ADR-008; `MetadataStore` with `PRAGMA user_version` migrations.)
+- [ ] Launch renders from cache first, then reconciles with the server (stale-while-revalidate). (Done in `spotcore` (`cached`, `cached_rootlist`, `cached_page`, metadata store reads) and `LibraryModel`; no app screen renders the library yet: PBI-401, PBI-403.)
+- [ ] Cache is cleared on sign-out and has a Reset button in Settings. (Sign-out clears it; `SessionModel.resetMetadataCache` is ready, no button until the Settings window, PBI-407.)
 
 ### E4 · User interface
 
