@@ -442,7 +442,7 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-**Status:** In review (feat/pbi-308-metadata-cache)
+**Status:** In progress - metadata store merged to develop (ADR-008); cache-first launch waits on library screens (PBI-401, PBI-403), Reset button on the Settings window (PBI-407).
 
 - [x] SQLite stores library, playlists and item metadata with revision IDs; schema migrations are versioned. (`rusqlite` in `spotcore` instead of GRDB, ADR-008; `MetadataStore` with `PRAGMA user_version` migrations.)
 - [ ] Launch renders from cache first, then reconciles with the server (stale-while-revalidate). (Done in `spotcore` (`cached`, `cached_rootlist`, `cached_page`, metadata store reads) and `LibraryModel`; no app screen renders the library yet: PBI-401, PBI-403.)
