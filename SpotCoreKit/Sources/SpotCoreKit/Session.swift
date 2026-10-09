@@ -13,12 +13,17 @@ public protocol SessionHandle: AnyObject, Sendable {
 extension SpotSession: SessionHandle {}
 
 public protocol SessionConnector: Sendable {
+    func isPremium(accessToken: String) async throws -> Bool
     func connect(accessToken: String) async throws -> any SessionHandle
     func connect(storedCredentials: Data) async throws -> any SessionHandle
 }
 
 public struct SpotSessionConnector: SessionConnector {
     public init() {}
+
+    public func isPremium(accessToken: String) async throws -> Bool {
+        try await isPremiumAccount(accessToken: accessToken)
+    }
 
     public func connect(accessToken: String) async throws -> any SessionHandle {
         try await SpotSession.connectWithToken(accessToken: accessToken)
@@ -50,6 +55,8 @@ public enum SessionState: Equatable, Sendable {
     case signedOut
     case connecting
     case ready
+    /// Signed in to Spotify with a Free or other non-Premium account; never connected.
+    case notPremium
     case failed(SessionFailure)
 }
 
@@ -127,6 +134,18 @@ public final class SessionModel {
         let accessToken = tokens.accessToken
         let connector = connector
         return Task {
+            guard current == attempt else { return }
+            // librespot exits the process on a non-Premium login, so check first (ADR-005).
+            do {
+                if try await !connector.isPremium(accessToken: accessToken) {
+                    guard current == attempt else { return }
+                    log(.info, "Account is not Premium")
+                    state = .notPremium
+                    return
+                }
+            } catch {
+                log(.warn, "Couldn't check the account product, connecting anyway: \(Self.summary(error))")
+            }
             guard current == attempt else { return }
             do {
                 let session = try await connector.connect(accessToken: accessToken)

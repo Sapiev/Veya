@@ -27,9 +27,37 @@ struct ContentView: View {
                 .overlay(alignment: .top) {
                     ReconnectBanner(connection: session.connection)
                 }
+        case .notPremium:
+            NotPremiumView(signOut: signOut)
         case let .failed(failure):
             SessionFailedView(failure: failure, retry: { session.retry() }, signIn: { session.showSignIn() })
         }
+    }
+}
+
+private struct NotPremiumView: View {
+    let signOut: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "music.note.house")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("Veya Needs Spotify Premium")
+                .font(.title2)
+            Text("Playback through Veya works only with a Premium account. Upgrade your plan with Spotify, or sign out and use a Premium account.")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 360)
+            Button("Sign Out", action: signOut)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .padding(.top, 8)
+        }
+        .multilineTextAlignment(.center)
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
