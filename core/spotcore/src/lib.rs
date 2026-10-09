@@ -8,6 +8,7 @@ mod account;
 mod audio;
 mod auth;
 mod cache;
+mod library;
 mod logging;
 mod metadata;
 mod player;
@@ -20,6 +21,7 @@ pub use account::is_premium_account;
 pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
 pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
 pub use cache::{AudioCache, CacheError};
+pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryObserver, LibraryService};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
 pub use metadata::{
     AlbumMetadata, ArtistMetadata, Artwork, ArtworkSize, EpisodeMetadata, ItemError, ItemRef,
