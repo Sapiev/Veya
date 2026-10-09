@@ -1,5 +1,5 @@
-@testable import SpotCoreKit
 import spotcoreFFI
+@testable import SpotCoreKit
 import Testing
 
 @MainActor
