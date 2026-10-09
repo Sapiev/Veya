@@ -545,8 +545,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-101
 
-- [ ] Welcome screen explains the app is unofficial and needs Premium, with a single Sign In button.
-- [ ] Every list has a designed empty and error state (no blank pages).
+**Status:** In review (`feat/pbi-408-onboarding-empty-states`).
+
+- [x] Welcome screen explains the app is unofficial and needs Premium, with a single Sign In button.
+- [x] Every list has a designed empty and error state (no blank pages). (Liked Songs, Albums, Artists, Podcasts, sidebar Playlists, Search and Recent Searches use `ContentUnavailableView` through `LoadStateView`/`FailedState`, with Try Again on failure. Home and the playlist, album, artist and show pages have no list yet and show their title; PBI-307 and PBI-404 reuse `LoadStateView`.)
 
 ### E5 · Spotify Connect
 
