@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist};
 use librespot_playback::audio_backend::{Sink, SinkResult};
-use librespot_playback::config::{NormalisationMethod, PlayerConfig};
+use librespot_playback::config::{self, NormalisationMethod, PlayerConfig};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::softmixer::SoftMixer;
@@ -52,6 +52,21 @@ pub enum LoudnessPreset {
     Quiet,
     Normal,
     Loud,
+}
+
+/// Ogg Vorbis stream bitrate requested from Spotify.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Bitrate {
+    Kbps96,
+    Kbps160,
+    Kbps320,
+}
+
+/// Player settings librespot fixes when the player is created.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Tuning {
+    normalisation: Option<LoudnessPreset>,
+    bitrate: Bitrate,
 }
 
 /// URIs are canonical `spotify:` strings.
@@ -172,8 +187,9 @@ struct State {
 #[derive(uniffi::Object)]
 pub struct SpotPlayer {
     session: Arc<SpotSession>,
-    /// Replaced by `set_normalisation`, as librespot fixes it at creation.
+    /// Replaced when `tuning` changes, as librespot fixes it at creation.
     player: Mutex<Arc<Player>>,
+    tuning: Mutex<Tuning>,
     sink: Arc<Mutex<CoreAudioSink>>,
     epoch: Epoch,
     mixer: SoftMixer,
@@ -198,7 +214,12 @@ impl SpotPlayer {
         observer: Arc<dyn PlayerObserver>,
         volume: u16,
         normalisation: Option<LoudnessPreset>,
+        bitrate: Bitrate,
     ) -> Result<Arc<Self>, PlayerError> {
+        let tuning = Tuning {
+            normalisation,
+            bitrate,
+        };
         let sink = Arc::new(Mutex::new(
             output.take_sink().ok_or(PlayerError::OutputTaken)?,
         ));
@@ -221,18 +242,11 @@ impl SpotPlayer {
             sink: Arc::clone(&sink),
             epoch: epoch.clone(),
         };
-        let player = spawn_player(
-            &session,
-            link,
-            shared,
-            &mixer,
-            &state,
-            &observer,
-            normalisation,
-        );
+        let player = spawn_player(&session, link, shared, &mixer, &state, &observer, tuning);
         Ok(Arc::new(Self {
             session,
             player: Mutex::new(player),
+            tuning: Mutex::new(tuning),
             sink,
             epoch,
             mixer,
@@ -249,35 +263,13 @@ impl SpotPlayer {
     /// Rebuilds the librespot player with the new normaliser settings and
     /// resumes the current track where it was. `None` turns normalisation off.
     pub async fn set_normalisation(&self, normalisation: Option<LoudnessPreset>) {
-        // Held throughout so overlapping calls and queue moves serialise.
-        let mut state = lock(&self.state);
-        // From here the old player's writes and events are dropped.
-        let epoch = self.epoch.next();
-        // Stops an in-flight autoplay fetch from loading into the old player.
-        state.generation += 1;
-        let resume = resume_point(&state);
-        let link = self.session.current_session();
-        state.session_id = link.session_id();
-        let shared = SharedSink {
-            sink: Arc::clone(&self.sink),
-            epoch,
-        };
-        let player = spawn_player(
-            &self.session,
-            link,
-            shared,
-            &self.mixer,
-            &self.state,
-            &self.observer,
-            normalisation,
-        );
-        if let Some((track, play, position_ms)) = resume {
-            player.load(track, play, position_ms);
-        }
-        let old = std::mem::replace(&mut *lock(&self.player), player);
-        drop(state);
-        // `Player::drop` joins its thread; keep that off the async workers.
-        tokio::task::spawn_blocking(move || drop(old));
+        self.retune(|t| t.normalisation = normalisation);
+    }
+
+    /// Rebuilds the player like `set_normalisation`; the current track
+    /// restarts its download at the new bitrate.
+    pub async fn set_bitrate(&self, bitrate: Bitrate) {
+        self.retune(|t| t.bitrate = bitrate);
     }
 
     /// Expands `uri` (track, episode, album, playlist or artist top tracks)
@@ -419,6 +411,44 @@ impl SpotPlayer {
 }
 
 impl SpotPlayer {
+    /// Must run on the UniFFI tokio runtime, for `spawn_blocking`.
+    fn retune(&self, change: impl FnOnce(&mut Tuning)) {
+        // Held throughout so overlapping calls and queue moves serialise.
+        let mut state = lock(&self.state);
+        let tuning = {
+            let mut tuning = lock(&self.tuning);
+            change(&mut tuning);
+            *tuning
+        };
+        // From here the old player's writes and events are dropped.
+        let epoch = self.epoch.next();
+        // Stops an in-flight autoplay fetch from loading into the old player.
+        state.generation += 1;
+        let resume = resume_point(&state);
+        let link = self.session.current_session();
+        state.session_id = link.session_id();
+        let shared = SharedSink {
+            sink: Arc::clone(&self.sink),
+            epoch,
+        };
+        let player = spawn_player(
+            &self.session,
+            link,
+            shared,
+            &self.mixer,
+            &self.state,
+            &self.observer,
+            tuning,
+        );
+        if let Some((track, play, position_ms)) = resume {
+            player.load(track, play, position_ms);
+        }
+        let old = std::mem::replace(&mut *lock(&self.player), player);
+        drop(state);
+        // `Player::drop` joins its thread; keep that off the async workers.
+        tokio::task::spawn_blocking(move || drop(old));
+    }
+
     /// Hands the player the supervisor's current session if a reconnect
     /// replaced the one it holds; loads on a dead session would fail.
     fn sync_session(&self) -> Session {
@@ -437,12 +467,18 @@ fn soft_mixer(volume: u16) -> SoftMixer {
     mixer
 }
 
-fn player_config(normalisation: Option<LoudnessPreset>) -> PlayerConfig {
+fn player_config(tuning: Tuning) -> PlayerConfig {
+    let bitrate = match tuning.bitrate {
+        Bitrate::Kbps96 => config::Bitrate::Bitrate96,
+        Bitrate::Kbps160 => config::Bitrate::Bitrate160,
+        Bitrate::Kbps320 => config::Bitrate::Bitrate320,
+    };
     let config = PlayerConfig {
+        bitrate,
         position_update_interval: Some(POSITION_INTERVAL),
         ..PlayerConfig::default()
     };
-    let Some(preset) = normalisation else {
+    let Some(preset) = tuning.normalisation else {
         return config;
     };
     // Spotify's gain data targets -14 LUFS. Below it the peak-capped basic
@@ -469,11 +505,11 @@ fn spawn_player(
     mixer: &SoftMixer,
     state: &Arc<Mutex<State>>,
     observer: &Arc<dyn PlayerObserver>,
-    normalisation: Option<LoudnessPreset>,
+    tuning: Tuning,
 ) -> Arc<Player> {
     let epoch = sink.epoch.clone();
     let player = Player::new(
-        player_config(normalisation),
+        player_config(tuning),
         link,
         mixer.get_soft_volume(),
         move || Box::new(sink),
@@ -909,9 +945,15 @@ mod tests {
 
     #[test]
     fn player_config_maps_loudness_presets_to_normaliser() {
-        assert!(!player_config(None).normalisation);
+        let tuned = |normalisation| {
+            player_config(Tuning {
+                normalisation,
+                bitrate: Bitrate::Kbps320,
+            })
+        };
+        assert!(!tuned(None).normalisation);
         let check = |preset, pregain_db, method| {
-            let config = player_config(Some(preset));
+            let config = tuned(Some(preset));
             assert!(config.normalisation);
             assert_eq!(config.normalisation_pregain_db, pregain_db);
             assert_eq!(config.normalisation_method, method);
@@ -920,6 +962,22 @@ mod tests {
         check(LoudnessPreset::Quiet, -5.0, NormalisationMethod::Basic);
         check(LoudnessPreset::Normal, 0.0, NormalisationMethod::Basic);
         check(LoudnessPreset::Loud, 3.0, NormalisationMethod::Dynamic);
+    }
+
+    #[test]
+    fn player_config_maps_bitrates() {
+        let check = |bitrate, expected| {
+            let normalisation = Some(LoudnessPreset::Loud);
+            let config = player_config(Tuning {
+                normalisation,
+                bitrate,
+            });
+            assert_eq!(config.bitrate, expected);
+            assert!(config.normalisation, "bitrate must not reset normalisation");
+        };
+        check(Bitrate::Kbps96, config::Bitrate::Bitrate96);
+        check(Bitrate::Kbps160, config::Bitrate::Bitrate160);
+        check(Bitrate::Kbps320, config::Bitrate::Bitrate320);
     }
 
     #[test]

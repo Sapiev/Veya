@@ -7,6 +7,7 @@ use librespot_core::SpotifyUri;
 mod account;
 mod audio;
 mod auth;
+mod cache;
 mod logging;
 mod player;
 mod queue;
@@ -17,8 +18,9 @@ mod session;
 pub use account::is_premium_account;
 pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
 pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
+pub use cache::{AudioCache, CacheError};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
-pub use player::{LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
+pub use player::{Bitrate, LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
 pub use reconnect::{ConnectionObserver, ConnectionState};
 pub use session::{SessionError, SpotSession};
 

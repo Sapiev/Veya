@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use librespot_core::authentication::Credentials;
+use librespot_core::cache::Cache;
 use librespot_core::session::SessionError as CoreSessionError;
 use librespot_core::{Error as CoreError, Session, SessionConfig};
 use librespot_protocol::authentication::AuthenticationType;
@@ -15,6 +16,7 @@ use log::info;
 use protobuf::Enum;
 use serde::{Deserialize, Serialize};
 
+use crate::cache::AudioCache;
 use crate::reconnect::{ConnectionObserver, Connector, Link, Supervisor};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -109,20 +111,27 @@ pub struct SpotSession {
 #[uniffi::export(async_runtime = "tokio")]
 impl SpotSession {
     /// Signs in with an OAuth access token on a fresh random device id.
+    /// Without `cache` every play downloads the file again.
     #[uniffi::constructor]
-    pub async fn connect_with_token(access_token: String) -> Result<Arc<Self>, SessionError> {
+    pub async fn connect_with_token(
+        access_token: String,
+        cache: Option<Arc<AudioCache>>,
+    ) -> Result<Arc<Self>, SessionError> {
         let credentials = Credentials::with_access_token(access_token);
-        Self::start(SessionConfig::default(), credentials).await
+        Self::start(SessionConfig::default(), credentials, cache).await
     }
 
     /// Signs in with a blob from `stored_credentials`, on its device id.
     #[uniffi::constructor]
-    pub async fn connect_with_stored(credentials: Vec<u8>) -> Result<Arc<Self>, SessionError> {
+    pub async fn connect_with_stored(
+        credentials: Vec<u8>,
+        cache: Option<Arc<AudioCache>>,
+    ) -> Result<Arc<Self>, SessionError> {
         let stored = StoredCredentials::decode(&credentials)?;
         if let Some(username) = &stored.credentials.username {
             crate::redact::add_secret(username);
         }
-        Self::start(stored.config(), stored.credentials).await
+        Self::start(stored.config(), stored.credentials, cache).await
     }
 
     /// Credentials of the current session, which may be a reconnected one.
@@ -140,7 +149,13 @@ impl SpotSession {
 
     /// Reconnects now with backoff reset; sockets rarely survive sleep.
     pub fn system_did_wake(&self) {
-        self.supervisor.system_did_wake();
+        self.supervisor.reconnect_now();
+    }
+
+    /// Replaces a healthy session, for example so a new audio cache limit
+    /// applies. Playback of the current track stops.
+    pub fn reconnect(&self) {
+        self.supervisor.reconnect_now();
     }
 
     /// `true` while reconnecting retries now with backoff reset. Otherwise,
@@ -165,21 +180,31 @@ impl SpotSession {
     async fn start(
         config: SessionConfig,
         credentials: Credentials,
+        cache: Option<Arc<AudioCache>>,
     ) -> Result<Arc<Self>, SessionError> {
         let initial = StoredCredentials::new(config.device_id.clone(), credentials.clone());
-        let session = connect(config, credentials).await?;
+        let session = connect(
+            config,
+            credentials,
+            cache.as_ref().map(|c| c.librespot_cache()),
+        )
+        .await?;
         info!("session connected");
         Ok(Arc::new(Self {
-            supervisor: Supervisor::start(session, initial, SessionConnector),
+            supervisor: Supervisor::start(session, initial, SessionConnector { cache }),
         }))
     }
 }
 
 /// Session::new captures the current tokio handle, so it must run inside
 /// the UniFFI runtime that keeps librespot's spawned tasks alive.
-async fn connect(config: SessionConfig, credentials: Credentials) -> Result<Session, SessionError> {
+async fn connect(
+    config: SessionConfig,
+    credentials: Credentials,
+    cache: Option<Cache>,
+) -> Result<Session, SessionError> {
     let attempt = async {
-        let session = Session::new(config, None);
+        let session = Session::new(config, cache);
         session.connect(credentials, false).await?;
         Ok::<_, CoreError>(session)
     };
@@ -214,11 +239,15 @@ impl Link for Session {
     }
 }
 
-struct SessionConnector;
+/// Reads the cache on every connect so a reconnect picks up a new limit.
+struct SessionConnector {
+    cache: Option<Arc<AudioCache>>,
+}
 
 impl Connector<Session> for SessionConnector {
     async fn connect(&self, stored: StoredCredentials) -> Result<Session, SessionError> {
-        connect(stored.config(), stored.credentials).await
+        let cache = self.cache.as_ref().map(|c| c.librespot_cache());
+        connect(stored.config(), stored.credentials, cache).await
     }
 }
 
@@ -466,7 +495,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_with_stored_rejects_garbage_without_network() {
-        let result = SpotSession::connect_with_stored(b"garbage".to_vec()).await;
+        let result = SpotSession::connect_with_stored(b"garbage".to_vec(), None).await;
         assert!(matches!(
             result,
             Err(SessionError::InvalidStoredCredentials)
