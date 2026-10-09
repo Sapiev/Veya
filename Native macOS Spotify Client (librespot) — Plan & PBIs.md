@@ -244,7 +244,7 @@ veya/
 
 **Status:** In progress - sign-out merged to develop (session end and Keychain delete); playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
 
-**UI tests:** `SignOutUITests` (button, Account menu, menu disabled when signed out).
+**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account gets a button in PBI-407.
 
 - [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end, Keychain delete and metadata cache clear done; playback stop and audio cache clear not wired into sign-out yet: PBI-202, PBI-207.)
 - [x] App returns to the sign-in screen without a relaunch.
@@ -393,7 +393,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit model and sidebar UI pending.
+**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit `PlaylistModel` (cached rootlist first, then sync and change watch) and the sidebar list (PBI-401) merged to develop; playlist page UI pending (PBI-404).
 
 - [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Fetch and folder nesting done in `spotcore` `playlist.rs`; no tree UI yet.)
 - [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (`PlaylistService::page` and `follower_count` exist; no UI yet, not checked against a live account.)
@@ -456,10 +456,14 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-004
 
-- [ ] `NavigationSplitView` with sidebar sections: Home, Search, Library (Liked Songs, Albums, Artists, Podcasts), Playlists.
-- [ ] Back/forward history with ⌘\[ and ⌘\], toolbar buttons and swipe gestures.
-- [ ] Window size and sidebar width restored on relaunch; full-screen and Stage Manager work.
-- [ ] Light and dark mode, accent colour follows system.
+**Status:** In review (`feat/pbi-401-app-shell`) - `AppShell` (`NavigationSplitView`, sidebar from SpotCoreKit `PlaylistModel`), SpotCoreKit `NavigationHistory` and `Route`, Go menu and toolbar back/forward; each route shows a placeholder until its screen lands (PBI-403 onwards).
+
+**UI tests:** `NavigationUITests` (sidebar destinations and playlists, playlist selection, ⌘\[ / ⌘\], toolbar buttons, Go menu disabled without history).
+
+- [x] `NavigationSplitView` with sidebar sections: Home, Search, Library (Liked Songs, Albums, Artists, Podcasts), Playlists.
+- [ ] Back/forward history with ⌘\[ and ⌘\], toolbar buttons and swipe gestures. (Keyboard and toolbar covered by `NavigationUITests`; trackpad swipe uses an `NSEvent` swipe monitor that XCUITest can't drive and is not yet checked on a trackpad.)
+- [ ] Window size and sidebar width restored on relaunch; full-screen and Stage Manager work. (Window frame relies on SwiftUI's autosave and sidebar visibility is kept in `@SceneStorage`; sidebar width, full-screen and Stage Manager not checked by hand yet.)
+- [ ] Light and dark mode, accent colour follows system. (System colours and materials only; not checked by eye in both appearances yet.)
 
 #### PBI-402 · Now-playing bar
 
