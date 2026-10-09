@@ -524,7 +524,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-203, PBI-403
 
-**Status:** In review (`feat/pbi-406-queue-panel`); drag to reorder is not yet checked by hand.
+**Status:** In progress - merged to `develop`; drag to reorder is not yet checked by hand.
 
 - [x] Inspector panel showing Now Playing, Next in Queue, Next From (context). (The bar's Queue button and View > Show Queue (⌥⌘I) toggle it; SpotCoreKit `PlayerModel` exposes `upNext`, `nextFromContext` and the `context` Veya last played from, refreshed on track changes and after every queue edit. "Next From" names the playlist, album, artist or show, else reads "Next Up". Track list rows dropped on the panel are added to the queue.)
 - [ ] Drag to reorder, swipe/Delete to remove, Clear Queue. (Remove from the context menu, a swipe, or the Delete key, and Clear Queue are covered by `QueueUITests`. Reordering uses `List.onMove`, whose mapping onto the player's one-row moves is unit-tested (`PlayerModelTests`), but XCUITest could not drive the drag, so it needs a check by hand. Only Up Next can be edited: the player's remove and move act on the user queue, not the context.)
