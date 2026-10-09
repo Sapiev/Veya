@@ -143,11 +143,11 @@ final class FakeSession: SessionHandle {
         box.withLock { $0.reconnects += 1 }
     }
 
-    func makeLibrary(cacheDirectory _: URL?) -> any LibraryServiceProtocol {
+    func makeLibrary(store _: MetadataStore?) -> any LibraryServiceProtocol {
         FakeLibrary()
     }
 
-    func makeMetadata() -> any MetadataServiceProtocol {
+    func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
         FakeMetadata()
     }
 }
@@ -164,6 +164,8 @@ final class FakeConnector: SessionConnector {
         var waiters: [CheckedContinuation<any SessionHandle, any Error>] = []
         var cacheLimits: [UInt64] = []
         var cacheLimitError: (any Error)?
+        var metadataClears = 0
+        var metadataClearError: (any Error)?
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
@@ -200,6 +202,23 @@ final class FakeConnector: SessionConnector {
                 throw error
             }
             box.cacheLimits.append(bytes)
+        }
+    }
+
+    var metadataClears: Int {
+        box.withLock { $0.metadataClears }
+    }
+
+    func failMetadataClear(with error: any Error) {
+        box.withLock { $0.metadataClearError = error }
+    }
+
+    func clearMetadataCache() throws {
+        try box.withLock { box in
+            box.metadataClears += 1
+            if let error = box.metadataClearError {
+                throw error
+            }
         }
     }
 

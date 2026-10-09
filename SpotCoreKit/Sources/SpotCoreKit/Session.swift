@@ -9,18 +9,19 @@ public protocol SessionHandle: AnyObject, Sendable {
     func systemDidWake()
     func networkChanged(available: Bool)
     func reconnect()
-    /// Without `cacheDirectory` the library is fetched again on every launch.
-    func makeLibrary(cacheDirectory: URL?) -> any LibraryServiceProtocol
-    func makeMetadata() -> any MetadataServiceProtocol
+    /// Without `store` the library is fetched again on every launch.
+    func makeLibrary(store: MetadataStore?) -> any LibraryServiceProtocol
+    /// Without `store` every lookup goes to the network.
+    func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol
 }
 
 extension SpotSession: SessionHandle {
-    public func makeLibrary(cacheDirectory: URL?) -> any LibraryServiceProtocol {
-        LibraryService(session: self, cacheDir: cacheDirectory?.path(percentEncoded: false))
+    public func makeLibrary(store: MetadataStore?) -> any LibraryServiceProtocol {
+        LibraryService(session: self, store: store)
     }
 
-    public func makeMetadata() -> any MetadataServiceProtocol {
-        MetadataService(session: self)
+    public func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol {
+        MetadataService(session: self, store: store)
     }
 }
 
@@ -30,14 +31,18 @@ public protocol SessionConnector: Sendable {
     func connect(storedCredentials: Data) async throws -> any SessionHandle
     /// Applies to sessions connected afterwards.
     func setAudioCacheLimit(bytes: UInt64) throws
+    func clearMetadataCache() throws
 }
 
 public struct SpotSessionConnector: SessionConnector {
     private let audioCache: AudioCache?
+    public let metadataStore: MetadataStore?
 
-    /// Without `audioCache` every play downloads the file again.
-    public init(audioCache: AudioCache? = nil) {
+    /// Without `audioCache` every play downloads the file again; without
+    /// `metadataStore` library and metadata are fetched again on every launch.
+    public init(audioCache: AudioCache? = nil, metadataStore: MetadataStore? = nil) {
         self.audioCache = audioCache
+        self.metadataStore = metadataStore
     }
 
     public func isPremium(accessToken: String) async throws -> Bool {
@@ -54,6 +59,10 @@ public struct SpotSessionConnector: SessionConnector {
 
     public func setAudioCacheLimit(bytes: UInt64) throws {
         try audioCache?.setLimitBytes(limitBytes: bytes)
+    }
+
+    public func clearMetadataCache() throws {
+        try metadataStore?.clear()
     }
 }
 
@@ -198,8 +207,9 @@ public final class SessionModel {
     }
 
     /// Ends the session before deleting so no reconnect can save the blob back.
-    /// Safe to repeat; the session ends even if a Keychain delete throws, and
-    /// both items are attempted before the first error is rethrown.
+    /// Safe to repeat; the session ends even if a Keychain delete or the
+    /// metadata cache clear throws, and every step is attempted before the
+    /// first error is rethrown.
     public func signOut() throws {
         _ = begin(.signedOut)
         var failure: (any Error)?
@@ -211,10 +221,21 @@ public final class SessionModel {
                 failure = failure ?? error
             }
         }
+        do {
+            try connector.clearMetadataCache()
+        } catch {
+            log(.warn, "Couldn't clear the metadata cache on sign out: \(Self.summary(error))")
+            failure = failure ?? error
+        }
         if let failure {
             throw failure
         }
         log(.info, "Signed out")
+    }
+
+    /// Drops cached library and metadata; the next fetch goes to the network.
+    public func resetMetadataCache() throws {
+        try connector.clearMetadataCache()
     }
 
     /// For app termination; the stored credentials stay.

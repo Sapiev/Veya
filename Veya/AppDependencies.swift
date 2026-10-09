@@ -26,7 +26,7 @@ struct AppDependencies {
                 service: Bundle.main.bundleIdentifier ?? "Veya",
                 account: "spotify-refresh-token"
             ),
-            connector: SpotSessionConnector(audioCache: openAudioCache()),
+            connector: SpotSessionConnector(audioCache: openAudioCache(), metadataStore: openMetadataStore()),
             browser: WebAuthenticationBrowser(),
             startFlow: SignInModel.startLoginFlow,
             artworkLoader: ArtworkLoader(directory: cachesDirectory.appending(path: "Artwork"))
@@ -43,6 +43,18 @@ struct AppDependencies {
             )
         } catch {
             Logger(subsystem: "veya", category: "cache").error("audio cache unavailable: \(error)")
+            return nil
+        }
+    }
+
+    /// Library and metadata load from the network without a store, so a
+    /// failure to open one is only logged.
+    private static func openMetadataStore() -> MetadataStore? {
+        let path = cachesDirectory.appending(path: "Metadata.sqlite")
+        do {
+            return try MetadataStore.open(path: path.path(percentEncoded: false))
+        } catch {
+            Logger(subsystem: "veya", category: "cache").error("metadata store unavailable: \(error)")
             return nil
         }
     }
