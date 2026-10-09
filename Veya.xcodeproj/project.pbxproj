@@ -13,8 +13,6 @@
 			buildPhases = (
 				000000000000000220000000 /* Build spotcore xcframework */,
 			);
-			dependencies = (
-			);
 			name = SpotCore;
 			productName = SpotCore;
 		};
@@ -32,20 +30,34 @@
 			remoteGlobalIDString = 000000000000000200000000;
 			remoteInfo = SpotCore;
 		};
+		000000000000000451000000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000100000000;
+			remoteInfo = Veya;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		000000000000000000000120 /* Veya.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Veya.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000031 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		000000000000000000000032 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		000000000000000000000033 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		000000000000000000000034 /* Veya.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Veya.xcconfig; sourceTree = "<group>"; };
+		000000000000000000000035 /* VeyaUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = VeyaUITests.xcconfig; sourceTree = "<group>"; };
+		000000000000000000000120 /* Veya.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Veya.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000121 /* VeyaUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VeyaUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000010 /* Veya */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Veya;
+			sourceTree = "<group>";
+		};
+		000000000000000000000040 /* VeyaUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VeyaUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -57,6 +69,11 @@
 				000000000000000131000000 /* SpotCoreKit in Frameworks */,
 			);
 		};
+		000000000000000430000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,8 +82,18 @@
 			children = (
 				000000000000000000000030 /* Config */,
 				000000000000000000000010 /* Veya */,
+				000000000000000000000040 /* VeyaUITests */,
 				000000000000000000000020 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000020 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000120 /* Veya.app */,
+				000000000000000000000121 /* VeyaUITests.xctest */,
+			);
+			name = Products;
 			sourceTree = "<group>";
 		};
 		000000000000000000000030 /* Config */ = {
@@ -74,18 +101,11 @@
 			children = (
 				000000000000000000000031 /* Shared.xcconfig */,
 				000000000000000000000034 /* Veya.xcconfig */,
+				000000000000000000000035 /* VeyaUITests.xcconfig */,
 				000000000000000000000032 /* Debug.xcconfig */,
 				000000000000000000000033 /* Release.xcconfig */,
 			);
 			path = Config;
-			sourceTree = "<group>";
-		};
-		000000000000000000000020 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				000000000000000000000120 /* Veya.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -115,6 +135,27 @@
 			productReference = 000000000000000000000120 /* Veya.app */;
 			productType = "com.apple.product-type.application";
 		};
+		000000000000000400000000 /* VeyaUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000410000000 /* Build configuration list for PBXNativeTarget "VeyaUITests" */;
+			buildPhases = (
+				000000000000000420000000 /* Sources */,
+				000000000000000430000000 /* Frameworks */,
+				000000000000000440000000 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000450000000 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				000000000000000000000040 /* VeyaUITests */,
+			);
+			name = VeyaUITests;
+			productName = VeyaUITests;
+			productReference = 000000000000000000000121 /* VeyaUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -127,6 +168,10 @@
 				TargetAttributes = {
 					000000000000000100000000 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					000000000000000400000000 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 000000000000000100000000;
 					};
 				};
 			};
@@ -149,6 +194,7 @@
 			targets = (
 				000000000000000100000000 /* Veya */,
 				000000000000000200000000 /* SpotCore */,
+				000000000000000400000000 /* VeyaUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -159,30 +205,33 @@
 			files = (
 			);
 		};
+		000000000000000440000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		000000000000000220000000 /* Build spotcore xcframework */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
 			name = "Build spotcore xcframework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
 			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/scripts/build-xcframework.sh\"\n";
+			shellScript = (
+				"\"$SRCROOT/scripts/build-xcframework.sh\"",
+				"",
+			);
 		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		000000000000000120000000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		000000000000000420000000 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 			);
@@ -194,6 +243,11 @@
 			isa = PBXTargetDependency;
 			target = 000000000000000200000000 /* SpotCore */;
 			targetProxy = 000000000000000151000000 /* PBXContainerItemProxy */;
+		};
+		000000000000000450000000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000100000000 /* Veya */;
+			targetProxy = 000000000000000451000000 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -350,6 +404,20 @@
 			};
 			name = Release;
 		};
+		000000000000000411000000 /* Debug configuration for PBXNativeTarget "VeyaUITests" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 000000000000000000000035 /* VeyaUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		000000000000000412000000 /* Release configuration for PBXNativeTarget "VeyaUITests" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 000000000000000000000035 /* VeyaUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -374,6 +442,14 @@
 			buildConfigurations = (
 				000000000000000211000000 /* Debug configuration for PBXAggregateTarget "SpotCore" */,
 				000000000000000212000000 /* Release configuration for PBXAggregateTarget "SpotCore" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		000000000000000410000000 /* Build configuration list for PBXNativeTarget "VeyaUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000411000000 /* Debug configuration for PBXNativeTarget "VeyaUITests" */,
+				000000000000000412000000 /* Release configuration for PBXNativeTarget "VeyaUITests" */,
 			);
 			defaultConfigurationName = Release;
 		};

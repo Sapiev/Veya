@@ -5,18 +5,14 @@ import SwiftUI
 @main struct MyApp: App {
     /// One window and one session per app, restored exactly once at launch.
     @State private var session: SessionModel
-    @State private var signIn = SignInModel(browser: WebAuthenticationBrowser())
+    @State private var signIn: SignInModel
     @State private var systemEvents: SystemEvents
     @State private var signOutFailed = false
 
     init() {
         Diagnostics.startLogging()
-        let session = SessionModel(
-            store: KeychainCredentialStore(
-                service: Bundle.main.bundleIdentifier ?? "Veya",
-                account: "spotcore-credentials"
-            )
-        )
+        let dependencies = AppDependencies.make()
+        let session = SessionModel(store: dependencies.store, connector: dependencies.connector)
         session.restore()
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -26,6 +22,7 @@ import SwiftUI
             MainActor.assumeIsolated { session.shutdown() }
         }
         _session = State(initialValue: session)
+        _signIn = State(initialValue: SignInModel(browser: dependencies.browser, startFlow: dependencies.startFlow))
         _systemEvents = State(initialValue: SystemEvents(
             onWake: { session.systemDidWake() },
             onNetworkChange: { session.networkChanged(available: $0) }
