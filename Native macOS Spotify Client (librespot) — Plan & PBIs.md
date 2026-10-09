@@ -356,7 +356,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-003
 
-**Status:** In review (`feat/pbi-301-metadata`).
+**Status:** Done (merged to `develop`).
 
 - [x] `spotcore` fetches tracks, albums, artists and episodes via librespot-metadata / extended metadata, batched up to 100 URIs per request.
 - [x] Returns flat UniFFI records (title, artists, album, duration, explicit, playable, artwork URLs by size). (`playable` is the `Playability` enum: playable, region-locked, not yet released.)
