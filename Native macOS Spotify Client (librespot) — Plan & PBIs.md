@@ -129,7 +129,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 2 · **Milestone:** M0 · **Depends on:** PBI-003
 
-**Status:** Done - awaiting PR (`build/pbi-004-app-skeleton`).
+**Status:** Done (merged to develop).
 
 - [x] macOS 14 deployment target, Swift 6 language mode, strict concurrency complete.
 - [x] Entitlements: App Sandbox, network client, network server (for Connect zeroconf), audio output. (Sandboxed playback needs no entitlement; only audio input has one.)
@@ -141,7 +141,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M0 · **Depends on:** PBI-003, PBI-004
 
-**Status:** In review (`build/pbi-005-ci`) - pipeline timing unverified until the repo has a GitHub remote.
+**Status:** Done (merged to develop) - pipeline timing unverified until the repo has a GitHub remote.
 
 - [x] GitHub Actions on `macos-latest`: Rust build + clippy + tests, xcframework build, `xcodebuild test`. (Pinned to `macos-26`: the project needs Xcode 26.)
 - [x] SwiftLint and SwiftFormat checks; rustfmt check.
@@ -154,7 +154,7 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M1 · **Depends on:** PBI-003
 
-**Status:** In review (`feat/pbi-006-logging`, stacked on `build/pbi-005-ci`).
+**Status:** Done (merged to develop).
 
 - [x] Rust `log`/`tracing` output bridged to `os.Logger` with subsystem per module. (Subsystem per crate, category per module path; trace is never enabled because librespot logs raw tokens there.)
 - [x] Help › Export Diagnostics writes a zip of the last 24 h of logs with tokens and usernames redacted.
