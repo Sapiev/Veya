@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// App volume and loudness normalisation, persisted across launches.
+/// App volume, loudness normalisation and output device, persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -24,6 +24,11 @@ public final class PlaybackSettings {
         didSet { defaults.set(loudness.storedName, forKey: Key.loudness) }
     }
 
+    /// UID of the chosen output device; `nil` follows the system default.
+    public var outputDeviceUID: String? {
+        didSet { defaults.set(outputDeviceUID, forKey: Key.outputDevice) }
+    }
+
     @ObservationIgnored private let defaults: UserDefaults
 
     /// Defaults to full volume, which leaves the signal unchanged, and Normal
@@ -33,6 +38,7 @@ public final class PlaybackSettings {
         storedVolume = Self.clamped(defaults.object(forKey: Key.volume) as? Double ?? 1)
         normalises = defaults.object(forKey: Key.normalises) as? Bool ?? true
         loudness = defaults.string(forKey: Key.loudness).flatMap(LoudnessPreset.init(storedName:)) ?? .normal
+        outputDeviceUID = defaults.string(forKey: Key.outputDevice)
     }
 
     /// What `SpotPlayer` takes for `volume`.
@@ -54,6 +60,7 @@ public final class PlaybackSettings {
         static let volume = "playback.volume"
         static let normalises = "playback.normalises"
         static let loudness = "playback.loudness"
+        static let outputDevice = "playback.outputDevice"
     }
 }
 

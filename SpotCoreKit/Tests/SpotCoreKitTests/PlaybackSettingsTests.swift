@@ -18,6 +18,7 @@ struct PlaybackSettingsTests {
         #expect(settings.volume == 1)
         #expect(settings.playerVolume == .max)
         #expect(settings.normalisation == .normal)
+        #expect(settings.outputDeviceUID == nil)
     }
 
     @Test func choicesSurviveARelaunch() {
@@ -25,6 +26,7 @@ struct PlaybackSettingsTests {
         settings.volume = 0.5
         settings.loudness = .loud
         settings.normalises = false
+        settings.outputDeviceUID = "interface-uid"
 
         let relaunched = PlaybackSettings(defaults: defaults)
 
@@ -32,6 +34,15 @@ struct PlaybackSettingsTests {
         #expect(relaunched.playerVolume == UInt16.max / 2 + 1)
         #expect(relaunched.loudness == .loud)
         #expect(relaunched.normalisation == nil)
+        #expect(relaunched.outputDeviceUID == "interface-uid")
+    }
+
+    @Test func choosingSystemDefaultAgainIsRemembered() {
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.outputDeviceUID = "interface-uid"
+        settings.outputDeviceUID = nil
+
+        #expect(PlaybackSettings(defaults: defaults).outputDeviceUID == nil)
     }
 
     @Test func volumeIsClampedToTheSliderRange() {
