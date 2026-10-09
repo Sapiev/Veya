@@ -39,6 +39,12 @@ extension XCUIApplication {
         staticTexts["routeTitle"]
     }
 
+    /// Waits for the main window to show the screen titled `title`.
+    func showsRoute(_ title: String) -> Bool {
+        staticTexts.matching(NSPredicate(format: "identifier == 'routeTitle' AND value == %@", title)).firstMatch
+            .waitForExistence(timeout: Self.timeout)
+    }
+
     func menuItem(_ menu: String, _ item: String) -> XCUIElement {
         menuBars.menuBarItems[menu].click()
         return menuBars.menuItems[item]

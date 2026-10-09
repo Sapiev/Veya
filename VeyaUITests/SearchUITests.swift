@@ -82,8 +82,7 @@ final class SearchUITests: XCTestCase {
         }
         app.typeKey(.return, modifierFlags: [])
 
-        XCTAssertTrue(app.routeTitle.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(app.routeTitle.value as? String, "Artist")
+        XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
     @MainActor func testNoResultsAndFailureEachSayWhatHappened() {

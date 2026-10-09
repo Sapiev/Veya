@@ -140,6 +140,23 @@ struct LibraryModelTests {
         #expect(metadata.requested.count == 2)
     }
 
+    @Test func failedLookupsAreUnresolvedUntilARetrySucceeds() async throws {
+        metadata.fails = true
+        let failed = try #require(model.resolve(["spotify:album:a"]))
+        try await waitUntil { metadata.pending == 1 }
+        metadata.release()
+        await failed.value
+        #expect(model.unresolved == ["spotify:album:a"])
+
+        metadata.fails = false
+        let retry = try #require(model.resolve(["spotify:album:a"]))
+        try await waitUntil { metadata.pending == 1 }
+        metadata.release()
+        await retry.value
+        #expect(model.unresolved.isEmpty)
+        #expect(model.metadata["spotify:album:a"] != nil)
+    }
+
     @Test func watchRefreshesTheKindsLoadedSoFar() async throws {
         await model.load(.tracks).value
         let watcher = Task { await model.watch() }

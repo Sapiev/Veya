@@ -393,10 +393,10 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit `PlaylistModel` (cached rootlist first, then sync and change watch) and the sidebar list (PBI-401) merged to develop; playlist page UI pending (PBI-404).
+**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit `PlaylistModel` (cached rootlist first, then sync and change watch) and the sidebar list (PBI-401) merged to develop; playlist page (PBI-404) merged to develop: contents load 200 tracks per request after a fully cached copy is shown, and an open playlist refreshes on its dealer push.
 
 - [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Fetch and folder nesting done in `spotcore` `playlist.rs`; no tree UI yet.)
-- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (`PlaylistService::page` and `follower_count` exist; no UI yet, not checked against a live account.)
+- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (Incremental loading, owner, description and artwork done on the PBI-404 playlist page; the follower count is not shown yet; not checked against a live account.)
 - [ ] Changes made on other devices appear within 10 s via dealer notifications. (`wait_for_change` reports root list and playlist pushes; nothing refreshes on it yet.)
 
 #### PBI-305 · Search
@@ -489,7 +489,7 @@ veya/
 
 - [x] Reusable list (SwiftUI `Table` or `NSTableView` wrapper) with columns #, Title/Artist, Album, Date added, Duration; sortable and resizable.
 - [ ] 10,000 rows scroll at 60 fps; rows load metadata lazily as they appear. (Metadata resolves in batches of 50 as rows appear, and a 10,000-song library opens in a UI test. Frame rate not measured: XCUITest's accessibility snapshot of a table this size takes about 27 s per query, so it needs an Instruments run on an M1 MacBook Air.)
-- [ ] Double-click or Return plays; multi-select; context menu (Play Next, Add to Queue, Add to Playlist, Go to Album/Artist, Copy Link, Like). (All done except Add to Playlist, which is shown disabled: `spotcore` has no playlist write API yet.)
+- [ ] Double-click or Return plays; multi-select; context menu (Play Next, Add to Queue, Add to Playlist, Go to Album/Artist, Copy Link, Like). (All done except Add to Playlist, which is shown disabled: `spotcore` has no playlist write API yet. Since PBI-404, Return plays the selection only in the list's own window and never while a text field is editing or a one-column list has focus.)
 - [x] Currently playing row is highlighted; unavailable rows dimmed.
 - [ ] Drag rows to sidebar playlists and to the queue. (Rows are drag sources carrying their URI; the queue drop target comes with the queue panel (PBI-406), the sidebar drop with a playlist write API.)
 
@@ -499,10 +499,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-403, PBI-302
 
-- [ ] Album: header (art, title, artist, year, track count, length), play/shuffle, tracks, copyright.
-- [ ] Artist: header image, top tracks, discography grouped by albums/singles/compilations, related artists, follow button.
-- [ ] Playlist: header, description, owner, play/shuffle, filter field, track list.
-- [ ] Each page loads its first paint in under 500 ms from cache.
+**Status:** In review (`feat/pbi-404-detail-pages`).
+
+- [x] Album: header (art, title, artist, year, track count, length), play/shuffle, tracks, copyright. (`spotcore` album metadata now carries the release year and copyright lines.)
+- [x] Artist: header image, top tracks, discography grouped by albums/singles/compilations, related artists, follow button. (`spotcore` artist metadata now carries top tracks for the account's country, the three discography groups and related artists; the header image is the artist portrait.)
+- [x] Playlist: header, description, owner, play/shuffle, filter field, track list. (Return in the filter field no longer plays the table selection: TrackList's Return handling now skips text editing and one-column lists and acts only in its own window.)
+- [ ] Each page loads its first paint in under 500 ms from cache. (Cache first is in place: a fully stored playlist renders synchronously from `cachedPage` before any request returns (`PlaylistPageTests`), and album and artist lookups read the PBI-308 metadata store before the network. Not timed on a real account.)
 
 #### PBI-405 · Search UI
 
@@ -548,7 +550,7 @@ veya/
 **Status:** Done (merged to `develop`).
 
 - [x] Welcome screen explains the app is unofficial and needs Premium, with a single Sign In button.
-- [x] Every list has a designed empty and error state (no blank pages). (Liked Songs, Albums, Artists, Podcasts, sidebar Playlists, Search and Recent Searches use `ContentUnavailableView` through `LoadStateView`/`FailedState`, with Try Again on failure. Home and the playlist, album, artist and show pages have no list yet and show their title; PBI-307 and PBI-404 reuse `LoadStateView`.)
+- [x] Every list has a designed empty and error state (no blank pages). (Liked Songs, Albums, Artists, Podcasts, sidebar Playlists, Search and Recent Searches use `ContentUnavailableView` through `LoadStateView`/`FailedState`, with Try Again on failure. The playlist, album and artist pages (PBI-404) use `LoadStateView` for loading, unavailable and failed lookups; Home and the show page have no list yet and show their title until PBI-307 and PBI-306.)
 
 ### E5 · Spotify Connect
 

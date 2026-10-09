@@ -34,7 +34,7 @@ final class NowPlayingUITests: XCTestCase {
 
         artist.click()
 
-        XCTAssertEqual(app.routeTitle.value as? String, "Artist")
+        XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
     @MainActor func testExpandedViewHasALyricsTab() {

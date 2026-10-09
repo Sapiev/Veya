@@ -40,6 +40,8 @@ public final class LibraryModel {
     public private(set) var items: [LibraryKind: [LibraryItem]] = [:]
     public private(set) var loadState: [LibraryKind: LibraryLoadState] = [:]
     public private(set) var metadata: [String: MetadataItem] = [:]
+    /// URIs whose last lookup failed; `resolve` tries them again.
+    public private(set) var unresolved: Set<String> = []
     public var saveFailure: LibrarySaveFailure?
     private var saved: Set<String> = []
 
@@ -132,7 +134,9 @@ public final class LibraryModel {
                 for (uri, item) in zip(missing, found) {
                     metadata[uri] = item
                 }
+                unresolved.subtract(missing)
             } catch {
+                unresolved.formUnion(missing)
                 log(.warn, "Couldn't load metadata for \(missing.count) items: \(Self.summary(error))")
             }
         }

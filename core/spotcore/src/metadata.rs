@@ -104,6 +104,9 @@ pub struct AlbumMetadata {
     pub tracks: Vec<String>,
     pub playability: Playability,
     pub artwork: Vec<Artwork>,
+    /// `None` when the album carries no release date.
+    pub year: Option<i32>,
+    pub copyrights: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
@@ -111,6 +114,12 @@ pub struct ArtistMetadata {
     pub uri: String,
     pub name: String,
     pub artwork: Vec<Artwork>,
+    /// Top tracks for the account's country, falling back to the global list.
+    pub top_tracks: Vec<String>,
+    pub albums: Vec<String>,
+    pub singles: Vec<String>,
+    pub compilations: Vec<String>,
+    pub related: Vec<ItemRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
@@ -450,6 +459,9 @@ impl Context {
                         tracks: album.tracks().filter_map(|t| t.to_uri().ok()).collect(),
                         playability: self.playability(&album.availability, &album.restrictions),
                         artwork: self.artwork(&album.covers),
+                        // librespot turns a missing date into year 0.
+                        year: Some(album.date.as_utc().year()).filter(|&year| year > 0),
+                        copyrights: album.copyrights.iter().map(|c| c.text.clone()).collect(),
                         title: album.name,
                     },
                 }
@@ -465,6 +477,15 @@ impl Context {
                     artist: ArtistMetadata {
                         uri,
                         artwork: self.artwork(portraits),
+                        top_tracks: uris(artist.top_tracks.for_country(&self.user.country).iter()),
+                        albums: uris(artist.albums_current()),
+                        singles: uris(artist.singles_current()),
+                        compilations: uris(artist.compilations_current()),
+                        related: artist
+                            .related
+                            .iter()
+                            .map(|a| item_ref(&a.id, &a.name))
+                            .collect(),
                         name: artist.name,
                     },
                 }
@@ -569,6 +590,10 @@ fn size_rank(size: ArtworkSize) -> u8 {
     }
 }
 
+fn uris<'a>(ids: impl Iterator<Item = &'a SpotifyUri>) -> Vec<String> {
+    ids.filter_map(|id| id.to_uri().ok()).collect()
+}
+
 fn item_ref(id: &SpotifyUri, name: &str) -> ItemRef {
     ItemRef {
         uri: id.to_uri().unwrap_or_default(),
@@ -620,6 +645,8 @@ mod tests {
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const ALBUM: &str = "spotify:album:6akEvsycLGftJxYudPjmqK";
     const SHOW: &str = "spotify:show:4rOoJ6Egrf8K2IrywzwOMk";
+    const ARTIST: &str = "spotify:artist:0OdUWJ0sBjDrqHygGUXeCF";
+    const RELATED: &str = "spotify:artist:3jOstUTkEu2JkjvRdBA5Gu";
     const EPISODE: &str = "spotify:episode:512ojhOuo1ktJprKbVcKyQ";
 
     fn context(country: &str) -> Context {
@@ -747,6 +774,110 @@ mod tests {
             track.artwork[0].url,
             format!("https://i.scdn.co/image/{}", "01".repeat(20))
         );
+    }
+
+    #[test]
+    fn decodes_album_year_and_copyrights() {
+        let mut copyright = proto::Copyright {
+            text: Some("2024 Label".to_owned()),
+            ..Default::default()
+        };
+        copyright.set_type(proto::copyright::Type::C);
+        let message = proto::Album {
+            gid: Some(gid(ALBUM)),
+            name: Some("Album".to_owned()),
+            date: Some(proto::Date {
+                year: Some(2024),
+                ..Default::default()
+            })
+            .into(),
+            copyright: vec![copyright],
+            ..Default::default()
+        };
+        let bytes = message.write_to_bytes().unwrap();
+        let MetadataItem::Album { album } = decode_one(ALBUM, entry(ALBUM, 200, Some(bytes)), "US")
+        else {
+            panic!("expected an album");
+        };
+
+        assert_eq!(album.year, Some(2024));
+        assert_eq!(album.copyrights, ["2024 Label"]);
+    }
+
+    #[test]
+    fn album_without_date_has_no_year() {
+        let message = proto::Album {
+            gid: Some(gid(ALBUM)),
+            ..Default::default()
+        };
+        let bytes = message.write_to_bytes().unwrap();
+        let MetadataItem::Album { album } = decode_one(ALBUM, entry(ALBUM, 200, Some(bytes)), "US")
+        else {
+            panic!("expected an album");
+        };
+
+        assert_eq!(album.year, None);
+    }
+
+    #[test]
+    fn decodes_artist_sections_with_country_top_tracks() {
+        let track = |uri| proto::Track {
+            gid: Some(gid(uri)),
+            ..Default::default()
+        };
+        let group = |uri| proto::AlbumGroup {
+            album: vec![proto::Album {
+                gid: Some(gid(uri)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let other_track = "spotify:track:0eGsygTp906u18L0Oimnem";
+        let single = "spotify:album:1DFixLWuPkv3KT3TnV35m3";
+        let message = proto::Artist {
+            gid: Some(gid(ARTIST)),
+            name: Some("Band".to_owned()),
+            top_track: vec![
+                proto::TopTracks {
+                    country: Some("".to_owned()),
+                    track: vec![track(other_track)],
+                    ..Default::default()
+                },
+                proto::TopTracks {
+                    country: Some("PL".to_owned()),
+                    track: vec![track(TRACK)],
+                    ..Default::default()
+                },
+            ],
+            album_group: vec![group(ALBUM)],
+            single_group: vec![group(single)],
+            related: vec![proto::Artist {
+                gid: Some(gid(RELATED)),
+                name: Some("Friends".to_owned()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let bytes = message.write_to_bytes().unwrap();
+        let decode =
+            |country| match decode_one(ARTIST, entry(ARTIST, 200, Some(bytes.clone())), country) {
+                MetadataItem::Artist { artist } => artist,
+                other => panic!("expected an artist, got {other:?}"),
+            };
+
+        let artist = decode("PL");
+        assert_eq!(artist.top_tracks, [TRACK]);
+        assert_eq!(artist.albums, [ALBUM]);
+        assert_eq!(artist.singles, [single]);
+        assert!(artist.compilations.is_empty());
+        assert_eq!(
+            artist.related,
+            [ItemRef {
+                uri: RELATED.to_owned(),
+                name: "Friends".to_owned()
+            }]
+        );
+        assert_eq!(decode("US").top_tracks, [other_track]);
     }
 
     #[test]

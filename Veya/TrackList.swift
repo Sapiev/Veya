@@ -71,16 +71,11 @@ struct TrackList: View {
         } primaryAction: { ids in
             play(ids, in: rows)
         }
-        .background {
-            // NSTableView swallows Return before onKeyPress; a key equivalent reaches it first.
-            // shortcut: active whenever rows are selected, since @FocusState never tracks a Table;
-            // scope it to the table's focus once a text field shares the page (PBI-404 filter).
-            if !selection.isEmpty {
-                Button("Play") { play(selection, in: sortedRows) }
-                    .keyboardShortcut(.return, modifiers: [])
-                    .hidden()
-            }
-        }
+        .background(ReturnKeyMonitor {
+            guard !selection.isEmpty else { return false }
+            play(selection, in: sortedRows)
+            return true
+        })
         .onChange(of: sortOrder) {
             // Sorting by metadata needs every row's metadata, not only the visible ones.
             if sortOrder.first?.keyPath != \Row.number, sortOrder.first?.keyPath != \Row.addedSort {
@@ -197,6 +192,52 @@ struct TrackList: View {
                 durationMs = 0
                 playable = true
             }
+        }
+    }
+}
+
+/// Return plays the selection unless a text field is editing or a list has focus.
+///
+/// NSTableView swallows Return before `onKeyPress`, and a SwiftUI `Table` leaves
+/// the window as first responder after a row click, so focus can't scope this;
+/// the monitor checks the window and what is first responder instead.
+private struct ReturnKeyMonitor: NSViewRepresentable {
+    /// Returns whether it handled the key.
+    let action: () -> Bool
+
+    func makeNSView(context _: Context) -> MonitorView {
+        MonitorView()
+    }
+
+    func updateNSView(_ view: MonitorView, context _: Context) {
+        view.action = action
+    }
+
+    final class MonitorView: NSView {
+        var action: () -> Bool = { false }
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === window, Self.isPlainReturn(event),
+                      !Self.takesReturn(event.window?.firstResponder), action() else { return event }
+                return nil
+            }
+        }
+
+        private static func isPlainReturn(_ event: NSEvent) -> Bool {
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+            return (event.keyCode == 36 || event.keyCode == 76) && modifiers.isEmpty
+        }
+
+        /// Text fields edit through an NSText field editor; one-column lists
+        /// (sidebar, search results) are tables that handle Return themselves.
+        private static func takesReturn(_ responder: NSResponder?) -> Bool {
+            responder is NSText || (responder as? NSTableView).map { $0.numberOfColumns <= 1 } == true
         }
     }
 }

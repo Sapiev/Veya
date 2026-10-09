@@ -58,7 +58,7 @@ final class TrackListUITests: XCTestCase {
         app.trackList.staticTexts["Song 1"].rightClick()
         app.menuItems["Go to Album"].click()
 
-        XCTAssertEqual(app.routeTitle.value as? String, "Album")
+        XCTAssertTrue(app.showsRoute("Test Album"))
     }
 
     @MainActor func testCopyLinkPutsTheWebLinkOnThePasteboard() {

@@ -19,7 +19,7 @@ final class NavigationUITests: XCTestCase {
 
         app.outlines.staticTexts["Road Trip"].click()
 
-        XCTAssertEqual(app.routeTitle.value as? String, "Road Trip")
+        XCTAssertTrue(app.showsRoute("Road Trip"))
     }
 
     @MainActor func testKeyboardBackAndForward() {
