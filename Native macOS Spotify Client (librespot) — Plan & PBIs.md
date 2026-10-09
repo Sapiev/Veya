@@ -221,10 +221,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-102
 
-- [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s).
-- [ ] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
-- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile.
-- [ ] Another device taking over the account ("playing elsewhere") pauses locally and informs the user.
+**Status:** In progress - session-layer reconnect on `feat/pbi-103-reconnect`; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
+
+- [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s). (Access point timeout and backoff done; dealer close waits on PBI-501, which starts the dealer.)
+- [x] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
+- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile. (Banner done; track and position restore waits on the player, PBI-202.)
+- [ ] Another device taking over the account ("playing elsewhere") pauses locally and informs the user. (Waits on the player and Connect dealer, PBI-202 and PBI-501.)
 
 #### PBI-104 · Sign out and switch account
 
