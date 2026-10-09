@@ -412,6 +412,23 @@ async fn forward_events(
             lock(&state).request_id = Some(play_request_id);
             continue;
         }
+        // librespot fires this ~30 s before the end; a preloaded track lets the
+        // EndOfTrack load below start without a gap.
+        if let PlayerEvent::TimeToPreloadNextTrack {
+            play_request_id, ..
+        } = event
+        {
+            let next = {
+                let state = lock(&state);
+                (state.request_id == Some(play_request_id))
+                    .then(|| state.queue.upcoming().cloned())
+                    .flatten()
+            };
+            if let Some(track) = next {
+                player.preload(track);
+            }
+            continue;
+        }
         let mut context_ended = false;
         if let PlayerEvent::EndOfTrack {
             play_request_id, ..

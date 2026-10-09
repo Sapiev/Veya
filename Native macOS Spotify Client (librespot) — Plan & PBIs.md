@@ -309,8 +309,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-203
 
-- [ ] Next track is preloaded about 30 s before the current one ends.
-- [ ] No gap or click between consecutive tracks of a gapless album (verified on a reference album list in the test plan).
+**Status:** In progress - `SpotPlayer` preloads `Queue::upcoming()` on librespot's `TimeToPreloadNextTrack`; listening check pending.
+
+- [x] Next track is preloaded about 30 s before the current one ends.
+- [ ] No gap or click between consecutive tracks of a gapless album (verified on a reference album list in the test plan). (No test plan or reference album list exists yet; needs a signed-in listening check via `examples/live_player.rs`.)
 
 #### PBI-205 · Volume and loudness normalisation
 

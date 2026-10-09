@@ -16,7 +16,7 @@ pub enum RepeatMode {
     Track,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Queue {
     /// Context in its original order.
     tracks: Vec<SpotifyUri>,
@@ -99,6 +99,25 @@ impl Queue {
             return None;
         }
         self.current()
+    }
+
+    /// What `advance(false)` would return, without moving the queue. Used to
+    /// preload the next track for gapless playback.
+    pub fn upcoming(&self) -> Option<&SpotifyUri> {
+        if self.repeat == RepeatMode::Track {
+            return self.current();
+        }
+        if let Some(track) = self.up_next.front() {
+            return Some(track);
+        }
+        let next = if self.pos + 1 < self.order.len() {
+            self.pos + 1
+        } else if self.repeat != RepeatMode::Off {
+            0
+        } else {
+            return None;
+        };
+        self.tracks.get(*self.order.get(next)?)
     }
 
     /// Steps back one context track. From an Up Next track it returns to the
@@ -188,6 +207,23 @@ mod tests {
         assert_eq!(q.current(), Some(&track(0)));
         assert_eq!(q.advance(false), Some(&track(1)));
         assert_eq!(q.advance(false), None);
+    }
+
+    #[test]
+    fn upcoming_matches_advance_without_moving() {
+        for repeat in [RepeatMode::Off, RepeatMode::Context, RepeatMode::Track] {
+            for shuffle in [false, true] {
+                let mut q = context(4);
+                q.repeat = repeat;
+                q.set_shuffle(shuffle, 3);
+                q.add(track(9));
+                for _ in 0..7 {
+                    let peeked = q.upcoming().cloned();
+                    assert_eq!(q.upcoming().cloned(), peeked);
+                    assert_eq!(q.advance(false).cloned(), peeked, "{repeat:?} shuffle={shuffle}");
+                }
+            }
+        }
     }
 
     #[test]
