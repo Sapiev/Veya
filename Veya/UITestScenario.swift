@@ -238,8 +238,13 @@
     private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
 
     /// A paused "Test Track" that answers play and pause with the matching events.
+    /// Songs 5 and 6 are queued and songs 7 and 8 follow; playing a list makes it the context.
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
         private let observer: any PlayerObserver
+        private let snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
+            current: scenarioTrackURI, upNext: [likedSongURI(5), likedSongURI(6)],
+            nextFromContext: [likedSongURI(7), likedSongURI(8)], shuffle: false, repeat: .off, autoplay: true
+        ))
 
         init(observer: any PlayerObserver) {
             self.observer = observer
@@ -249,23 +254,27 @@
 
         func play() { observer.onEvent(event: .playing(uri: scenarioTrackURI, positionMs: 0)) }
         func pause() { observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0)) }
-        func addToQueue(uri _: String) throws {}
-        func clearQueue() {}
+        func addToQueue(uri: String) throws { snapshot.withLock { $0.upNext.append(uri) } }
+        func clearQueue() { snapshot.withLock { $0.upNext.removeAll() } }
         func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
         func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
+            snapshot.withLock {
+                $0.current = uri
+                $0.nextFromContext = Array(uris.dropFirst(Int(startIndex) + 1))
+            }
             observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: 0))
         }
-        func moveInQueue(from _: UInt32, to _: UInt32) throws {}
-        func next() {}
-        func playNext(uri _: String) throws {}
-        func previous() {}
-        func queue() -> QueueSnapshot {
-            QueueSnapshot(current: scenarioTrackURI, upNext: [], nextFromContext: [], shuffle: false, repeat: .off, autoplay: true)
+        func moveInQueue(from: UInt32, to: UInt32) throws {
+            snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
         }
 
-        func removeFromQueue(index _: UInt32) throws {}
+        func next() {}
+        func playNext(uri: String) throws { snapshot.withLock { $0.upNext.insert(uri, at: 0) } }
+        func previous() {}
+        func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
+        func removeFromQueue(index: UInt32) throws { _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) } }
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}

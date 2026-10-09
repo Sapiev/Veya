@@ -5,6 +5,7 @@ import SwiftUI
 extension FocusedValues {
     /// The key window's history, so ⌘[ and ⌘] act on the window in front.
     @Entry var navigationHistory: NavigationHistory?
+    @Entry var queueVisible: Binding<Bool>?
 }
 
 /// The signed-in main window: sidebar of destinations, detail for the current route.
@@ -20,7 +21,6 @@ struct AppShell: View {
     @State private var searchFocusRequest = 0
     private let recentSearches: RecentSearches
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
-    /// Read by the queue inspector (PBI-406).
     @SceneStorage("queueVisible") private var queueVisible = false
 
     init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
@@ -60,6 +60,9 @@ struct AppShell: View {
                 RouteView(route: history.current)
             }
         }
+        .inspector(isPresented: $queueVisible) {
+            QueuePanel(player: player, library: library, playlists: playlists)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left", action: history.back)
@@ -71,6 +74,7 @@ struct AppShell: View {
             }
         }
         .focusedSceneValue(\.navigationHistory, history)
+        .focusedSceneValue(\.queueVisible, $queueVisible)
         .focusedSceneValue(\.focusSearch, focusSearch)
         .background {
             // ⌘F is in the Go menu; ⌘L is the browser habit for the same thing.
@@ -346,12 +350,21 @@ private struct SwipeNavigation: View {
     }
 }
 
-/// Go menu: ⌘[ and ⌘] like Finder and Safari.
+/// Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
 struct NavigationCommands: Commands {
     @FocusedValue(\.navigationHistory) private var history
     @FocusedValue(\.focusSearch) private var focusSearch
+    @FocusedValue(\.queueVisible) private var queueVisible
 
     var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            // ⌥⌘I is the system's Show Inspector shortcut.
+            Button(queueVisible?.wrappedValue == true ? "Hide Queue" : "Show Queue") {
+                queueVisible?.wrappedValue.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .disabled(queueVisible == nil)
+        }
         CommandMenu("Go") {
             Button("Search") { focusSearch?() }
                 .keyboardShortcut("f")

@@ -63,6 +63,11 @@ public final class PlayerModel {
     public private(set) var isPlaying = false
     public private(set) var shuffle = false
     public private(set) var repeatMode = RepeatMode.off
+    /// Tracks the user queued; they play before the rest of the context.
+    public private(set) var upNext: [String] = []
+    public private(set) var nextFromContext: [String] = []
+    /// What Veya last started playback from; the player itself doesn't report it.
+    public private(set) var context: String?
     private(set) var positionMs: UInt32 = 0
     /// When `positionMs` was reported; playback has advanced since if playing.
     private(set) var positionAnchor = Date.distantPast
@@ -105,6 +110,8 @@ public final class PlayerModel {
         let queue = player.queue()
         shuffle = queue.shuffle
         repeatMode = queue.repeat
+        upNext = queue.upNext
+        nextFromContext = queue.nextFromContext
         // The player and engine were created with these values.
         applied = Applied(
             volume: settings.playerVolume,
@@ -153,6 +160,7 @@ public final class PlayerModel {
             isPlaying = false
             report(position)
             show(uri, title: nowPlaying?.uri == uri ? nowPlaying?.title ?? "" : "", durationMs: nowPlaying?.durationMs ?? 0)
+            refreshQueue()
         case let .playing(_, position):
             report(position)
             isPlaying = true
@@ -163,6 +171,7 @@ public final class PlayerModel {
             report(position)
         case let .trackChanged(uri, name, durationMs):
             show(uri, title: name, durationMs: durationMs)
+            refreshQueue()
         case .endOfTrack:
             break
         case .unavailable:
@@ -171,6 +180,7 @@ public final class PlayerModel {
             isPlaying = false
             nowPlaying = nil
             report(0)
+            refreshQueue()
         }
     }
 
@@ -180,6 +190,8 @@ public final class PlayerModel {
         perform("play") {
             try player.loadTracks(uris: uris, startIndex: UInt32(index), contextUri: context, autoplay: true)
         }
+        self.context = context
+        refreshQueue()
     }
 
     /// Puts `uris` at the front of Up Next, keeping their order.
@@ -189,6 +201,7 @@ public final class PlayerModel {
                 try player.playNext(uri: uri)
             }
         }
+        refreshQueue()
     }
 
     public func addToQueue(_ uris: [String]) {
@@ -197,6 +210,54 @@ public final class PlayerModel {
                 try player.addToQueue(uri: uri)
             }
         }
+        refreshQueue()
+    }
+
+    /// Removes Up Next rows by their shown position.
+    public func removeFromUpNext(at offsets: IndexSet) {
+        guard queueIsCurrent(), offsets.allSatisfy(upNext.indices.contains) else { return }
+        perform("remove from queue") {
+            for index in offsets.reversed() {
+                try player.removeFromQueue(index: UInt32(index))
+            }
+        }
+        refreshQueue()
+    }
+
+    /// Moves Up Next rows like `List.onMove`: `destination` is a position before the move.
+    public func moveInUpNext(fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard queueIsCurrent(), source.allSatisfy(upNext.indices.contains), (0 ... upNext.count).contains(destination)
+        else { return }
+        var target = upNext.enumerated().filter { !source.contains($0.offset) }.map(\.element)
+        target.insert(contentsOf: source.map { upNext[$0] }, at: destination - source.count(in: 0 ..< destination))
+        var current = upNext
+        perform("reorder queue") {
+            // The player moves one row at a time, so put each misplaced row in its final place.
+            for index in target.indices where current[index] != target[index] {
+                guard let from = current[(index + 1)...].firstIndex(of: target[index]) else { continue }
+                try player.moveInQueue(from: UInt32(from), to: UInt32(index))
+                current.insert(current.remove(at: from), at: index)
+            }
+        }
+        refreshQueue()
+    }
+
+    public func clearUpNext() {
+        player.clearQueue()
+        refreshQueue()
+    }
+
+    /// Up Next shifts when a track ends; acting on stale positions would hit the wrong rows.
+    private func queueIsCurrent() -> Bool {
+        let shown = upNext
+        refreshQueue()
+        return upNext == shown
+    }
+
+    private func refreshQueue() {
+        let queue = player.queue()
+        upNext = queue.upNext
+        nextFromContext = queue.nextFromContext
     }
 
     private func perform(_ action: String, _ body: () throws -> Void) {
@@ -228,6 +289,7 @@ public final class PlayerModel {
     public func setShuffle(_ on: Bool) {
         player.setShuffle(on: on)
         shuffle = on
+        refreshQueue()
     }
 
     /// Off, then the whole context, then the current track.

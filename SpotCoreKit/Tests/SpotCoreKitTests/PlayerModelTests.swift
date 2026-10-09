@@ -5,10 +5,18 @@ import Testing
 
 final class FakePlayer: SpotPlayerProtocol {
     private let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
-    private let snapshot: QueueSnapshot
+    /// Up Next behaves like the core queue so position mapping can be checked by outcome.
+    private let snapshot: OSAllocatedUnfairLock<QueueSnapshot>
 
-    init(shuffle: Bool = false, repeat mode: RepeatMode = .off) {
-        snapshot = QueueSnapshot(current: nil, upNext: [], nextFromContext: [], shuffle: shuffle, repeat: mode, autoplay: true)
+    init(shuffle: Bool = false, repeat mode: RepeatMode = .off, upNext: [String] = [], nextFromContext: [String] = []) {
+        snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
+            current: nil, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
+        ))
+    }
+
+    /// Stands in for the player advancing on its own, e.g. a track ending.
+    func setUpNext(_ uris: [String]) {
+        snapshot.withLock { $0.upNext = uris }
     }
 
     var recorded: [String] {
@@ -19,20 +27,40 @@ final class FakePlayer: SpotPlayerProtocol {
         calls.withLock { $0.append(call) }
     }
 
-    func addToQueue(uri: String) throws { record("addToQueue \(uri)") }
-    func clearQueue() { record("clearQueue") }
+    func addToQueue(uri: String) throws {
+        record("addToQueue \(uri)")
+        snapshot.withLock { $0.upNext.append(uri) }
+    }
+
+    func clearQueue() {
+        record("clearQueue")
+        snapshot.withLock { $0.upNext.removeAll() }
+    }
+
     func load(uri: String, startMs _: UInt32, autoplay _: Bool) async throws { record("load \(uri)") }
     func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, autoplay _: Bool) throws {
         record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")")
     }
-    func moveInQueue(from: UInt32, to: UInt32) throws { record("move \(from) \(to)") }
+    func moveInQueue(from: UInt32, to: UInt32) throws {
+        record("move \(from) \(to)")
+        snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
+    }
+
     func next() { record("next") }
     func pause() { record("pause") }
     func play() { record("play") }
-    func playNext(uri: String) throws { record("playNext \(uri)") }
+    func playNext(uri: String) throws {
+        record("playNext \(uri)")
+        snapshot.withLock { $0.upNext.insert(uri, at: 0) }
+    }
+
     func previous() { record("previous") }
-    func queue() -> QueueSnapshot { snapshot }
-    func removeFromQueue(index: UInt32) throws { record("remove \(index)") }
+    func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
+    func removeFromQueue(index: UInt32) throws {
+        record("remove \(index)")
+        _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) }
+    }
+
     func seek(positionMs: UInt32) { record("seek \(positionMs)") }
     func setAutoplay(on: Bool) { record("autoplay \(on)") }
     func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
@@ -225,5 +253,62 @@ struct PlayerModelTests {
         player.playNext(["a", "b"])
         player.addToQueue(["c", "d"])
         #expect(fake.recorded == ["playNext b", "playNext a", "addToQueue c", "addToQueue d"])
+    }
+
+    @Test func queueMutationsShowTheNewUpNext() {
+        let player = model(FakePlayer(nextFromContext: ["x"]))
+        #expect(player.nextFromContext == ["x"])
+        player.addToQueue(["a", "b"])
+        player.playNext(["c"])
+        #expect(player.upNext == ["c", "a", "b"])
+        player.clearUpNext()
+        #expect(player.upNext == [])
+    }
+
+    @Test(arguments: [
+        ([0], 3, ["b", "c", "a", "d"]),
+        ([3], 0, ["d", "a", "b", "c"]),
+        ([1, 3], 0, ["b", "d", "a", "c"]),
+        ([0, 1], 4, ["c", "d", "a", "b"]),
+        ([2], 2, ["a", "b", "c", "d"]),
+    ])
+    func movesMatchListOnMove(source: [Int], destination: Int, expected: [String]) {
+        let player = model(FakePlayer(upNext: ["a", "b", "c", "d"]))
+        player.moveInUpNext(fromOffsets: IndexSet(source), toOffset: destination)
+        #expect(player.upNext == expected)
+    }
+
+    @Test func movesKeepRepeatedTracksApart() {
+        let player = model(FakePlayer(upNext: ["a", "b", "a"]))
+        player.moveInUpNext(fromOffsets: [2], toOffset: 0)
+        #expect(player.upNext == ["a", "a", "b"])
+    }
+
+    @Test func removesTheShownRows() {
+        let player = model(FakePlayer(upNext: ["a", "b", "c", "d"]))
+        player.removeFromUpNext(at: [1, 3])
+        #expect(player.upNext == ["a", "c"])
+    }
+
+    @Test func staleQueuePositionsChangeNothing() {
+        let fake = FakePlayer(upNext: ["a", "b", "c"])
+        let player = model(fake)
+        fake.setUpNext(["b", "c"])
+        player.removeFromUpNext(at: [0])
+        #expect(player.upNext == ["b", "c"])
+        fake.setUpNext(["c"])
+        player.moveInUpNext(fromOffsets: [0], toOffset: 2)
+        #expect(player.upNext == ["c"])
+        #expect(!fake.recorded.contains { $0.hasPrefix("remove") || $0.hasPrefix("move") })
+    }
+
+    @Test func playRemembersItsContextAndTrackChangesRefreshTheQueue() {
+        let fake = FakePlayer()
+        let player = model(fake)
+        player.play(["a", "b"], from: 0, context: "spotify:album:1")
+        #expect(player.context == "spotify:album:1")
+        fake.setUpNext(["z"])
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 1000))
+        #expect(player.upNext == ["z"])
     }
 }

@@ -36,6 +36,10 @@ final class TrackListUITests: XCTestCase {
         let app = likedSongs()
 
         app.trackList.staticTexts["Song 4"].click()
+        // Return right after the click can beat the selection to the app's key handler.
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
         app.typeKey(.return, modifierFlags: [])
 
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
@@ -77,6 +81,8 @@ final class TrackListUITests: XCTestCase {
         let title = app.buttons["Title"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
 
         title.click()
+        // Two clicks inside the double-click interval arrive as one double-click, which sorts once.
+        Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
         title.click()
 
         XCTAssertTrue(app.trackList.outlineRows.firstMatch.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
