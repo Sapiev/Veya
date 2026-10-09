@@ -499,7 +499,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-403, PBI-302
 
-**Status:** In review (`feat/pbi-404-detail-pages`).
+**Status:** In progress - merged to `develop`; the 500 ms first paint is not yet timed on a real account.
 
 - [x] Album: header (art, title, artist, year, track count, length), play/shuffle, tracks, copyright. (`spotcore` album metadata now carries the release year and copyright lines.)
 - [x] Artist: header image, top tracks, discography grouped by albums/singles/compilations, related artists, follow button. (`spotcore` artist metadata now carries top tracks for the account's country, the three discography groups and related artists; the header image is the artist portrait.)
