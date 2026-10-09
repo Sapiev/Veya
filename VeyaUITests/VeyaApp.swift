@@ -28,7 +28,12 @@ extension XCUIApplication {
     }
 
     var signedInScreen: XCUIElement {
-        staticTexts["You're signed in."]
+        outlines.staticTexts["Liked Songs"]
+    }
+
+    /// The heading of the screen the main window shows.
+    var routeTitle: XCUIElement {
+        staticTexts["routeTitle"]
     }
 
     func menuItem(_ menu: String, _ item: String) -> XCUIElement {
