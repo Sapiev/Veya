@@ -14,7 +14,7 @@ struct AppShell: View {
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
     @State private var library: LibraryModel
-    @State private var settings = PlaybackSettings()
+    private let settings: PlaybackSettings
     @State private var player: PlayerModel?
     @State private var search: SearchModel
     @State private var searchFocusRequest = 0
@@ -23,8 +23,9 @@ struct AppShell: View {
     /// Read by the queue inspector (PBI-406).
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches) {
+    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
         self.session = session
+        self.settings = settings
         self.recentSearches = recentSearches
         _search = State(initialValue: SearchModel(service: session.makeSearch()))
         let metadata = session.makeMetadata(store: metadataStore)

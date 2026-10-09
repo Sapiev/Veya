@@ -75,6 +75,18 @@ public final class PlayerModel {
     @ObservationIgnored private let log: PlayerLog
     @ObservationIgnored private var events: Task<Void, Never>?
     @ObservationIgnored private(set) var resolution: Task<Void, Never>?
+    /// What the player and engine were last given, so a change is sent once.
+    @ObservationIgnored private var applied: Applied
+    /// Async setters run in order, so the last change wins.
+    @ObservationIgnored private(set) var settingsApply: Task<Void, Never>?
+
+    private struct Applied: Equatable {
+        var volume: UInt16
+        var bitrate: Bitrate
+        var normalisation: LoudnessPreset?
+        var outputDeviceUID: String?
+        var rate: Float
+    }
 
     init(
         player: any SpotPlayerProtocol,
@@ -93,6 +105,15 @@ public final class PlayerModel {
         let queue = player.queue()
         shuffle = queue.shuffle
         repeatMode = queue.repeat
+        // The player and engine were created with these values.
+        applied = Applied(
+            volume: settings.playerVolume,
+            bitrate: settings.bitrate,
+            normalisation: settings.normalisation,
+            outputDeviceUID: settings.outputDeviceUID,
+            rate: 1
+        )
+        followSettings()
     }
 
     isolated deinit {
@@ -225,7 +246,7 @@ public final class PlayerModel {
         get { settings.volume }
         set {
             settings.volume = newValue
-            player.setVolume(volume: settings.playerVolume)
+            applySettings()
         }
     }
 
@@ -234,7 +255,50 @@ public final class PlayerModel {
         get { settings.outputDeviceUID }
         set {
             settings.outputDeviceUID = newValue
-            engine?.outputDeviceUID = newValue
+            applySettings()
+        }
+    }
+
+    /// Re-arms on every change, so edits in the Settings window reach the live player.
+    private func followSettings() {
+        withObservationTracking {
+            applySettings()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.followSettings() }
+        }
+    }
+
+    private func applySettings() {
+        let target = Applied(
+            volume: settings.playerVolume,
+            bitrate: settings.bitrate,
+            normalisation: settings.normalisation,
+            outputDeviceUID: settings.outputDeviceUID,
+            rate: settings.rate(for: nowPlaying?.uri ?? "")
+        )
+        let previous = applied
+        guard target != previous else { return }
+        applied = target
+        if target.volume != previous.volume {
+            player.setVolume(volume: target.volume)
+        }
+        if target.outputDeviceUID != previous.outputDeviceUID {
+            engine?.outputDeviceUID = target.outputDeviceUID
+        }
+        if target.rate != previous.rate {
+            engine?.rate = target.rate
+        }
+        guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation else { return }
+        let player = player
+        let pending = settingsApply
+        settingsApply = Task {
+            await pending?.value
+            if target.bitrate != previous.bitrate {
+                await player.setBitrate(bitrate: target.bitrate)
+            }
+            if target.normalisation != previous.normalisation {
+                await player.setNormalisation(normalisation: target.normalisation)
+            }
         }
     }
 
@@ -254,7 +318,7 @@ public final class PlayerModel {
             artwork: known?.artwork ?? [],
             durationMs: durationMs
         )
-        engine?.rate = settings.rate(for: uri)
+        applySettings()
         if known == nil {
             resolution = Task { await resolve(uri) }
         }

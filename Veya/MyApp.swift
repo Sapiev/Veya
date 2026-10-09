@@ -11,10 +11,15 @@ import SwiftUI
     private let artworkLoader: ArtworkLoader?
     private let metadataStore: MetadataStore?
     @State private var recentSearches: RecentSearches
+    /// One instance, so Settings window edits reach the live player.
+    @State private var settings: PlaybackSettings
+    private let defaults: UserDefaults
 
     init() {
-        Diagnostics.startLogging()
         let dependencies = AppDependencies.make()
+        defaults = dependencies.defaults
+        Diagnostics.startLogging(level: Diagnostics.savedLevel(in: dependencies.defaults))
+        _settings = State(initialValue: PlaybackSettings(defaults: dependencies.defaults))
         artworkLoader = dependencies.artworkLoader
         metadataStore = dependencies.metadataStore
         _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
@@ -41,7 +46,13 @@ import SwiftUI
 
     var body: some Scene {
         Window("Veya", id: "main") {
-            ContentView(session: session, signIn: signIn, metadataStore: metadataStore, recentSearches: recentSearches) {
+            ContentView(
+                session: session,
+                signIn: signIn,
+                metadataStore: metadataStore,
+                recentSearches: recentSearches,
+                settings: settings
+            ) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
@@ -60,6 +71,13 @@ import SwiftUI
                     Task { await Diagnostics.export() }
                 }
             }
+        }
+
+        Settings {
+            SettingsView(session: session, settings: settings) {
+                AccountCommands.signOut(session, failed: $signOutFailed)
+            }
+            .defaultAppStorage(defaults)
         }
     }
 }

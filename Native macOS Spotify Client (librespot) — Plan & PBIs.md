@@ -244,7 +244,7 @@ veya/
 
 **Status:** In progress - sign-out merged to develop (session end and Keychain delete); playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
 
-**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account gets a button in PBI-407.
+**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account has a Sign Out button again (PBI-407, `SettingsUITests`).
 
 - [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end, Keychain delete and metadata cache clear done; playback stop and audio cache clear not wired into sign-out yet: PBI-202, PBI-207.)
 - [x] App returns to the sign-in screen without a relaunch.
@@ -442,11 +442,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-**Status:** In progress - metadata store merged to develop (ADR-008); cache-first launch waits on library screens (PBI-401, PBI-403), Reset button on the Settings window (PBI-407).
+**Status:** In progress - metadata store merged to develop (ADR-008); Reset button in Settings › Storage (PBI-407); cache-first launch waits on library screens (PBI-401, PBI-403).
 
 - [x] SQLite stores library, playlists and item metadata with revision IDs; schema migrations are versioned. (`rusqlite` in `spotcore` instead of GRDB, ADR-008; `MetadataStore` with `PRAGMA user_version` migrations.)
 - [ ] Launch renders from cache first, then reconciles with the server (stale-while-revalidate). (Done in `spotcore` (`cached`, `cached_rootlist`, `cached_page`, metadata store reads) and `LibraryModel`; no app screen renders the library yet: PBI-401, PBI-403.)
-- [ ] Cache is cleared on sign-out and has a Reset button in Settings. (Sign-out clears it; `SessionModel.resetMetadataCache` is ready, no button until the Settings window, PBI-407.)
+- [x] Cache is cleared on sign-out and has a Reset button in Settings. (Settings › Storage › Reset Metadata Cache, with a confirmation; `SettingsUITests`.)
 
 ### E4 · User interface
 
@@ -531,9 +531,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-401
 
-- [ ] SwiftUI `Settings` scene with tabs: General, Playback, Storage, Connect, Account, Advanced.
-- [ ] Advanced tab: optional Web API Client ID, log level, proxy.
-- [ ] All settings persist via `@AppStorage` and are applied without restart where possible.
+**Status:** In review (`feat/pbi-407-settings`).
+
+**UI tests:** `SettingsUITests` (⌘, opens every tab, a Playback choice survives reopening, Account › Sign Out, Reset Metadata Cache confirmation, Advanced log level). Persistence across relaunch: `PlaybackSettingsTests.choicesSurviveARelaunch`; live apply: `PlayerModelTests.settingsChangesReachTheLivePlayerOnce`.
+
+- [x] SwiftUI `Settings` scene with tabs: General, Playback, Storage, Connect, Account, Advanced. (General and Connect say "No settings yet." until a setting exists for them; Connect device options come with E5.)
+- [ ] Advanced tab: optional Web API Client ID, log level, proxy. (Log level done, applied at once. No Client ID field: per ADR-002 a user-supplied ID gets no `streaming` scope, and Web API calls reuse the sign-in token, so a separate ID needs its own OAuth flow first. No proxy: `spotcore` has no proxy setting yet.)
+- [x] All settings persist via `@AppStorage` and are applied without restart where possible. (One `PlaybackSettings` shared by the player and the Settings window, stored in `UserDefaults`; the log level uses `@AppStorage`. Volume, output device, podcast speed, streaming quality, normalisation and log level apply at once; changing the audio cache size reconnects, which stops the current track.)
 
 #### PBI-408 · Onboarding and empty states
 
