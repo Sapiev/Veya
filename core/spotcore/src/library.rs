@@ -1,4 +1,4 @@
-//! The user's library (liked songs, saved albums, followed artists) through
+//! The user's library (liked songs, saved albums, followed artists and shows) through
 //! spclient's collection v2 endpoints, cached on disk per set and kept fresh
 //! by delta syncs that dealer pushes trigger.
 
@@ -23,7 +23,7 @@ const PUSH_URI: &str = "hm://collection/";
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum LibraryError {
-    #[error("not a track, album or artist URI: {uri}")]
+    #[error("not a track, album, artist or show URI: {uri}")]
     UnsupportedUri { uri: String },
     #[error("library request failed: {message}")]
     Request { message: String },
@@ -50,11 +50,12 @@ pub enum LibraryKind {
     Tracks,
     Albums,
     Artists,
+    Shows,
 }
 
 impl LibraryKind {
     fn of(uri: &str) -> Option<Self> {
-        [Self::Tracks, Self::Albums, Self::Artists]
+        [Self::Tracks, Self::Albums, Self::Artists, Self::Shows]
             .into_iter()
             .find(|kind| kind.holds(uri))
     }
@@ -64,6 +65,7 @@ impl LibraryKind {
             Self::Tracks => "spotify:track:",
             Self::Albums => "spotify:album:",
             Self::Artists => "spotify:artist:",
+            Self::Shows => "spotify:show:",
         };
         uri.starts_with(prefix)
     }
@@ -73,6 +75,7 @@ impl LibraryKind {
         match self {
             Self::Tracks | Self::Albums => "collection",
             Self::Artists => "artist",
+            Self::Shows => "show",
         }
     }
 }
@@ -150,7 +153,7 @@ impl LibraryService {
     }
 
     /// Likes or unlikes a track, saves or removes an album, follows or
-    /// unfollows an artist. Local state changes only after the server accepts.
+    /// unfollows an artist or show. Local state changes only after the server accepts.
     pub async fn set_saved(&self, uri: String, saved: bool) -> Result<(), LibraryError> {
         let kind = LibraryKind::of(&uri)
             .ok_or_else(|| LibraryError::UnsupportedUri { uri: uri.clone() })?;
@@ -641,7 +644,12 @@ mod tests {
             LibraryKind::of("spotify:artist:a").map(LibraryKind::set),
             Some("artist")
         );
+        assert_eq!(
+            LibraryKind::of("spotify:show:a").map(LibraryKind::set),
+            Some("show")
+        );
         assert_eq!(LibraryKind::of("spotify:playlist:a"), None);
+        assert_eq!(LibraryKind::of("spotify:episode:a"), None);
     }
 
     #[test]

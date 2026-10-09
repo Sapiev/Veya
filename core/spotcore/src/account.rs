@@ -25,15 +25,19 @@ pub async fn is_premium_account(access_token: String) -> Result<bool, SessionErr
     is_premium_at(ME_URL, &access_token).await
 }
 
-async fn is_premium_at(url: &str, access_token: &str) -> Result<bool, SessionError> {
-    let http = reqwest::Client::builder()
+/// The client for bearer-authenticated Web API calls.
+pub(crate) fn web_api_client() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder()
         // A redirect must not carry the bearer token elsewhere.
         .redirect(reqwest::redirect::Policy::none())
         // Trust only the macOS keychain roots, honoring the user's trust settings.
         .tls_built_in_webpki_certs(false)
         .timeout(REQUEST_TIMEOUT)
         .build()
-        .map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
+}
+
+async fn is_premium_at(url: &str, access_token: &str) -> Result<bool, SessionError> {
+    let http = web_api_client().map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
     let response = http
         .get(url)
         .bearer_auth(access_token)
@@ -66,21 +70,21 @@ fn internal(message: impl Into<String>) -> SessionError {
     }
 }
 
+/// Answers one request per `(status, body)` in order on a local port, returning
+/// the base URL and, once all are served, the request heads.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::Ipv4Addr;
+pub(crate) async fn fake_web_api(
+    responses: Vec<(&'static str, String)>,
+) -> (String, tokio::task::JoinHandle<Vec<String>>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
 
-    /// Answers one request with `status` and `body`, returning the request head.
-    async fn fake_me(
-        status: &'static str,
-        body: &'static str,
-    ) -> (String, tokio::task::JoinHandle<String>) {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let url = format!("http://{}/v1/me", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move {
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let mut heads = Vec::new();
+        for (status, body) in responses {
             let (mut stream, _) = listener.accept().await.unwrap();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
@@ -94,9 +98,25 @@ mod tests {
                 body.len()
             );
             stream.write_all(response.as_bytes()).await.unwrap();
-            String::from_utf8_lossy(&request).into_owned()
-        });
-        (url, server)
+            heads.push(String::from_utf8_lossy(&request).into_owned());
+        }
+        heads
+    });
+    (base, server)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    async fn fake_me(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, tokio::task::JoinHandle<String>) {
+        let (base, server) = fake_web_api(vec![(status, body.to_owned())]).await;
+        let head = tokio::spawn(async move { server.await.unwrap().remove(0) });
+        (format!("{base}/v1/me"), head)
     }
 
     #[tokio::test]

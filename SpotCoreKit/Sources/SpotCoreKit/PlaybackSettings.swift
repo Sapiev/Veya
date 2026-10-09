@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// App volume, loudness normalisation, output device, streaming quality and
-/// audio cache size, persisted across launches.
+/// App volume, loudness normalisation, output device, streaming quality,
+/// audio cache size and episode speed, persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -41,6 +41,17 @@ public final class PlaybackSettings {
 
     public static let defaultAudioCacheLimitBytes: UInt64 = 1 << 30
 
+    /// Podcast episode speed, clamped to `AudioEngine.rateRange`; music always plays at 1x.
+    public var episodeSpeed: Float {
+        get { storedEpisodeSpeed }
+        set {
+            storedEpisodeSpeed = AudioEngine.clamped(rate: newValue)
+            defaults.set(storedEpisodeSpeed, forKey: Key.episodeSpeed)
+        }
+    }
+
+    private var storedEpisodeSpeed: Float
+
     @ObservationIgnored private let defaults: UserDefaults
 
     /// Defaults to full volume, which leaves the signal unchanged, Normal
@@ -54,6 +65,12 @@ public final class PlaybackSettings {
         bitrate = defaults.string(forKey: Key.bitrate).flatMap(Bitrate.init(storedName:)) ?? .kbps320
         audioCacheLimitBytes = defaults.string(forKey: Key.audioCacheLimit).flatMap(UInt64.init)
             ?? Self.defaultAudioCacheLimitBytes
+        storedEpisodeSpeed = AudioEngine.clamped(rate: defaults.object(forKey: Key.episodeSpeed) as? Float ?? 1)
+    }
+
+    /// What `AudioEngine.rate` should be while `uri` plays.
+    public func rate(for uri: String) -> Float {
+        uri.hasPrefix("spotify:episode:") ? episodeSpeed : 1
     }
 
     /// What `SpotPlayer` takes for `volume`.
@@ -79,6 +96,7 @@ public final class PlaybackSettings {
         static let bitrate = "playback.bitrate"
         // A string: UserDefaults has no UInt64 and Int64 would admit negatives.
         static let audioCacheLimit = "playback.audioCacheLimit"
+        static let episodeSpeed = "playback.episodeSpeed"
     }
 }
 

@@ -7,6 +7,7 @@ extension LibraryKind {
         case "track": self = .tracks
         case "album": self = .albums
         case "artist": self = .artists
+        case "show": self = .shows
         default: return nil
         }
     }
@@ -83,7 +84,7 @@ public final class LibraryModel {
         while !Task.isCancelled {
             await library.waitForChange()
             guard !Task.isCancelled else { return }
-            for kind in [LibraryKind.tracks, .albums, .artists] where loadState[kind] != nil {
+            for kind in [LibraryKind.tracks, .albums, .artists, .shows] where loadState[kind] != nil {
                 await refresh(kind)
             }
         }

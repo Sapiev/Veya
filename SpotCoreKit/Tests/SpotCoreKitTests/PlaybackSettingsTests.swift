@@ -23,6 +23,24 @@ struct PlaybackSettingsTests {
         #expect(settings.audioCacheLimitBytes == 1_073_741_824)
     }
 
+    @Test func episodeSpeedIsClampedPersistedAndAppliedToEpisodesOnly() {
+        let settings = PlaybackSettings(defaults: defaults)
+        #expect(settings.episodeSpeed == 1)
+
+        settings.episodeSpeed = 1.5
+        let relaunched = PlaybackSettings(defaults: defaults)
+        #expect(relaunched.episodeSpeed == 1.5)
+        #expect(relaunched.rate(for: "spotify:episode:512ojhOuo1ktJprKbVcKyQ") == 1.5)
+        #expect(relaunched.rate(for: "spotify:track:4uLU6hMCjMI75M1A2tKUQC") == 1)
+
+        relaunched.episodeSpeed = 3
+        #expect(relaunched.episodeSpeed == 2)
+        relaunched.episodeSpeed = 0.5
+        #expect(relaunched.episodeSpeed == 0.8)
+        relaunched.episodeSpeed = .nan
+        #expect(relaunched.episodeSpeed == 1)
+    }
+
     @Test func choicesSurviveARelaunch() {
         let settings = PlaybackSettings(defaults: defaults)
         settings.volume = 0.5

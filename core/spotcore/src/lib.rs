@@ -13,6 +13,7 @@ mod logging;
 mod metadata;
 mod player;
 mod playlist;
+mod podcast;
 mod push;
 mod queue;
 mod reconnect;
@@ -28,12 +29,13 @@ pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryObserver, Libra
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
 pub use metadata::{
     AlbumMetadata, ArtistMetadata, Artwork, ArtworkSize, EpisodeMetadata, ItemError, ItemRef,
-    MetadataError, MetadataItem, MetadataService, Playability, TrackMetadata,
+    MetadataError, MetadataItem, MetadataService, Playability, ShowMetadata, TrackMetadata,
 };
 pub use player::{Bitrate, LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
 pub use playlist::{
     PlaylistChange, PlaylistError, PlaylistPage, PlaylistService, PlaylistTrack, RootlistEntry,
 };
+pub use podcast::{EpisodeProgress, PodcastError, episode_progress};
 pub use reconnect::{ConnectionObserver, ConnectionState};
 pub use search::{SearchError, SearchGroup, SearchHit, SearchKind, SearchService};
 pub use session::{SessionError, SpotSession};

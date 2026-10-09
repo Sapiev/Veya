@@ -1,4 +1,4 @@
-//! Typed metadata for tracks, albums, artists and episodes, fetched in
+//! Typed metadata for tracks, albums, artists, episodes and shows, fetched in
 //! batches through extended metadata and cached for the service's lifetime.
 
 use std::collections::{HashMap, HashSet};
@@ -11,7 +11,7 @@ use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::availability::Availabilities;
 use librespot_metadata::image::{ImageSize, Images};
 use librespot_metadata::restriction::Restrictions;
-use librespot_metadata::{Album, Artist, Episode, Metadata, Track};
+use librespot_metadata::{Album, Artist, Episode, Metadata, Show, Track};
 use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
@@ -119,12 +119,24 @@ pub struct EpisodeMetadata {
     pub artwork: Vec<Artwork>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ShowMetadata {
+    pub uri: String,
+    pub name: String,
+    pub publisher: String,
+    pub description: String,
+    pub artwork: Vec<Artwork>,
+    /// Episode URIs in server order.
+    pub episodes: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum MetadataItem {
     Track { track: TrackMetadata },
     Album { album: AlbumMetadata },
     Artist { artist: ArtistMetadata },
     Episode { episode: EpisodeMetadata },
+    Show { show: ShowMetadata },
     Unavailable { uri: String, error: ItemError },
 }
 
@@ -199,6 +211,7 @@ enum Kind {
     Album,
     Artist,
     Episode,
+    Show,
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +232,7 @@ impl Requested {
             SpotifyUri::Album { .. } => Kind::Album,
             SpotifyUri::Artist { .. } => Kind::Artist,
             SpotifyUri::Episode { .. } => Kind::Episode,
+            SpotifyUri::Show { .. } => Kind::Show,
             _ => {
                 return Err(MetadataError::UnsupportedKind {
                     uri: raw.to_owned(),
@@ -235,6 +249,7 @@ impl Requested {
             Kind::Album => ExtensionKind::ALBUM_V4,
             Kind::Artist => ExtensionKind::ARTIST_V4,
             Kind::Episode => ExtensionKind::EPISODE_V4,
+            Kind::Show => ExtensionKind::SHOW_V4,
         }
     }
 }
@@ -389,6 +404,23 @@ impl Context {
                     },
                 }
             }
+            Kind::Show => {
+                let show: Show = parse(&item.uri, bytes)?;
+                MetadataItem::Show {
+                    show: ShowMetadata {
+                        uri,
+                        artwork: self.artwork(&show.covers),
+                        episodes: show
+                            .episodes
+                            .iter()
+                            .filter_map(|e| e.to_uri().ok())
+                            .collect(),
+                        name: show.name,
+                        publisher: show.publisher,
+                        description: show.description,
+                    },
+                }
+            }
         })
     }
 
@@ -504,6 +536,8 @@ mod tests {
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const ALBUM: &str = "spotify:album:6akEvsycLGftJxYudPjmqK";
+    const SHOW: &str = "spotify:show:4rOoJ6Egrf8K2IrywzwOMk";
+    const EPISODE: &str = "spotify:episode:512ojhOuo1ktJprKbVcKyQ";
 
     fn context(country: &str) -> Context {
         Context {
@@ -633,6 +667,45 @@ mod tests {
     }
 
     #[test]
+    fn decodes_show_with_episodes_in_server_order() {
+        let episode = |uri| proto::Episode {
+            gid: Some(gid(uri)),
+            ..Default::default()
+        };
+        let message = proto::Show {
+            gid: Some(gid(SHOW)),
+            name: Some("Podcast".to_owned()),
+            publisher: Some("Studio".to_owned()),
+            description: Some("About".to_owned()),
+            cover_image: Some(proto::ImageGroup {
+                image: vec![image(1, proto::image::Size::SMALL, 64)],
+                ..Default::default()
+            })
+            .into(),
+            episode: vec![
+                episode(EPISODE),
+                episode("spotify:episode:4rOoJ6Egrf8K2IrywzwOMk"),
+            ],
+            ..Default::default()
+        };
+        let bytes = message.write_to_bytes().unwrap();
+        let MetadataItem::Show { show } = decode_one(SHOW, entry(SHOW, 200, Some(bytes)), "US")
+        else {
+            panic!("expected a show");
+        };
+
+        assert_eq!(show.uri, SHOW);
+        assert_eq!(show.name, "Podcast");
+        assert_eq!(show.publisher, "Studio");
+        assert_eq!(show.description, "About");
+        assert_eq!(show.artwork.len(), 1);
+        assert_eq!(
+            show.episodes,
+            [EPISODE, "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk"]
+        );
+    }
+
+    #[test]
     fn track_outside_allowed_countries_is_region_locked() {
         let bytes = track_message(Some("USGB")).write_to_bytes().unwrap();
         let locked = track(decode_one(
@@ -673,6 +746,7 @@ mod tests {
         let batch = [
             Requested::parse(TRACK).unwrap(),
             Requested::parse(ALBUM).unwrap(),
+            Requested::parse(SHOW).unwrap(),
         ];
         let request = request(&batch);
         let asked: Vec<_> = request
@@ -689,7 +763,8 @@ mod tests {
             asked,
             [
                 (TRACK, ExtensionKind::TRACK_V4),
-                (ALBUM, ExtensionKind::ALBUM_V4)
+                (ALBUM, ExtensionKind::ALBUM_V4),
+                (SHOW, ExtensionKind::SHOW_V4)
             ]
         );
     }
