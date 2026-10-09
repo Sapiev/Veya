@@ -9,11 +9,13 @@ import SwiftUI
     @State private var systemEvents: SystemEvents
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
+    private let metadataStore: MetadataStore?
 
     init() {
         Diagnostics.startLogging()
         let dependencies = AppDependencies.make()
         artworkLoader = dependencies.artworkLoader
+        metadataStore = dependencies.metadataStore
         let session = SessionModel(
             store: dependencies.store,
             refreshTokenStore: dependencies.refreshTokenStore,
@@ -37,7 +39,7 @@ import SwiftUI
 
     var body: some Scene {
         Window("Veya", id: "main") {
-            ContentView(session: session, signIn: signIn) {
+            ContentView(session: session, signIn: signIn, metadataStore: metadataStore) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
@@ -50,6 +52,7 @@ import SwiftUI
         }
         .commands {
             AccountCommands(session: session, signOutFailed: $signOutFailed)
+            NavigationCommands()
             CommandGroup(after: .help) {
                 Button("Export Diagnostics…") {
                     Task { await Diagnostics.export() }

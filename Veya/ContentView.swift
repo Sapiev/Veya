@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     let session: SessionModel
     let signIn: SignInModel
+    let metadataStore: MetadataStore?
     let signOut: () -> Void
 
     var body: some View {
@@ -23,10 +24,13 @@ struct ContentView: View {
         case .signedOut:
             SignInView(model: signIn)
         case .ready:
-            SignedInView(signOut: signOut)
-                .overlay(alignment: .top) {
-                    ReconnectBanner(connection: session.connection)
-                }
+            if let handle = session.session {
+                AppShell(session: handle, metadataStore: metadataStore)
+                    .id(ObjectIdentifier(handle))
+                    .overlay(alignment: .top) {
+                        ReconnectBanner(connection: session.connection)
+                    }
+            }
         case .notPremium:
             NotPremiumView(signOut: signOut)
         case let .failed(failure):
@@ -147,23 +151,6 @@ private struct ReconnectBanner: View {
     }
 }
 
-private struct SignedInView: View {
-    let signOut: () -> Void
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Text("You're signed in.")
-                .font(.title2)
-            Text("spotcore \(version())")
-                .foregroundStyle(.secondary)
-            Button("Sign Out", action: signOut)
-                .padding(.top, 16)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 #Preview {
     ContentView(
         session: SessionModel(
@@ -171,6 +158,7 @@ private struct SignedInView: View {
             refreshTokenStore: KeychainCredentialStore(service: "preview", account: "preview-refresh")
         ),
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
+        metadataStore: nil,
         signOut: {}
     )
 }
