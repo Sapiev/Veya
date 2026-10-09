@@ -131,6 +131,8 @@
 
         func clearMetadataCache() throws {}
 
+        func clearAudioCache() throws {}
+
         private func nextSession() throws -> any SessionHandle {
             let fails = failuresLeft.withLock { left in
                 defer { left = max(left - 1, 0) }

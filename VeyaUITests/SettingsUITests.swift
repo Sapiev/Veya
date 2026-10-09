@@ -13,6 +13,18 @@ final class SettingsUITests: XCTestCase {
         app.toolbars.buttons[name]
     }
 
+    /// Grouped forms draw a toggle as a switch or a checkbox depending on the macOS version.
+    @MainActor private func toggle(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        let types = [XCUIElement.ElementType.checkBox, .switch].map(\.rawValue)
+        return app.descendants(matching: .any)
+            .matching(NSPredicate(format: "elementType IN %@ AND label BEGINSWITH %@", types, label)).firstMatch
+    }
+
+    /// Checkboxes and switches report their state as 0 or 1.
+    @MainActor private func isOn(_ element: XCUIElement) -> Bool {
+        (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
+    }
+
     @MainActor func testCommandCommaOpensSettingsWithEveryTab() {
         let app = openSettings()
 
@@ -40,7 +52,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testAutoplaySwitchIsKeptAfterReopeningSettings() {
         let app = openSettings()
         tab(app, "Playback").click()
-        let autoplay = app.descendants(matching: .any).matching(identifier: "autoplay").firstMatch
+        let autoplay = toggle(app, "Autoplay")
         XCTAssertTrue(autoplay.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(isOn(autoplay))
 
@@ -49,14 +61,9 @@ final class SettingsUITests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         tab(app, "Playback").click()
 
-        let reopened = app.descendants(matching: .any).matching(identifier: "autoplay").firstMatch
+        let reopened = toggle(app, "Autoplay")
         XCTAssertTrue(reopened.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(isOn(reopened))
-    }
-
-    /// Checkboxes and switches report their state as 0 or 1.
-    @MainActor private func isOn(_ element: XCUIElement) -> Bool {
-        (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
     }
 
     @MainActor func testAccountSignOutReturnsToSignIn() {
@@ -79,6 +86,35 @@ final class SettingsUITests: XCTestCase {
         reset.click()
 
         XCTAssertTrue(app.staticTexts["Metadata cache cleared."].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// PBI-207: Storage offers the cache size and clears downloaded audio after asking.
+    @MainActor func testClearAudioCacheAsksBeforeClearing() {
+        let app = openSettings()
+        tab(app, "Storage").click()
+        XCTAssertTrue(app.popUpButtons["Audio cache size"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.buttons["Clear Audio Cache…"].click()
+        let clear = app.sheets.buttons["Clear"]
+        XCTAssertTrue(clear.waitForExistence(timeout: XCUIApplication.timeout))
+        clear.click()
+
+        XCTAssertTrue(app.staticTexts["Audio cache cleared."].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// PBI-205, PBI-206: normalisation presets follow the toggle; the device list starts with the system default.
+    @MainActor func testLoudnessFollowsNormalizeAndOutputOffersSystemDefault() {
+        let app = openSettings()
+        tab(app, "Playback").click()
+        let loudness = app.popUpButtons["Loudness"]
+        XCTAssertTrue(loudness.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(loudness.isEnabled)
+
+        toggle(app, "Normalize volume").click()
+        XCTAssertFalse(loudness.isEnabled)
+
+        let output = app.popUpButtons["Output device"]
+        XCTAssertEqual(output.value as? String, "System Default")
     }
 
     @MainActor func testAdvancedOffersLogLevels() {

@@ -56,13 +56,12 @@ private struct PlaybackSettingsTab: View {
                 Text("Normal").tag(LoudnessPreset.normal)
                 Text("Loud").tag(LoudnessPreset.loud)
             }
+            .accessibilityLabel("Loudness")
             .disabled(!settings.normalises)
             Toggle(isOn: $settings.autoplay) {
                 Text("Autoplay")
                 Text("When an album or playlist ends, similar songs keep playing.")
             }
-            // Grouped forms show a switch or a checkbox depending on the macOS version.
-            .accessibilityIdentifier("autoplay")
             Picker("Podcast speed", selection: $settings.episodeSpeed) {
                 ForEach(Self.speeds, id: \.self) { speed in
                     Text("\(speed.formatted())×").tag(speed)
@@ -74,6 +73,7 @@ private struct PlaybackSettingsTab: View {
                     Text(device.name).tag(String?.some(device.uid))
                 }
             }
+            .accessibilityLabel("Output device")
         }
         .formStyle(.grouped)
     }
@@ -84,6 +84,8 @@ private struct StorageSettingsTab: View {
     let settings: PlaybackSettings
     @State private var confirmingReset = false
     @State private var resetDone = false
+    @State private var confirmingAudioClear = false
+    @State private var audioCleared = false
     @State private var failure: LocalizedStringKey?
 
     private static let limits: [UInt64] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30]
@@ -101,6 +103,20 @@ private struct StorageSettingsTab: View {
                     ForEach(limitChoices, id: \.self) { bytes in
                         Text(Int64(bytes).formatted(.byteCount(style: .memory))).tag(bytes)
                     }
+                }
+                .accessibilityLabel("Audio cache size")
+                LabeledContent("Downloaded audio") {
+                    Button("Clear Audio Cache…") { confirmingAudioClear = true }
+                        // Its own dialog: the Form already presents the metadata reset one.
+                        .confirmationDialog("Clear the audio cache?", isPresented: $confirmingAudioClear) {
+                            Button("Clear", role: .destructive, action: clearAudio)
+                        } message: {
+                            Text("Songs download again from Spotify the next time they play.")
+                        }
+                }
+                if audioCleared {
+                    Text("Audio cache cleared.")
+                        .foregroundStyle(.secondary)
                 }
             } footer: {
                 Text("Changing the size reconnects to Spotify, which stops the current track.")
@@ -135,6 +151,15 @@ private struct StorageSettingsTab: View {
             settings.audioCacheLimitBytes = bytes
         } catch {
             failure = "Couldn't change the audio cache size."
+        }
+    }
+
+    private func clearAudio() {
+        do {
+            try session.clearAudioCache()
+            audioCleared = true
+        } catch {
+            failure = "Couldn't clear the audio cache."
         }
     }
 

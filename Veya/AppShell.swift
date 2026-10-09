@@ -20,11 +20,20 @@ struct AppShell: View {
     @State private var search: SearchModel
     @State private var searchFocusRequest = 0
     private let recentSearches: RecentSearches
+    /// Hands the started player to the session owner, which stops it on sign out; false drops it.
+    private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
+    init(
+        session: any SessionHandle,
+        metadataStore: MetadataStore?,
+        recentSearches: RecentSearches,
+        settings: PlaybackSettings,
+        attachPlayer: @escaping @MainActor (PlayerModel) -> Bool
+    ) {
         self.session = session
+        self.attachPlayer = attachPlayer
         self.settings = settings
         self.recentSearches = recentSearches
         _search = State(initialValue: SearchModel(service: session.makeSearch()))
@@ -98,7 +107,8 @@ struct AppShell: View {
         }
         .task {
             do {
-                player = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                let started = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                if attachPlayer(started) { player = started }
             } catch {
                 // Type name only: messages may carry server text.
                 logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")

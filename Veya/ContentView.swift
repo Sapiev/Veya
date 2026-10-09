@@ -31,11 +31,17 @@ struct ContentView: View {
             SignInView(model: signIn)
         case .ready:
             if let handle = session.session {
-                AppShell(session: handle, metadataStore: metadataStore, recentSearches: recentSearches, settings: settings)
-                    .id(ObjectIdentifier(handle))
-                    .overlay(alignment: .top) {
-                        ReconnectBanner(connection: session.connection)
-                    }
+                AppShell(
+                    session: handle,
+                    metadataStore: metadataStore,
+                    recentSearches: recentSearches,
+                    settings: settings,
+                    attachPlayer: { session.attach($0, startedOn: handle) }
+                )
+                .id(ObjectIdentifier(handle))
+                .overlay(alignment: .top) {
+                    ReconnectBanner(connection: session.connection)
+                }
             }
         case .notPremium:
             NotPremiumView(signOut: signOut)
