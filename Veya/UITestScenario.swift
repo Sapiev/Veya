@@ -16,6 +16,8 @@
         case restoreFails
         /// Signed in, and the connection has dropped.
         case reconnecting
+        /// No saved sign-in; signing in finds a Free account.
+        case notPremium
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -29,12 +31,13 @@
         }
 
         var dependencies: AppDependencies {
-            let hasSavedSignIn = self != .signedOut && self != .signInCancelled
+            let hasSavedSignIn = ![.signedOut, .signInCancelled, .notPremium].contains(self)
             let signInCompletes = self != .signInCancelled
             return AppDependencies(
                 store: InMemoryCredentialStore(blob: hasSavedSignIn ? ScenarioSession.blob : nil),
                 connector: ScenarioConnector(
                     failures: self == .restoreFails ? 1 : 0,
+                    premium: self != .notPremium,
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
@@ -67,11 +70,17 @@
 
     private final nonisolated class ScenarioConnector: SessionConnector {
         private let failuresLeft: OSAllocatedUnfairLock<Int>
+        private let premium: Bool
         private let initial: ConnectionState?
 
-        init(failures: Int, initial: ConnectionState?) {
+        init(failures: Int, premium: Bool, initial: ConnectionState?) {
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
+            self.premium = premium
             self.initial = initial
+        }
+
+        func isPremium(accessToken _: String) async throws -> Bool {
+            premium
         }
 
         func connect(accessToken _: String) async throws -> any SessionHandle {

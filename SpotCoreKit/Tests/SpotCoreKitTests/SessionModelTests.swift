@@ -194,6 +194,44 @@ struct SessionModelTests {
         #expect(store.saves == 0)
     }
 
+    @Test func nonPremiumAccountIsNotPremiumWithoutConnecting() async {
+        let store = FakeStore()
+        let model = model(store)
+        connector.setPremium(.success(false))
+
+        await model.connect(tokens: tokens).value
+
+        #expect(model.state == .notPremium)
+        #expect(connector.calls.isEmpty)
+        #expect(store.saves == 0)
+    }
+
+    @Test func signOutFromNotPremiumIsSignedOut() async throws {
+        let model = model(FakeStore())
+        connector.setPremium(.success(false))
+        await model.connect(tokens: tokens).value
+
+        try model.signOut()
+
+        #expect(model.state == .signedOut)
+    }
+
+    @Test func premiumCheckFailureConnectsAnywayAndLogsWithoutSecrets() async throws {
+        let model = model(FakeStore())
+        connector.setPremium(.failure(SessionError.Network(message: "offline access-SECRET-1234")))
+
+        let task = model.connect(tokens: tokens)
+        try await waitUntil { connector.pending == 1 }
+        connector.resolve(0, with: .success(FakeSession()))
+        await task.value
+
+        #expect(model.state == .ready)
+        #expect(logs.entries.count == 1)
+        #expect(logs.entries.first?.0 == .warn)
+        let message = logs.entries.first?.1 ?? ""
+        #expect(!message.contains("SECRET"))
+    }
+
     @Test func saveFailureStillReadyAndLogsWithoutSecrets() async throws {
         let store = FakeStore(saveError: KeychainError(status: -25308))
         let model = model(store)

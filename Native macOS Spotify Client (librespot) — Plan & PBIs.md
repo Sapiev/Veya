@@ -255,8 +255,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 1 · **Milestone:** M1 · **Depends on:** PBI-101
 
-- [ ] After login, the `product` user attribute is read; non-Premium accounts see an explanation screen and can sign out.
-- [ ] Tracks unavailable in the user's country are greyed out with a tooltip.
+**Status:** In progress - Premium check at sign-in merged to develop; country greying waits on track lists (PBI-303, PBI-304).
+
+**UI tests:** `PremiumUITests` (Free account sees the explanation and signs out).
+
+- [ ] After login, the `product` user attribute is read; non-Premium accounts see an explanation screen and can sign out. (Done for fresh sign-in through Web API `/v1/me`; restore and reconnect still hit librespot's `exit(1)`, see ADR-005.)
+- [ ] Tracks unavailable in the user's country are greyed out with a tooltip. (No track lists exist yet: PBI-303, PBI-304.)
 
 ### E2 · Playback engine
 

@@ -7,6 +7,7 @@ enum Scenario: String {
     case signedIn
     case restoreFails
     case reconnecting
+    case notPremium
 }
 
 @MainActor

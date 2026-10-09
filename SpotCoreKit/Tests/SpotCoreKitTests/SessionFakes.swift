@@ -148,6 +148,16 @@ final class FakeConnector: SessionConnector {
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
+    private let premium = OSAllocatedUnfairLock<Result<Bool, any Error>>(initialState: .success(true))
+
+    /// Answered at once; the default lets every account through.
+    func setPremium(_ result: Result<Bool, any Error>) {
+        premium.withLock { $0 = result }
+    }
+
+    func isPremium(accessToken _: String) async throws -> Bool {
+        try premium.withLock { $0 }.get()
+    }
 
     var calls: [Credential] {
         box.withLock { $0.calls }
