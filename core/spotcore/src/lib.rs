@@ -9,6 +9,7 @@ mod audio;
 mod auth;
 mod logging;
 mod player;
+mod queue;
 mod reconnect;
 mod redact;
 mod session;
