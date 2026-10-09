@@ -356,10 +356,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-003
 
-- [ ] `spotcore` fetches tracks, albums, artists and episodes via librespot-metadata / extended metadata, batched up to 100 URIs per request.
-- [ ] Returns flat UniFFI records (title, artists, album, duration, explicit, playable, artwork URLs by size).
-- [ ] In-memory LRU (5,000 items) avoids duplicate requests within a session.
-- [ ] Errors for unavailable or region-locked items are typed, not generic.
+**Status:** In review (`feat/pbi-301-metadata`).
+
+- [x] `spotcore` fetches tracks, albums, artists and episodes via librespot-metadata / extended metadata, batched up to 100 URIs per request.
+- [x] Returns flat UniFFI records (title, artists, album, duration, explicit, playable, artwork URLs by size). (`playable` is the `Playability` enum: playable, region-locked, not yet released.)
+- [x] In-memory LRU (5,000 items) avoids duplicate requests within a session.
+- [x] Errors for unavailable or region-locked items are typed, not generic.
 
 #### PBI-302 · Artwork loading
 
