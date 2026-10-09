@@ -76,7 +76,7 @@ public enum SignInState: Equatable, Sendable {
     case failed(SignInFailure)
 }
 
-/// Holds tokens until PBI-102 moves them to the Keychain. Printing,
+/// Holds tokens until `SignInModel.takeCredentials()` hands them on. Printing,
 /// dumping or reflecting it never reveals them.
 public struct SignInCredentials: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public let tokens: OAuthTokens
@@ -133,6 +133,12 @@ public final class SignInModel {
         }
         self.task = task
         return task
+    }
+
+    /// Returns the tokens once, so they live in memory no longer than needed.
+    public func takeCredentials() -> SignInCredentials? {
+        defer { credentials = nil }
+        return credentials
     }
 
     public func cancel() {

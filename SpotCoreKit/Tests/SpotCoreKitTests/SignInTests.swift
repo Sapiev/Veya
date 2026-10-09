@@ -380,3 +380,15 @@ struct SignInModelTests {
         }
     }
 }
+
+extension SignInModelTests {
+    @Test func takeCredentialsHandsTokensOnOnce() async {
+        let model = SignInModel(browser: FakeBrowser(), startFlow: starter([FakeFlow(result: .success(tokens))]))
+
+        await model.signIn().value
+
+        #expect(model.takeCredentials()?.tokens == tokens)
+        #expect(model.takeCredentials() == nil)
+        #expect(model.credentials == nil)
+    }
+}
