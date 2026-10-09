@@ -15,6 +15,7 @@ struct AppShell: View {
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
     @State private var library: LibraryModel
+    @State private var podcast: PodcastModel
     private let settings: PlaybackSettings
     @State private var player: PlayerModel?
     @State private var search: SearchModel
@@ -23,7 +24,13 @@ struct AppShell: View {
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
+    init(
+        session: any SessionHandle,
+        metadataStore: MetadataStore?,
+        recentSearches: RecentSearches,
+        settings: PlaybackSettings,
+        episodeProgress: any EpisodeProgressProvider
+    ) {
         self.session = session
         self.settings = settings
         self.recentSearches = recentSearches
@@ -32,6 +39,7 @@ struct AppShell: View {
         self.metadata = metadata
         _playlists = State(initialValue: PlaylistModel(playlists: session.makePlaylists(store: metadataStore)))
         _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
+        _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
     }
 
     var body: some View {
@@ -56,6 +64,8 @@ struct AppShell: View {
                 ArtistPage(uri: uri, library: library, player: player, history: history)
             case let .playlist(uri):
                 PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
+            case let .show(uri):
+                ShowPage(uri: uri, podcast: podcast, player: player)
             default:
                 RouteView(route: history.current)
             }
@@ -280,7 +290,7 @@ private extension LibraryKind {
     }
 }
 
-/// Placeholder per route until its screen lands (Home: PBI-307, shows: PBI-306).
+/// Placeholder per route until its screen lands (Home: PBI-307).
 private struct RouteView: View {
     let route: Route
 

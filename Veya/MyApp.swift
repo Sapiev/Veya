@@ -14,6 +14,7 @@ import SwiftUI
     /// One instance, so Settings window edits reach the live player.
     @State private var settings: PlaybackSettings
     private let defaults: UserDefaults
+    private let episodeProgress: any EpisodeProgressProvider
 
     init() {
         let dependencies = AppDependencies.make()
@@ -29,6 +30,8 @@ import SwiftUI
             connector: dependencies.connector
         )
         session.restore()
+        let tokens = session.webAPITokens
+        episodeProgress = dependencies.episodeProgress ?? WebAPIEpisodeProgress { try await tokens.accessToken() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
@@ -51,7 +54,8 @@ import SwiftUI
                 signIn: signIn,
                 metadataStore: metadataStore,
                 recentSearches: recentSearches,
-                settings: settings
+                settings: settings,
+                episodeProgress: episodeProgress
             ) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }

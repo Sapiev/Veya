@@ -67,7 +67,8 @@
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
                 artworkLoader: nil,
-                defaults: Self.freshDefaults()
+                defaults: Self.freshDefaults(),
+                episodeProgress: ScenarioEpisodeProgress()
             )
         }
     }
@@ -96,7 +97,7 @@
 
     /// What the signed-in library and playlists hold.
     private enum LibraryFill {
-        /// Liked songs "Song 1"... plus one album, one artist and one playlist.
+        /// Liked songs "Song 1"... plus one album, one artist, one show and one playlist.
         case liked(Int)
         case empty
         case failing
@@ -237,6 +238,36 @@
     )
     private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
 
+    /// Newest first: not started, halfway through, and played.
+    private nonisolated let scenarioEpisodes = [
+        scenarioEpisode("new", "New Episode", publishedAt: 1_759_300_200),
+        scenarioEpisode("halfway", "Halfway Episode", publishedAt: 1_758_700_000),
+        scenarioEpisode("finished", "Finished Episode", publishedAt: 1_758_100_000),
+    ]
+
+    /// An hour long, with "Notes for <title>" as its description.
+    private nonisolated func scenarioEpisode(_ id: String, _ title: String, publishedAt: Int64) -> EpisodeMetadata {
+        EpisodeMetadata(
+            uri: "spotify:episode:ui-test-\(id)", title: title, showName: "Test Podcast", description: "Notes for \(title)",
+            durationMs: 3_600_000, explicit: false, playability: .playable, artwork: [], publishedAt: publishedAt
+        )
+    }
+
+    private nonisolated let scenarioShow = ShowMetadata(
+        uri: "spotify:show:ui-test", name: "Test Podcast", publisher: "Veya Test Studio",
+        description: "A podcast about testing Veya", artwork: [], episodes: scenarioEpisodes.map(\.uri)
+    )
+
+    /// 25 of 60 minutes into "Halfway Episode"; "Finished Episode" is played.
+    private nonisolated struct ScenarioEpisodeProgress: EpisodeProgressProvider {
+        func progress(uris: [String]) async throws -> [EpisodeProgress] {
+            [
+                EpisodeProgress(uri: scenarioEpisodes[1].uri, resumePositionMs: 1_500_000, fullyPlayed: false),
+                EpisodeProgress(uri: scenarioEpisodes[2].uri, resumePositionMs: 0, fullyPlayed: true),
+            ].filter { uris.contains($0.uri) }
+        }
+    }
+
     /// A paused "Test Track" that answers play and pause with the matching events.
     /// Songs 5 and 6 are queued and songs 7 and 8 follow; playing a list makes it the context.
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
@@ -256,7 +287,15 @@
         func pause() { observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0)) }
         func addToQueue(uri: String) throws { snapshot.withLock { $0.upNext.append(uri) } }
         func clearQueue() { snapshot.withLock { $0.upNext.removeAll() } }
-        func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
+        func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws {
+            snapshot.withLock {
+                $0.current = uri
+                $0.nextFromContext = []
+            }
+            let episode = scenarioEpisodes.first { $0.uri == uri }
+            observer.onEvent(event: .trackChanged(uri: uri, name: episode?.title ?? "", durationMs: episode?.durationMs ?? 180_000))
+            observer.onEvent(event: .playing(uri: uri, positionMs: startMs))
+        }
         func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
             snapshot.withLock {
@@ -306,7 +345,7 @@
             case .artists:
                 return [LibraryItem(uri: scenarioArtist.uri, addedAt: newest)]
             case .shows:
-                return []
+                return [LibraryItem(uri: scenarioShow.uri, addedAt: newest)]
             }
         }
 
@@ -404,6 +443,8 @@
                 if uri == scenarioArtist.uri { return .artist(artist: scenarioArtist) }
                 if uri == scenarioRelated.uri { return .artist(artist: scenarioRelated) }
                 if uri == scenarioSingle.uri { return .album(album: scenarioSingle) }
+                if uri == scenarioShow.uri { return .show(show: scenarioShow) }
+                if let episode = scenarioEpisodes.first(where: { $0.uri == uri }) { return .episode(episode: episode) }
                 return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }

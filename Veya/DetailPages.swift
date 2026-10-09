@@ -241,7 +241,7 @@ struct PlaylistPageView: View {
     }
 }
 
-private struct PageHeading: View {
+struct PageHeading: View {
     let title: String
 
     var body: some View {
