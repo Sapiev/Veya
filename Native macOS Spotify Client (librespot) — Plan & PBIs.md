@@ -531,7 +531,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-401
 
-**Status:** In review (`feat/pbi-407-settings`).
+**Status:** In progress - merged to `develop`; Web API Client ID and proxy open (see below).
 
 **UI tests:** `SettingsUITests` (⌘, opens every tab, a Playback choice survives reopening, Account › Sign Out, Reset Metadata Cache confirmation, Advanced log level). Persistence across relaunch: `PlaybackSettingsTests.choicesSurviveARelaunch`; live apply: `PlayerModelTests.settingsChangesReachTheLivePlayerOnce`.
 
