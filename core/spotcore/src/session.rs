@@ -157,6 +157,11 @@ impl SpotSession {
 }
 
 impl SpotSession {
+    /// The live session, which a reconnect may have replaced.
+    pub(crate) fn current_session(&self) -> Session {
+        (*self.supervisor.current_link()).clone()
+    }
+
     async fn start(
         config: SessionConfig,
         credentials: Credentials,
