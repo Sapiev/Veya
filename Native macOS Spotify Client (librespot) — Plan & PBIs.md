@@ -296,10 +296,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-202
 
-- [ ] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
-- [ ] Play Next, Add to Queue, remove, reorder and clear are supported.
-- [ ] Shuffle and repeat (off / context / track) work together; previous within 3 s restarts the track.
-- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings).
+**Status:** In progress - queue, shuffle, repeat and autoplay radio in `spotcore` (`queue.rs`, `SpotPlayer`); Settings toggle pending.
+
+- [x] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
+- [x] Play Next, Add to Queue, remove, reorder and clear are supported.
+- [x] Shuffle and repeat (off / context / track) work together; previous within 3 s restarts the track.
+- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`; no Settings screen exists yet and the app does not drive the player.)
 
 #### PBI-204 · Gapless playback and preloading
 
