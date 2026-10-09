@@ -11,6 +11,7 @@ struct AppDependencies {
     var startFlow: SignInFlowStarter
     var artworkLoader: ArtworkLoader?
     var metadataStore: MetadataStore?
+    var defaults: UserDefaults = .standard
 
     static func make() -> AppDependencies {
         #if DEBUG
