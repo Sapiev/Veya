@@ -471,7 +471,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-202, PBI-401
 
-**Status:** In review (feat/pbi-402-now-playing) - SpotCoreKit `PlayerModel` (events from `SpotPlayer`, interpolated position, shuffle, repeat, persisted volume and output device) and `SessionHandle.makePlayer` (starts `AudioEngine` and `SpotPlayer`); app `NowPlayingBar` and expanded view. Nothing in the app calls `load` yet, so the bar shows "Not Playing" until a track list can start playback (PBI-403).
+**Status:** In progress - merged to develop: SpotCoreKit `PlayerModel` (events from `SpotPlayer`, interpolated position, shuffle, repeat, persisted volume and output device) and `SessionHandle.makePlayer` (starts `AudioEngine` and `SpotPlayer`); app `NowPlayingBar` and expanded view. Nothing in the app calls `load` yet, so the bar shows "Not Playing" until a track list can start playback (PBI-403).
 
 **UI tests:** `NowPlayingUITests` (bar controls, play/pause, artist link opens the artist route, expanded view with lyrics tab).
 
