@@ -456,7 +456,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-004
 
-**Status:** In review (`feat/pbi-401-app-shell`) - `AppShell` (`NavigationSplitView`, sidebar from SpotCoreKit `PlaylistModel`), SpotCoreKit `NavigationHistory` and `Route`, Go menu and toolbar back/forward; each route shows a placeholder until its screen lands (PBI-403 onwards).
+**Status:** In progress - merged to develop: `AppShell` (`NavigationSplitView`, sidebar from SpotCoreKit `PlaylistModel`), SpotCoreKit `NavigationHistory` and `Route`, Go menu and toolbar back/forward; each route shows a placeholder until its screen lands (PBI-403 onwards).
 
 **UI tests:** `NavigationUITests` (sidebar destinations and playlists, playlist selection, ⌘\[ / ⌘\], toolbar buttons, Go menu disabled without history).
 
