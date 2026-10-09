@@ -21,6 +21,7 @@ struct PlaybackSettingsTests {
         #expect(settings.outputDeviceUID == nil)
         #expect(settings.bitrate == .kbps320)
         #expect(settings.audioCacheLimitBytes == 1_073_741_824)
+        #expect(settings.autoplay)
     }
 
     @Test func episodeSpeedIsClampedPersistedAndAppliedToEpisodesOnly() {
@@ -49,6 +50,7 @@ struct PlaybackSettingsTests {
         settings.outputDeviceUID = "interface-uid"
         settings.bitrate = .kbps96
         settings.audioCacheLimitBytes = 5 << 30
+        settings.autoplay = false
 
         let relaunched = PlaybackSettings(defaults: defaults)
 
@@ -59,6 +61,7 @@ struct PlaybackSettingsTests {
         #expect(relaunched.outputDeviceUID == "interface-uid")
         #expect(relaunched.bitrate == .kbps96)
         #expect(relaunched.audioCacheLimitBytes == 5 << 30)
+        #expect(!relaunched.autoplay)
     }
 
     @Test func choosingSystemDefaultAgainIsRemembered() {

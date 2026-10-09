@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-407: the Settings window.
+/// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -34,6 +34,29 @@ final class SettingsUITests: XCTestCase {
         tab(app, "Playback").click()
 
         XCTAssertEqual(app.popUpButtons["Streaming quality"].value as? String, "Low (96 kbps)")
+    }
+
+    /// PBI-203: autoplay is on by default and switching it off is remembered.
+    @MainActor func testAutoplaySwitchIsKeptAfterReopeningSettings() {
+        let app = openSettings()
+        tab(app, "Playback").click()
+        let autoplay = app.descendants(matching: .any).matching(identifier: "autoplay").firstMatch
+        XCTAssertTrue(autoplay.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(isOn(autoplay))
+
+        autoplay.click()
+        app.typeKey("w", modifierFlags: .command)
+        app.typeKey(",", modifierFlags: .command)
+        tab(app, "Playback").click()
+
+        let reopened = app.descendants(matching: .any).matching(identifier: "autoplay").firstMatch
+        XCTAssertTrue(reopened.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(isOn(reopened))
+    }
+
+    /// Checkboxes and switches report their state as 0 or 1.
+    @MainActor private func isOn(_ element: XCUIElement) -> Bool {
+        (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
     }
 
     @MainActor func testAccountSignOutReturnsToSignIn() {

@@ -57,6 +57,12 @@ private struct PlaybackSettingsTab: View {
                 Text("Loud").tag(LoudnessPreset.loud)
             }
             .disabled(!settings.normalises)
+            Toggle(isOn: $settings.autoplay) {
+                Text("Autoplay")
+                Text("When an album or playlist ends, similar songs keep playing.")
+            }
+            // Grouped forms show a switch or a checkbox depending on the macOS version.
+            .accessibilityIdentifier("autoplay")
             Picker("Podcast speed", selection: $settings.episodeSpeed) {
                 ForEach(Self.speeds, id: \.self) { speed in
                     Text("\(speed.formatted())×").tag(speed)

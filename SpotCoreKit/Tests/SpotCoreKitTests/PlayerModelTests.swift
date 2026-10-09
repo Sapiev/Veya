@@ -217,6 +217,35 @@ struct PlayerModelTests {
         #expect(fake.recorded.count == 4)
     }
 
+    @Test func savedAutoplayOffReachesANewPlayer() {
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.autoplay = false
+        let fake = FakePlayer()
+
+        let player = model(fake, settings: settings)
+
+        withExtendedLifetime(player) {
+            #expect(fake.recorded == ["autoplay false"])
+        }
+    }
+
+    @Test func autoplaySwitchReachesTheLivePlayerOnce() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+
+        settings.autoplay = false
+        while fake.recorded.isEmpty {
+            await Task.yield()
+        }
+        settings.autoplay = false
+        await Task.yield()
+
+        withExtendedLifetime(player) {
+            #expect(fake.recorded == ["autoplay false"])
+        }
+    }
+
     @Test func unchangedSettingsSendNothing() async {
         let fake = FakePlayer()
         let settings = PlaybackSettings(defaults: defaults)
