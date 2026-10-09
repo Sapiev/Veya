@@ -285,21 +285,43 @@ impl SpotPlayer {
         })?;
         let session = self.sync_session();
         let tracks = resolve(&session, &uri).await?;
-        let mut state = lock(&self.state);
-        state.queue.set_context(tracks, seed());
-        state.context_uri = Some(uri.clone());
-        state.generation += 1;
-        let first = state
-            .queue
-            .current()
-            .cloned()
-            .ok_or_else(|| PlayerError::EmptyContext {
-                uri: canonical(&uri),
-            })?;
-        info!("loading context of {} items", state.queue.tracks().len());
-        state.clock.wants_play = autoplay;
-        self.player().load(first, autoplay, start_ms);
-        Ok(())
+        let empty = canonical(&uri);
+        self.start_context(tracks, None, Some(uri), empty, start_ms, autoplay)
+    }
+
+    /// Plays a list the app already holds (Liked Songs, a sorted playlist)
+    /// from `uris[start_index]`. `context_uri`, when given, seeds autoplay
+    /// radio once the list runs out.
+    pub fn load_tracks(
+        &self,
+        uris: Vec<String>,
+        start_index: u32,
+        context_uri: Option<String>,
+        autoplay: bool,
+    ) -> Result<(), PlayerError> {
+        let tracks = uris
+            .iter()
+            .map(|uri| playable(uri))
+            .collect::<Result<Vec<_>, _>>()?;
+        let context = context_uri
+            .map(|uri| {
+                SpotifyUri::from_uri(&uri).map_err(|e| PlayerError::InvalidUri {
+                    message: e.to_string(),
+                })
+            })
+            .transpose()?;
+        if start_index as usize >= tracks.len() {
+            return Err(PlayerError::OutOfRange { index: start_index });
+        }
+        self.sync_session();
+        self.start_context(
+            tracks,
+            Some(start_index as usize),
+            context,
+            String::new(),
+            0,
+            autoplay,
+        )
     }
 
     pub fn play(&self) {
@@ -411,6 +433,35 @@ impl SpotPlayer {
 }
 
 impl SpotPlayer {
+    /// Starts at `start`, or where `set_context` would (shuffled or first)
+    /// without one. `empty_uri` names the context when `tracks` is empty.
+    fn start_context(
+        &self,
+        tracks: Vec<SpotifyUri>,
+        start: Option<usize>,
+        context_uri: Option<SpotifyUri>,
+        empty_uri: String,
+        start_ms: u32,
+        autoplay: bool,
+    ) -> Result<(), PlayerError> {
+        let mut state = lock(&self.state);
+        match start {
+            Some(start) => state.queue.set_context_at(tracks, start, seed()),
+            None => state.queue.set_context(tracks, seed()),
+        }
+        state.context_uri = context_uri;
+        state.generation += 1;
+        let first = state
+            .queue
+            .current()
+            .cloned()
+            .ok_or(PlayerError::EmptyContext { uri: empty_uri })?;
+        info!("loading context of {} items", state.queue.tracks().len());
+        state.clock.wants_play = autoplay;
+        self.player().load(first, autoplay, start_ms);
+        Ok(())
+    }
+
     /// Must run on the UniFFI tokio runtime, for `spawn_blocking`.
     fn retune(&self, change: impl FnOnce(&mut Tuning)) {
         // Held throughout so overlapping calls and queue moves serialise.

@@ -22,6 +22,9 @@ final class FakePlayer: SpotPlayerProtocol {
     func addToQueue(uri: String) throws { record("addToQueue \(uri)") }
     func clearQueue() { record("clearQueue") }
     func load(uri: String, startMs _: UInt32, autoplay _: Bool) async throws { record("load \(uri)") }
+    func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, autoplay _: Bool) throws {
+        record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")")
+    }
     func moveInQueue(from: UInt32, to: UInt32) throws { record("move \(from) \(to)") }
     func next() { record("next") }
     func pause() { record("pause") }
@@ -168,5 +171,22 @@ struct PlayerModelTests {
         player.apply(.stopped)
         #expect(player.nowPlaying == nil)
         #expect(!player.isPlaying)
+    }
+
+    @Test func playLoadsTheListFromTheChosenTrack() {
+        let fake = FakePlayer()
+        let player = model(fake)
+        player.play(["a", "b", "c"], from: 1, context: "spotify:playlist:1")
+        player.play(["a"], from: 0)
+        player.play(["a"], from: 3)
+        #expect(fake.recorded == ["loadTracks a,b,c 1 spotify:playlist:1", "loadTracks a 0 -"])
+    }
+
+    @Test func playNextKeepsTheSelectionOrderAtTheFrontOfUpNext() {
+        let fake = FakePlayer()
+        let player = model(fake)
+        player.playNext(["a", "b"])
+        player.addToQueue(["c", "d"])
+        #expect(fake.recorded == ["playNext b", "playNext a", "addToQueue c", "addToQueue d"])
     }
 }
