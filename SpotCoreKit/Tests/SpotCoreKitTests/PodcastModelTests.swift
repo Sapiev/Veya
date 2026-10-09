@@ -87,7 +87,7 @@ private func show(_ uri: String, episodes: [String]) -> MetadataItem {
 private func episode(_ uri: String) -> MetadataItem {
     .episode(episode: EpisodeMetadata(
         uri: uri, title: uri, showName: "Show", description: "Notes", durationMs: 60000,
-        explicit: false, playability: .playable, artwork: []
+        explicit: false, playability: .playable, artwork: [], publishedAt: nil
     ))
 }
 
