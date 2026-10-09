@@ -156,6 +156,8 @@ veya/
 
 **Status:** Done (merged to develop).
 
+**UI tests:** `DiagnosticsUITests` (Help menu item).
+
 - [x] Rust `log`/`tracing` output bridged to `os.Logger` with subsystem per module. (Subsystem per crate, category per module path; trace is never enabled because librespot logs raw tokens there.)
 - [x] Help › Export Diagnostics writes a zip of the last 24 h of logs with tokens and usernames redacted.
 - [x] No telemetry is sent anywhere by default. (Documented in the README privacy section.)
@@ -198,6 +200,8 @@ veya/
 
 **Status:** Done (merged to develop).
 
+**UI tests:** `SignInUITests` (sign-in success, cancelled sign-in with retry).
+
 - [x] PKCE flow in `spotcore` on the `oauth2` crate (librespot's `OAuthClient` cannot expose the URL or validate `state`; see ADR-002); the browser opens via `ASWebAuthenticationSession` and returns through a loopback redirect.
 - [x] Scopes requested are the minimum needed for streaming, library and playlist read/modify.
 - [x] Cancelling or failing login shows a clear error and a retry button.
@@ -211,6 +215,8 @@ veya/
 
 **Status:** Done (merged to develop).
 
+**UI tests:** `SessionUITests` (silent restore, failed restore with retry). Rejected-credential fallback is covered in `SpotCoreKitTests`.
+
 - [ ] Reusable credentials are stored in the Keychain (access group scoped to the app), never on disk in plain text. (Stored in the legacy login keychain with a creator-only ACL; an access group needs a Team ID, see ADR-003 follow-up.)
 - [x] On launch the app connects silently; if credentials are rejected it falls back to the sign-in screen.
 - [x] Session is ready (able to play) within 2 s of launch on a normal connection. (Measured 631 ms restore against live Spotify.)
@@ -222,6 +228,8 @@ veya/
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-102
 
 **Status:** In progress - session-layer reconnect merged to develop; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
+
+**UI tests:** `SessionUITests` (reconnect banner). Track restore and takeover need tests when built.
 
 - [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s). (Access point timeout and backoff done; dealer close waits on PBI-501, which starts the dealer.)
 - [x] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
@@ -235,6 +243,8 @@ veya/
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-102
 
 **Status:** In progress - sign-out merged to develop (session end and Keychain delete); playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
+
+**UI tests:** `SignOutUITests` (button, Account menu, menu disabled when signed out).
 
 - [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end and Keychain delete done; playback, metadata cache and audio cache do not exist yet: PBI-202, PBI-308, PBI-207.)
 - [x] App returns to the sign-in screen without a relaunch.
