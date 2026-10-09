@@ -1,0 +1,113 @@
+import XCTest
+
+/// PBI-404: album, artist and playlist pages.
+final class DetailPagesUITests: XCTestCase {
+    @MainActor private func open(_ sidebarItem: String, then item: String? = nil, title: String) -> XCUIApplication {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.outlines.staticTexts[sidebarItem].click()
+        if let item {
+            // The now-playing bar links "Test Artist" too; open the one in the saved list.
+            let button = app.outlines.buttons[item]
+            XCTAssertTrue(button.waitForExistence(timeout: XCUIApplication.timeout), item)
+            button.click()
+        }
+        XCTAssertTrue(app.showsRoute(title), title)
+        return app
+    }
+
+    @MainActor func testAlbumShowsHeaderTracksAndCopyright() {
+        let app = open("Albums", then: "Test Album", title: "Test Album")
+
+        XCTAssertTrue(app.staticTexts["2024 · 3 songs, 6 min"].waitForExistence(timeout: XCUIApplication.timeout))
+        for title in ["Song 1", "Song 2", "Song 4"] {
+            XCTAssertTrue(app.trackList.staticTexts[title].exists, title)
+        }
+        XCTAssertFalse(app.trackList.staticTexts["Song 3"].exists)
+        XCTAssertTrue(app.staticTexts["© 2024 Veya Test Records"].exists)
+    }
+
+    @MainActor func testAlbumPlayStartsTheFirstTrack() {
+        let app = open("Albums", then: "Test Album", title: "Test Album")
+
+        app.buttons["pagePlay"].click()
+
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 1")).count, 2)
+    }
+
+    @MainActor func testArtistShowsSectionsAndFollowToggles() {
+        let app = open("Artists", then: "Test Artist", title: "Test Artist")
+
+        XCTAssertTrue(app.buttons["1, Song 2, 2:02"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Test Album, 2024"].exists)
+        app.artistPage.scroll(byDeltaX: 0, deltaY: -1000)
+        for text in ["Popular", "Albums", "Singles and EPs", "Fans Also Like"] {
+            XCTAssertTrue(app.staticTexts[text].exists, text)
+        }
+        XCTAssertTrue(app.buttons["Test Single, 2025"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Related Artist"].exists)
+        XCTAssertFalse(app.staticTexts["Compilations"].exists)
+
+        app.artistPage.scroll(byDeltaX: 0, deltaY: 1000)
+        let following = app.buttons["Following"]
+        XCTAssertTrue(following.waitForExistence(timeout: XCUIApplication.timeout))
+        following.click()
+        XCTAssertTrue(app.buttons["Follow"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testArtistTopTrackPlaysAndDiscographyOpensTheAlbum() {
+        let app = open("Artists", then: "Test Artist", title: "Test Artist")
+
+        let topTrack = app.buttons["2, Song 1, 2:01"]
+        XCTAssertTrue(topTrack.waitForExistence(timeout: XCUIApplication.timeout))
+        topTrack.click()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        // The card sits below the fold of the test window; macOS doesn't scroll to it.
+        app.artistPage.scroll(byDeltaX: 0, deltaY: -300)
+        app.buttons["Test Album, 2024"].click()
+        XCTAssertTrue(app.showsRoute("Test Album"))
+    }
+
+    @MainActor func testPlaylistShowsHeaderAndFilterNarrowsRows() {
+        let app = open("Road Trip", title: "Road Trip")
+        XCTAssertTrue(app.staticTexts["Songs for the road"].exists)
+        XCTAssertTrue(app.staticTexts["By ui-test · 3 songs"].exists)
+        XCTAssertTrue(app.trackList.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        let filter = app.textFields["Filter"]
+        filter.click()
+        filter.typeText("Song 2")
+
+        XCTAssertTrue(app.trackList.staticTexts["Song 2"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.trackList.staticTexts["Song 1"].exists)
+        XCTAssertFalse(app.trackList.staticTexts["Song 5"].exists)
+    }
+
+    /// Return in the filter field must not play the table's selection.
+    @MainActor func testReturnInTheFilterFieldDoesNotPlay() {
+        let app = open("Road Trip", title: "Road Trip")
+        let row = app.trackList.staticTexts["Song 5"]
+        XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout))
+        row.click()
+
+        let filter = app.textFields["Filter"]
+        filter.click()
+        filter.typeText("Song\r")
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 1))
+        XCTAssertFalse(app.trackList.images["Now Playing"].exists)
+    }
+}
+
+private extension XCUIApplication {
+    var trackList: XCUIElement {
+        outlines["trackList"]
+    }
+
+    var artistPage: XCUIElement {
+        scrollViews.containing(.staticText, identifier: "routeTitle").firstMatch
+    }
+}

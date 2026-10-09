@@ -50,7 +50,7 @@ final class EmptyStatesUITests: XCTestCase {
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
         album.click()
 
-        XCTAssertEqual(app.routeTitle.value as? String, "Album")
+        XCTAssertTrue(app.showsRoute("Test Album"))
     }
 
     @MainActor func testEverySidebarDestinationShowsContent() {
@@ -59,8 +59,7 @@ final class EmptyStatesUITests: XCTestCase {
 
         for item in ["Home", "Search", "Liked Songs", "Albums", "Artists", "Podcasts", "Road Trip"] {
             app.outlines.staticTexts[item].click()
-            XCTAssertTrue(app.routeTitle.waitForExistence(timeout: XCUIApplication.timeout), item)
-            XCTAssertEqual(app.routeTitle.value as? String, item)
+            XCTAssertTrue(app.showsRoute(item), item)
         }
     }
 }
