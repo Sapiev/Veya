@@ -12,6 +12,8 @@ mod library;
 mod logging;
 mod metadata;
 mod player;
+mod playlist;
+mod push;
 mod queue;
 mod reconnect;
 mod redact;
@@ -28,6 +30,9 @@ pub use metadata::{
     MetadataError, MetadataItem, MetadataService, Playability, TrackMetadata,
 };
 pub use player::{Bitrate, LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
+pub use playlist::{
+    PlaylistChange, PlaylistError, PlaylistPage, PlaylistService, PlaylistTrack, RootlistEntry,
+};
 pub use reconnect::{ConnectionObserver, ConnectionState};
 pub use session::{SessionError, SpotSession};
 

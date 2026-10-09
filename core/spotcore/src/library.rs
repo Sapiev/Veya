@@ -5,25 +5,21 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use futures_util::StreamExt;
 use http::{HeaderMap, HeaderValue, Method, header::CONTENT_TYPE};
 use indexmap::IndexMap;
 use librespot_core::Session;
-use librespot_core::dealer::Subscription;
 use protobuf::rt::WireType;
 use protobuf::{CodedInputStream, CodedOutputStream};
 use serde::{Deserialize, Serialize};
 
+use crate::push::PushWatch;
 use crate::session::SpotSession;
 
 const PAGE_LIMIT: i32 = 300;
 const CACHE_VERSION: u32 = 1;
 const PUSH_URI: &str = "hm://collection/";
-/// How often a quiet push wait checks whether a reconnect replaced the session.
-const SESSION_CHECK: Duration = Duration::from_secs(30);
-const RESUBSCRIBE_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum LibraryError {
@@ -98,12 +94,7 @@ pub struct LibraryService {
     session: Arc<SpotSession>,
     cache_dir: Option<PathBuf>,
     sets: Mutex<HashMap<&'static str, SetState>>,
-    push: tokio::sync::Mutex<Option<Push>>,
-}
-
-struct Push {
-    session_id: String,
-    subscription: Subscription,
+    push: PushWatch,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -115,7 +106,7 @@ impl LibraryService {
             session,
             cache_dir: cache_dir.map(PathBuf::from),
             sets: Mutex::new(HashMap::new()),
-            push: tokio::sync::Mutex::new(None),
+            push: PushWatch::new(PUSH_URI),
         })
     }
 
@@ -189,45 +180,7 @@ impl LibraryService {
     /// reconnect replaced the session (a push may have been missed).
     /// Call `refresh` afterwards, then wait again.
     pub async fn wait_for_change(&self) {
-        let mut push = self.push.lock().await;
-        loop {
-            let session = self.session.current_session();
-            let session_id = session.session_id();
-            if push.as_ref().is_none_or(|p| p.session_id != session_id) {
-                match subscribe(&session).await {
-                    Ok(subscription) => {
-                        *push = Some(Push {
-                            session_id,
-                            subscription,
-                        })
-                    }
-                    Err(e) => {
-                        log::warn!("library push subscription failed: {e}");
-                        drop(session);
-                        tokio::time::sleep(RESUBSCRIBE_DELAY).await;
-                        continue;
-                    }
-                }
-            }
-            drop(session);
-
-            let current = push.as_mut().expect("subscribed above");
-            tokio::select! {
-                message = current.subscription.next() => match message {
-                    Some(_) => return,
-                    None => {
-                        *push = None;
-                        tokio::time::sleep(RESUBSCRIBE_DELAY).await;
-                    }
-                },
-                _ = tokio::time::sleep(SESSION_CHECK) => {
-                    if self.session.current_session().session_id() != current.session_id {
-                        *push = None;
-                        return;
-                    }
-                }
-            }
-        }
+        self.push.next(&self.session).await;
     }
 }
 
@@ -261,15 +214,6 @@ impl LibraryService {
             log::warn!("library cache write failed: {e}");
         }
     }
-}
-
-async fn subscribe(session: &Session) -> Result<Subscription, librespot_core::Error> {
-    let subscription = session.dealer().add_listen_for(PUSH_URI)?;
-    // Fails harmlessly when another component already launched the dealer.
-    if let Err(e) = session.dealer().start().await {
-        log::debug!("dealer not started by library: {e}");
-    }
-    Ok(subscription)
 }
 
 enum Synced {
@@ -490,7 +434,7 @@ fn encode_write(
 }
 
 /// Calls `field` with each field number; unknown fields are skipped.
-fn decode_fields(
+pub(crate) fn decode_fields(
     bytes: &[u8],
     mut field: impl FnMut(u32, &mut CodedInputStream) -> protobuf::Result<bool>,
 ) -> protobuf::Result<()> {
@@ -735,7 +679,7 @@ mod tests {
         assert_eq!(tracks.len(), 10_000);
         assert_eq!(tracks[0].added_at, 9_999);
         assert!(
-            started.elapsed() < Duration::from_millis(250),
+            started.elapsed() < std::time::Duration::from_millis(250),
             "{:?}",
             started.elapsed()
         );

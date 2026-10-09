@@ -295,6 +295,13 @@ fn parse<T: Metadata>(uri: &SpotifyUri, bytes: &[u8]) -> Result<T, librespot_cor
     T::parse(&T::Message::parse_from_bytes(bytes)?, uri)
 }
 
+/// Image URL with a `{file_id}` placeholder, as the account reports it.
+pub(crate) fn image_url_template(session: &Session) -> String {
+    session
+        .get_user_attribute("image-url")
+        .unwrap_or_else(|| DEFAULT_IMAGE_URL.to_owned())
+}
+
 struct Context {
     user: UserData,
     image_url: String,
@@ -304,9 +311,7 @@ impl Context {
     fn of(session: &Session) -> Self {
         Self {
             user: session.user_data(),
-            image_url: session
-                .get_user_attribute("image-url")
-                .unwrap_or_else(|| DEFAULT_IMAGE_URL.to_owned()),
+            image_url: image_url_template(session),
         }
     }
 

@@ -2542,6 +2542,7 @@ dependencies = [
  "librespot-protocol",
  "log",
  "oauth2",
+ "percent-encoding",
  "protobuf",
  "rand 0.9.5",
  "regex",
