@@ -95,6 +95,8 @@
 
         func setAudioCacheLimit(bytes _: UInt64) throws {}
 
+        func clearMetadataCache() throws {}
+
         private func nextSession() throws -> any SessionHandle {
             let fails = failuresLeft.withLock { left in
                 defer { left = max(left - 1, 0) }
@@ -133,11 +135,11 @@
 
         func reconnect() {}
 
-        func makeLibrary(cacheDirectory _: URL?) -> any LibraryServiceProtocol {
+        func makeLibrary(store _: MetadataStore?) -> any LibraryServiceProtocol {
             ScenarioLibrary()
         }
 
-        func makeMetadata() -> any MetadataServiceProtocol {
+        func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
             ScenarioMetadata()
         }
     }

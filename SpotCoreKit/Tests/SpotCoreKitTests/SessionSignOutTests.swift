@@ -90,4 +90,41 @@ struct SessionSignOutTests {
         try model.signOut()
         #expect(store.blob == nil)
     }
+
+    @Test func signOutClearsMetadataCache() async throws {
+        let model = try await ready(FakeSession(), store: FakeStore(blob: storedBlob))
+
+        try model.signOut()
+
+        #expect(connector.metadataClears == 1)
+    }
+
+    @Test func metadataClearFailureStillEndsSessionDeletesItemsAndRethrows() async throws {
+        let store = FakeStore(blob: storedBlob)
+        let refreshTokens = FakeStore(blob: Data("rt".utf8))
+        let session = FakeSession()
+        let model = SessionModel(store: store, refreshTokenStore: refreshTokens, connector: connector, log: logs.log)
+        let task = model.restore()
+        try await waitUntil { connector.pending == 1 }
+        connector.resolve(0, with: .success(session))
+        await task.value
+        connector.failMetadataClear(with: DiskFull())
+
+        #expect(throws: DiskFull()) { try model.signOut() }
+        #expect(model.state == .signedOut)
+        #expect(session.shutdownCount == 1)
+        #expect(store.blob == nil)
+        #expect(refreshTokens.blob == nil)
+        #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("metadata cache") })
+    }
+
+    @Test func resetMetadataCacheClearsThroughConnector() {
+        let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
+
+        try? model.resetMetadataCache()
+
+        #expect(connector.metadataClears == 1)
+    }
 }
+
+private struct DiskFull: Error, Equatable {}

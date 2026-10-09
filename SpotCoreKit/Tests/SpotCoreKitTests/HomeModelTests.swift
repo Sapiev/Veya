@@ -75,6 +75,8 @@ final class StubPlaylists: PlaylistServiceProtocol {
         return page
     }
 
+    func cachedRootlist() -> [RootlistEntry] { [] }
+    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
     func followerCount(uri _: String) async throws -> UInt64 { 0 }
     func waitForChange() async -> PlaylistChange { .rootlist }
 }

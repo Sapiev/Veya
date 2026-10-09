@@ -1,9 +1,8 @@
 //! The user's library (liked songs, saved albums, followed artists and shows) through
-//! spclient's collection v2 endpoints, cached on disk per set and kept fresh
-//! by delta syncs that dealer pushes trigger.
+//! spclient's collection v2 endpoints, cached in the metadata store per set
+//! and kept fresh by delta syncs that dealer pushes trigger.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,9 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::push::PushWatch;
 use crate::session::SpotSession;
+use crate::store::MetadataStore;
 
 const PAGE_LIMIT: i32 = 300;
-const CACHE_VERSION: u32 = 1;
 const PUSH_URI: &str = "hm://collection/";
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -95,32 +94,26 @@ pub trait LibraryObserver: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct LibraryService {
     session: Arc<SpotSession>,
-    cache_dir: Option<PathBuf>,
-    sets: Mutex<HashMap<&'static str, SetState>>,
+    sets: SetCache,
     push: PushWatch,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl LibraryService {
-    /// `cache_dir` holds one file per set; without it nothing persists.
+    /// Without a `store` nothing persists.
     #[uniffi::constructor]
-    pub fn new(session: Arc<SpotSession>, cache_dir: Option<String>) -> Arc<Self> {
+    pub fn new(session: Arc<SpotSession>, store: Option<Arc<MetadataStore>>) -> Arc<Self> {
         Arc::new(Self {
             session,
-            cache_dir: cache_dir.map(PathBuf::from),
-            sets: Mutex::new(HashMap::new()),
+            sets: SetCache::new(store),
             push: PushWatch::new(PUSH_URI),
         })
     }
 
-    /// What is in memory or on disk, newest first, without a request.
+    /// What is in memory or in the store, newest first, without a request.
     pub fn cached(&self, kind: LibraryKind) -> Vec<LibraryItem> {
         let username = self.session.current_session().username();
-        let mut sets = self.sets.lock().unwrap();
-        let state = sets
-            .entry(kind.set())
-            .or_insert_with(|| self.load(kind.set(), &username));
-        state.items(kind)
+        self.sets.get(kind.set(), &username).items(kind)
     }
 
     /// Syncs the kind's set with the server (delta when possible, full
@@ -129,26 +122,20 @@ impl LibraryService {
         let session = self.session.current_session();
         let username = session.username();
         let set = kind.set();
-        let token = {
-            let mut sets = self.sets.lock().unwrap();
-            let state = sets.entry(set).or_insert_with(|| self.load(set, &username));
-            state.sync_token.clone()
-        };
+        let generation = self.sets.generation();
+        let token = self.sets.get(set, &username).sync_token;
 
         let synced = match sync(&session, &username, set, &token).await? {
             Synced::Delta { items, sync_token } => {
-                let mut sets = self.sets.lock().unwrap();
-                let state = sets.get_mut(set).expect("inserted above");
-                state.apply(items);
-                state.sync_token = sync_token;
-                state.clone()
+                self.sets.update(set, &username, generation, |state| {
+                    state.apply(items);
+                    state.sync_token = sync_token;
+                })
             }
-            Synced::Full(state) => {
-                self.sets.lock().unwrap().insert(set, state.clone());
-                state
-            }
+            Synced::Full(full) => self
+                .sets
+                .update(set, &username, generation, |state| *state = full),
         };
-        self.persist(set, &username, &synced);
         Ok(synced.items(kind))
     }
 
@@ -164,18 +151,14 @@ impl LibraryService {
             added_at: now(),
             is_removed: !saved,
         };
+        let generation = self.sets.generation();
         let request = encode_write(&username, kind.set(), &item, &client_update_id())?;
         post(&session, "/collection/v2/write", request).await?;
 
-        let snapshot = {
-            let mut sets = self.sets.lock().unwrap();
-            let state = sets
-                .entry(kind.set())
-                .or_insert_with(|| self.load(kind.set(), &username));
-            state.apply(vec![item]);
-            state.clone()
-        };
-        self.persist(kind.set(), &username, &snapshot);
+        self.sets
+            .update(kind.set(), &username, generation, |state| {
+                state.apply(vec![item])
+            });
         Ok(())
     }
 
@@ -187,35 +170,90 @@ impl LibraryService {
     }
 }
 
-impl LibraryService {
-    fn path(&self, set: &str) -> Option<PathBuf> {
-        Some(self.cache_dir.as_ref()?.join(format!("library-{set}.json")))
+/// In-memory sets over the store. Each set remembers the user and store
+/// generation it was loaded under and reloads when either changes, so a
+/// `MetadataStore::clear` empties memory too.
+struct SetCache {
+    store: Option<Arc<MetadataStore>>,
+    sets: Mutex<HashMap<&'static str, Loaded>>,
+}
+
+struct Loaded {
+    username: String,
+    generation: u64,
+    state: SetState,
+}
+
+impl SetCache {
+    fn new(store: Option<Arc<MetadataStore>>) -> Self {
+        Self {
+            store,
+            sets: Mutex::new(HashMap::new()),
+        }
     }
 
-    fn load(&self, set: &str, username: &str) -> SetState {
-        let Some(path) = self.path(set) else {
-            return SetState::default();
-        };
-        match std::fs::read(&path) {
-            Ok(bytes) => SetState::decode(&bytes, username).unwrap_or_default(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => SetState::default(),
-            Err(e) => {
-                log::warn!("library cache unreadable: {e}");
-                SetState::default()
+    /// Capture before a request and pass to `update`.
+    fn generation(&self) -> u64 {
+        self.store.as_ref().map_or(0, |store| store.generation())
+    }
+
+    fn get(&self, set: &'static str, username: &str) -> SetState {
+        let mut sets = self.sets.lock().unwrap();
+        self.current(&mut sets, set, username).state.clone()
+    }
+
+    /// Applies `change` in memory and persists it, unless the store was
+    /// cleared since `generation`: then only the returned copy changes.
+    fn update(
+        &self,
+        set: &'static str,
+        username: &str,
+        generation: u64,
+        change: impl FnOnce(&mut SetState),
+    ) -> SetState {
+        let snapshot = {
+            let mut sets = self.sets.lock().unwrap();
+            let loaded = self.current(&mut sets, set, username);
+            if loaded.generation != generation {
+                let mut stale = loaded.state.clone();
+                change(&mut stale);
+                return stale;
             }
+            change(&mut loaded.state);
+            loaded.state.clone()
+        };
+        if let Some(store) = &self.store {
+            snapshot.persist(store, generation, set, username);
         }
+        snapshot
     }
 
-    /// Write-then-rename, so a crash mid-write leaves the old file intact.
-    fn persist(&self, set: &str, username: &str, state: &SetState) {
-        let Some(path) = self.path(set) else { return };
-        let temp = path.with_extension("json.tmp");
-        let result = std::fs::create_dir_all(path.parent().expect("joined path"))
-            .and_then(|_| std::fs::write(&temp, state.encode(username)))
-            .and_then(|_| std::fs::rename(&temp, &path));
-        if let Err(e) = result {
-            log::warn!("library cache write failed: {e}");
+    fn current<'a>(
+        &self,
+        sets: &'a mut HashMap<&'static str, Loaded>,
+        set: &'static str,
+        username: &str,
+    ) -> &'a mut Loaded {
+        let generation = self.generation();
+        let stale = sets
+            .get(set)
+            .is_none_or(|loaded| loaded.username != username || loaded.generation != generation);
+        if stale {
+            let state = self
+                .store
+                .as_ref()
+                .map(|store| SetState::load(store, set, username))
+                .unwrap_or_default();
+            sets.insert(
+                set,
+                Loaded {
+                    username: username.to_owned(),
+                    generation,
+                    state,
+                },
+            );
         }
+        sets.get_mut(set).expect("inserted above")
     }
 }
 
@@ -292,21 +330,10 @@ fn client_update_id() -> String {
     format!("{nanos:032x}")
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct SetState {
     sync_token: String,
     items: Vec<LibraryItem>,
-}
-
-/// Disk format, UTF-8 JSON:
-/// `{"version":1,"username":"<user>","sync_token":"<token>","items":[{"uri":"spotify:…","added_at":<unix secs>}]}`.
-/// A file for another user or version reads as empty.
-#[derive(Serialize, Deserialize)]
-struct CacheFile {
-    version: u32,
-    username: String,
-    #[serde(flatten)]
-    state: SetState,
 }
 
 impl SetState {
@@ -340,18 +367,15 @@ impl SetState {
         items
     }
 
-    fn encode(&self, username: &str) -> Vec<u8> {
-        serde_json::to_vec(&CacheFile {
-            version: CACHE_VERSION,
-            username: username.to_owned(),
-            state: self.clone(),
-        })
-        .expect("plain strings and integers serialize")
+    fn load(store: &MetadataStore, set: &str, username: &str) -> Self {
+        store
+            .library_set(username, set)
+            .map(|(sync_token, items)| Self { sync_token, items })
+            .unwrap_or_default()
     }
 
-    fn decode(bytes: &[u8], username: &str) -> Option<Self> {
-        let file: CacheFile = serde_json::from_slice(bytes).ok()?;
-        (file.version == CACHE_VERSION && file.username == username).then_some(file.state)
+    fn persist(&self, store: &MetadataStore, generation: u64, set: &str, username: &str) {
+        store.put_library_set(generation, username, set, &self.sync_token, &self.items);
     }
 }
 
@@ -653,37 +677,73 @@ mod tests {
     }
 
     #[test]
-    fn cache_file_is_ignored_for_another_user_or_version() {
+    fn clear_empties_memory_and_drops_in_flight_updates() {
+        let store = crate::store::tests::temp_store("library-clear");
+        let sets = SetCache::new(Some(store.clone()));
+        let saved = |state: &mut SetState| {
+            state.sync_token = "s".into();
+            state.apply(vec![item("spotify:track:a", 1, false)]);
+        };
+        sets.update("collection", "u", sets.generation(), saved);
+        assert_eq!(sets.get("collection", "u").sync_token, "s");
+
+        let in_flight = sets.generation();
+        store.clear().unwrap();
+        assert_eq!(sets.get("collection", "u"), SetState::default());
+
+        let returned = sets.update("collection", "u", in_flight, saved);
+        assert_eq!(returned.sync_token, "s");
+        assert_eq!(sets.get("collection", "u"), SetState::default());
+        assert_eq!(
+            SetState::load(&store, "collection", "u"),
+            SetState::default()
+        );
+    }
+
+    #[test]
+    fn memory_reloads_for_another_user() {
+        let sets = SetCache::new(None);
+        sets.update("collection", "alice", 0, |state| {
+            state.apply(vec![item("spotify:track:a", 1, false)])
+        });
+        assert_eq!(sets.get("collection", "alice").items.len(), 1);
+        assert_eq!(sets.get("collection", "bob"), SetState::default());
+    }
+
+    #[test]
+    fn store_round_trips_per_user() {
+        let store = crate::store::tests::temp_store("library");
         let mut state = SetState {
             sync_token: "s".into(),
             items: vec![],
         };
         state.apply(vec![item("spotify:track:a", 1, false)]);
-        let bytes = state.encode("alice");
+        state.persist(&store, store.generation(), "collection", "alice");
 
-        assert_eq!(SetState::decode(&bytes, "alice"), Some(state));
-        assert_eq!(SetState::decode(&bytes, "bob"), None);
-        let other_version = String::from_utf8(bytes)
-            .unwrap()
-            .replace("\"version\":1", "\"version\":2");
-        assert_eq!(SetState::decode(other_version.as_bytes(), "alice"), None);
-        assert_eq!(SetState::decode(b"not json", "alice"), None);
+        assert_eq!(SetState::load(&store, "collection", "alice"), state);
+        assert_eq!(
+            SetState::load(&store, "collection", "bob"),
+            SetState::default()
+        );
+        assert_eq!(
+            SetState::load(&store, "artist", "alice"),
+            SetState::default()
+        );
     }
 
     #[test]
-    fn ten_thousand_cached_tracks_decode_well_under_a_second() {
+    fn ten_thousand_cached_tracks_load_well_under_a_second() {
         let mut state = SetState::default();
         state.apply(
             (0..10_000)
                 .map(|n| item(&format!("spotify:track:{n:022}"), n, false))
                 .collect(),
         );
-        let bytes = state.encode("u");
+        let store = crate::store::tests::temp_store("library-10k");
+        state.persist(&store, store.generation(), "collection", "u");
 
         let started = std::time::Instant::now();
-        let tracks = SetState::decode(&bytes, "u")
-            .unwrap()
-            .items(LibraryKind::Tracks);
+        let tracks = SetState::load(&store, "collection", "u").items(LibraryKind::Tracks);
         assert_eq!(tracks.len(), 10_000);
         assert_eq!(tracks[0].added_at, 9_999);
         assert!(

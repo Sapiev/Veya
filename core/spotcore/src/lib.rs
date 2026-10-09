@@ -21,6 +21,7 @@ mod reconnect;
 mod redact;
 mod search;
 mod session;
+mod store;
 
 pub use account::is_premium_account;
 pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
@@ -41,6 +42,7 @@ pub use podcast::{EpisodeProgress, PodcastError, episode_progress};
 pub use reconnect::{ConnectionObserver, ConnectionState};
 pub use search::{SearchError, SearchGroup, SearchHit, SearchKind, SearchService};
 pub use session::{SessionError, SpotSession};
+pub use store::MetadataStore;
 
 uniffi::setup_scaffolding!();
 

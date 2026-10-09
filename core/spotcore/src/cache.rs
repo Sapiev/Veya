@@ -17,7 +17,7 @@ use log::warn;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CacheError {
-    #[error("audio cache I/O failed: {message}")]
+    #[error("cache I/O failed: {message}")]
     Io { message: String },
 }
 
