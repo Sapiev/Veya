@@ -3,13 +3,6 @@ import os
 import SpotCoreKit
 import Testing
 
-private let tokens = OAuthTokens(
-    accessToken: "access-SECRET-1234",
-    refreshToken: "refresh-SECRET-5678",
-    expiresInSecs: 3600,
-    scopes: ["streaming"]
-)
-
 /// Stands in for the 127.0.0.1:8898 listener a live flow holds.
 private final class FakePort: Sendable {
     private let held = OSAllocatedUnfairLock(initialState: false)
@@ -148,14 +141,6 @@ private func starter(_ flows: [any SignInFlow], startError: (any Error)? = nil) 
             return queue.removeFirst()
         }
     }
-}
-
-@MainActor
-private func waitUntil(_ condition: () -> Bool) async throws {
-    for _ in 0 ..< 2000 where !condition() {
-        try await Task.sleep(for: .milliseconds(1))
-    }
-    #expect(condition())
 }
 
 @MainActor

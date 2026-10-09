@@ -7,6 +7,8 @@
     "Couldn't connect to Spotify. Try again.": {},
     "Couldn't reach Spotify. Check your connection and try again.": {},
     "Export Diagnostics…": {},
+    "Offline - reconnecting…": {},
+    "Retrying in %lld s": {},
     "Sign In Again…": {},
     "Sign In to Veya": {},
     "Sign In with Spotify…": {},

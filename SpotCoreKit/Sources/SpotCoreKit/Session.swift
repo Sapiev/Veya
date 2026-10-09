@@ -5,6 +5,9 @@ import Observation
 public protocol SessionHandle: AnyObject, Sendable {
     func storedCredentials() throws -> Data
     func shutdown()
+    func setObserver(observer: any ConnectionObserver)
+    func systemDidWake()
+    func networkChanged(available: Bool)
 }
 
 extension SpotSession: SessionHandle {}
@@ -50,6 +53,26 @@ public enum SessionState: Equatable, Sendable {
     case failed(SessionFailure)
 }
 
+public enum ConnectionStatus: Equatable, Sendable {
+    case online
+    /// `retryAt` is when the next attempt starts; now or past while one runs.
+    case reconnecting(attempt: Int, retryAt: Date)
+}
+
+/// Rust calls this on its own threads while holding a lock, so it only
+/// enqueues; the stream keeps the calls in order.
+private final class ConnectionStateRelay: ConnectionObserver {
+    private let continuation: AsyncStream<ConnectionState>.Continuation
+
+    init(_ continuation: AsyncStream<ConnectionState>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func onStateChanged(state: ConnectionState) {
+        continuation.yield(state)
+    }
+}
+
 public typealias SessionLog = @MainActor (LogLevel, String) -> Void
 
 /// Store calls run synchronously on the main actor so a delete and a later
@@ -58,12 +81,16 @@ public typealias SessionLog = @MainActor (LogLevel, String) -> Void
 @Observable
 public final class SessionModel {
     public private(set) var state: SessionState = .restoring
+    public private(set) var connection: ConnectionStatus = .online
 
     @ObservationIgnored private let store: any CredentialStore
     @ObservationIgnored private let connector: any SessionConnector
     @ObservationIgnored private let log: SessionLog
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var session: (any SessionHandle)?
+    @ObservationIgnored private var events: Task<Void, Never>?
+    /// The blob the current attempt loaded from or saved to the store.
+    @ObservationIgnored private var knownBlob: Data?
 
     public static let readyBudget = Duration.seconds(2)
 
@@ -75,6 +102,11 @@ public final class SessionModel {
         self.store = store
         self.connector = connector
         self.log = log
+    }
+
+    isolated deinit {
+        events?.cancel()
+        session?.shutdown()
     }
 
     @discardableResult
@@ -117,11 +149,23 @@ public final class SessionModel {
         _ = begin(.signedOut)
     }
 
+    public func systemDidWake() {
+        session?.systemDidWake()
+    }
+
+    public func networkChanged(available: Bool) {
+        session?.networkChanged(available: available)
+    }
+
     private func begin(_ next: SessionState) -> Int {
         attempt += 1
+        events?.cancel()
+        events = nil
         session?.shutdown()
         session = nil
+        knownBlob = nil
         state = next
+        connection = .online
         return attempt
     }
 
@@ -139,6 +183,7 @@ public final class SessionModel {
             state = .signedOut
             return
         }
+        knownBlob = blob
         let connector = connector
         do {
             let session = try await connector.connect(storedCredentials: blob)
@@ -170,17 +215,61 @@ public final class SessionModel {
             session.shutdown()
             return
         }
-        do {
-            try store.save(session.storedCredentials())
-        } catch {
-            log(.warn, "Couldn't save credentials: \(Self.summary(error))")
-        }
+        saveCredentials(of: session)
         self.session = session
         state = .ready
+        observe(session, attempt: current)
         if let started {
             let elapsed = ContinuousClock.now - started
             let millis = Int(elapsed / .milliseconds(1))
             log(elapsed > Self.readyBudget ? .warn : .info, "Session restored in \(millis) ms")
+        }
+    }
+
+    private func saveCredentials(of session: any SessionHandle, skippingKnown: Bool = false) {
+        do {
+            let blob = try session.storedCredentials()
+            if skippingKnown, blob == knownBlob {
+                return
+            }
+            try store.save(blob)
+            knownBlob = blob
+        } catch {
+            log(.warn, "Couldn't save credentials: \(Self.summary(error))")
+        }
+    }
+
+    private func observe(_ session: any SessionHandle, attempt current: Int) {
+        let (stream, continuation) = AsyncStream.makeStream(of: ConnectionState.self)
+        events = Task { [weak self] in
+            for await next in stream {
+                guard let self, current == attempt else { return }
+                handle(next)
+            }
+        }
+        session.setObserver(observer: ConnectionStateRelay(continuation))
+    }
+
+    private func handle(_ next: ConnectionState) {
+        switch next {
+        case .connected:
+            if case .reconnecting = connection {
+                log(.info, "Reconnected")
+            }
+            connection = .online
+            if let session {
+                saveCredentials(of: session, skippingKnown: true)
+            }
+        case let .reconnecting(attempt, retryIn):
+            let retryAt = Date.now.addingTimeInterval(TimeInterval(retryIn))
+            connection = .reconnecting(attempt: Int(attempt), retryAt: retryAt)
+            log(.info, "Reconnecting: attempt \(attempt), retry in \(retryIn) s")
+        case .credentialsRejected:
+            log(.warn, "Spotify rejected the stored credentials on reconnect")
+            if let knownBlob {
+                deleteIfUnchanged(knownBlob)
+            }
+            _ = begin(.signedOut)
         }
     }
 

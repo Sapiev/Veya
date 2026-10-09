@@ -1,6 +1,7 @@
 import Foundation
 import os
 import SpotCoreKit
+import Testing
 
 let storedBlob = Data("stored-SECRET-blob".utf8)
 let refreshedBlob = Data("refreshed-SECRET-blob".utf8)
@@ -64,15 +65,42 @@ final class FakeStore: CredentialStore {
 }
 
 final class FakeSession: SessionHandle {
-    private let shutdowns = OSAllocatedUnfairLock(initialState: 0)
-    let blob: Data
+    private struct Box {
+        var blob: Data
+        var shutdowns = 0
+        var wakes = 0
+        var network: [Bool] = []
+        var observer: (any ConnectionObserver)?
+    }
 
-    init(blob: Data = refreshedBlob) {
-        self.blob = blob
+    private let box: OSAllocatedUnfairLock<Box>
+    private let initial: ConnectionState?
+
+    /// `initial` mimics spotcore delivering the current state on subscribe.
+    init(blob: Data = refreshedBlob, initial: ConnectionState? = nil) {
+        box = OSAllocatedUnfairLock(initialState: Box(blob: blob))
+        self.initial = initial
+    }
+
+    var blob: Data {
+        get { box.withLock { $0.blob } }
+        set { box.withLock { $0.blob = newValue } }
     }
 
     var shutdownCount: Int {
-        shutdowns.withLock { $0 }
+        box.withLock { $0.shutdowns }
+    }
+
+    var wakes: Int {
+        box.withLock { $0.wakes }
+    }
+
+    var network: [Bool] {
+        box.withLock { $0.network }
+    }
+
+    func push(_ state: ConnectionState) {
+        box.withLock { $0.observer }?.onStateChanged(state: state)
     }
 
     func storedCredentials() throws -> Data {
@@ -80,7 +108,22 @@ final class FakeSession: SessionHandle {
     }
 
     func shutdown() {
-        shutdowns.withLock { $0 += 1 }
+        box.withLock { $0.shutdowns += 1 }
+    }
+
+    func setObserver(observer: any ConnectionObserver) {
+        box.withLock { $0.observer = observer }
+        if let initial {
+            observer.onStateChanged(state: initial)
+        }
+    }
+
+    func systemDidWake() {
+        box.withLock { $0.wakes += 1 }
+    }
+
+    func networkChanged(available: Bool) {
+        box.withLock { $0.network.append(available) }
     }
 }
 
@@ -127,4 +170,27 @@ final class FakeConnector: SessionConnector {
         let waiter = box.withLock { $0.waiters[index] }
         waiter.resume(with: result)
     }
+}
+
+let tokens = OAuthTokens(
+    accessToken: "access-SECRET-1234",
+    refreshToken: "refresh-SECRET-5678",
+    expiresInSecs: 3600,
+    scopes: ["streaming"]
+)
+
+@MainActor
+final class LogSpy {
+    var entries: [(LogLevel, String)] = []
+    var log: SessionLog {
+        { [self] in entries.append(($0, $1)) }
+    }
+}
+
+@MainActor
+func waitUntil(_ condition: () -> Bool) async throws {
+    for _ in 0 ..< 2000 where !condition() {
+        try await Task.sleep(for: .milliseconds(1))
+    }
+    #expect(condition())
 }
