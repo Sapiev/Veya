@@ -146,6 +146,47 @@
         func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
             ScenarioPlaylists()
         }
+
+        @MainActor
+        func makePlayer(observer: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
+            PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil)
+        }
+    }
+
+    private nonisolated let scenarioTrackURI = "spotify:track:ui-test"
+
+    /// A paused "Test Track" that answers play and pause with the matching events.
+    private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
+        private let observer: any PlayerObserver
+
+        init(observer: any PlayerObserver) {
+            self.observer = observer
+            observer.onEvent(event: .trackChanged(uri: scenarioTrackURI, name: "Test Track", durationMs: 180_000))
+            observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0))
+        }
+
+        func play() { observer.onEvent(event: .playing(uri: scenarioTrackURI, positionMs: 0)) }
+        func pause() { observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0)) }
+        func addToQueue(uri _: String) throws {}
+        func clearQueue() {}
+        func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
+        func moveInQueue(from _: UInt32, to _: UInt32) throws {}
+        func next() {}
+        func playNext(uri _: String) throws {}
+        func previous() {}
+        func queue() -> QueueSnapshot {
+            QueueSnapshot(current: scenarioTrackURI, upNext: [], nextFromContext: [], shuffle: false, repeat: .off, autoplay: true)
+        }
+
+        func removeFromQueue(index _: UInt32) throws {}
+        func seek(positionMs _: UInt32) {}
+        func setAutoplay(on _: Bool) {}
+        func setBitrate(bitrate _: Bitrate) async {}
+        func setNormalisation(normalisation _: LoudnessPreset?) async {}
+        func setRepeat(mode _: RepeatMode) {}
+        func setShuffle(on _: Bool) {}
+        func setVolume(volume _: UInt16) {}
+        func stop() {}
     }
 
     /// An empty library that never changes.
@@ -203,7 +244,14 @@
 
     private final nonisolated class ScenarioMetadata: MetadataServiceProtocol {
         func items(uris: [String]) async throws -> [MetadataItem] {
-            uris.map { .unavailable(uri: $0, error: .notFound) }
+            uris.map { uri in
+                guard uri == scenarioTrackURI else { return .unavailable(uri: uri, error: .notFound) }
+                return .track(track: TrackMetadata(
+                    uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+                    album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: 180_000,
+                    explicit: false, playability: .playable, artwork: []
+                ))
+            }
         }
     }
 
