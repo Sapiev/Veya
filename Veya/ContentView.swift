@@ -23,6 +23,9 @@ struct ContentView: View {
             SignInView(model: signIn)
         case .ready:
             SignedInView()
+                .overlay(alignment: .top) {
+                    ReconnectBanner(connection: session.connection)
+                }
         case let .failed(failure):
             SessionFailedView(failure: failure, retry: { session.retry() }, signIn: { session.showSignIn() })
         }
@@ -66,6 +69,52 @@ private extension SessionFailure {
         case .other:
             String(localized: "Couldn't connect to Spotify. Try again.")
         }
+    }
+}
+
+private struct ReconnectBanner: View {
+    let connection: ConnectionStatus
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var retryAt: Date? {
+        if case let .reconnecting(_, retryAt) = connection {
+            retryAt
+        } else {
+            nil
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            if let retryAt {
+                banner(retryAt: retryAt)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.35, bounce: 0), value: retryAt != nil)
+    }
+
+    private func banner(retryAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let seconds = Int(retryAt.timeIntervalSince(context.date).rounded(.up))
+            HStack(spacing: 8) {
+                Image(systemName: "wifi.slash")
+                    .accessibilityHidden(true)
+                Text("Offline - reconnecting…")
+                if seconds > 0 {
+                    Text("Retrying in \(seconds) s")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .padding(.top, 12)
+        .accessibilityElement(children: .combine)
     }
 }
 

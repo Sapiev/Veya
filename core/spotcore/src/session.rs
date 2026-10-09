@@ -15,6 +15,8 @@ use log::info;
 use protobuf::Enum;
 use serde::{Deserialize, Serialize};
 
+use crate::reconnect::{ConnectionObserver, Connector, Link, Supervisor};
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BLOB_VERSION: u32 = 1;
 
@@ -42,9 +44,9 @@ fn internal(message: impl fmt::Display) -> SessionError {
 /// Wire format of the opaque blob, UTF-8 JSON:
 /// `{"version":1,"device_id":"<uuid>","credentials":<librespot Credentials serde>}`.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct StoredCredentials {
+pub(crate) struct StoredCredentials {
     version: u32,
-    device_id: String,
+    pub(crate) device_id: String,
     credentials: Credentials,
 }
 
@@ -61,6 +63,21 @@ impl fmt::Debug for StoredCredentials {
 }
 
 impl StoredCredentials {
+    pub(crate) fn new(device_id: String, credentials: Credentials) -> Self {
+        Self {
+            version: BLOB_VERSION,
+            device_id,
+            credentials,
+        }
+    }
+
+    fn config(&self) -> SessionConfig {
+        SessionConfig {
+            device_id: self.device_id.clone(),
+            ..SessionConfig::default()
+        }
+    }
+
     fn encode(&self) -> Result<Vec<u8>, SessionError> {
         serde_json::to_vec(self).map_err(internal)
     }
@@ -86,7 +103,7 @@ impl StoredCredentials {
 
 #[derive(uniffi::Object)]
 pub struct SpotSession {
-    session: Session,
+    supervisor: Supervisor<Session>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -95,7 +112,7 @@ impl SpotSession {
     #[uniffi::constructor]
     pub async fn connect_with_token(access_token: String) -> Result<Arc<Self>, SessionError> {
         let credentials = Credentials::with_access_token(access_token);
-        Self::connect(SessionConfig::default(), credentials).await
+        Self::start(SessionConfig::default(), credentials).await
     }
 
     /// Signs in with a blob from `stored_credentials`, on its device id.
@@ -105,59 +122,105 @@ impl SpotSession {
         if let Some(username) = &stored.credentials.username {
             crate::redact::add_secret(username);
         }
-        let config = SessionConfig {
-            device_id: stored.device_id,
-            ..SessionConfig::default()
-        };
-        Self::connect(config, stored.credentials).await
+        Self::start(stored.config(), stored.credentials).await
     }
 
+    /// Credentials of the current session, which may be a reconnected one.
     pub fn stored_credentials(&self) -> Result<Vec<u8>, SessionError> {
-        let auth_data = self.session.auth_data();
-        if auth_data.is_empty() {
-            return Err(internal("session has no reusable credentials"));
-        }
-        StoredCredentials {
-            version: BLOB_VERSION,
-            device_id: self.session.device_id().to_owned(),
-            credentials: reusable_credentials(self.session.username(), auth_data),
-        }
-        .encode()
+        self.supervisor
+            .current_link()
+            .stored_credentials()?
+            .encode()
     }
 
+    /// Replaces any previous observer and delivers the current state to it.
+    pub fn set_observer(&self, observer: Arc<dyn ConnectionObserver>) {
+        self.supervisor.set_observer(observer);
+    }
+
+    /// Reconnects now with backoff reset; sockets rarely survive sleep.
+    pub fn system_did_wake(&self) {
+        self.supervisor.system_did_wake();
+    }
+
+    /// `true` while reconnecting retries now with backoff reset. Otherwise,
+    /// including `false`, a no-op: the liveness poll notices a dead session.
+    pub fn network_changed(&self, available: bool) {
+        self.supervisor.network_changed(available);
+    }
+
+    /// Stops reconnecting and closes the session. Idempotent; no observer
+    /// callbacks follow it.
     pub fn shutdown(&self) {
-        self.session.shutdown();
+        self.supervisor.shutdown();
     }
 }
 
 impl SpotSession {
-    /// Session::new captures the current tokio handle, so it must run inside
-    /// the UniFFI runtime that keeps librespot's spawned tasks alive.
-    async fn connect(
+    async fn start(
         config: SessionConfig,
         credentials: Credentials,
     ) -> Result<Arc<Self>, SessionError> {
-        let attempt = async {
-            let session = Session::new(config, None);
-            session.connect(credentials, false).await?;
-            Ok::<_, CoreError>(session)
-        };
-        let session = tokio::time::timeout(CONNECT_TIMEOUT, attempt)
-            .await
-            .map_err(|_| SessionError::Network {
-                message: "connection timed out".to_owned(),
-            })?
-            .map_err(|e| map_connect_error(&e))?;
-        crate::redact::add_secret(&session.username());
+        let initial = StoredCredentials::new(config.device_id.clone(), credentials.clone());
+        let session = connect(config, credentials).await?;
         info!("session connected");
-        Ok(Arc::new(Self { session }))
+        Ok(Arc::new(Self {
+            supervisor: Supervisor::start(session, initial, SessionConnector),
+        }))
+    }
+}
+
+/// Session::new captures the current tokio handle, so it must run inside
+/// the UniFFI runtime that keeps librespot's spawned tasks alive.
+async fn connect(config: SessionConfig, credentials: Credentials) -> Result<Session, SessionError> {
+    let attempt = async {
+        let session = Session::new(config, None);
+        session.connect(credentials, false).await?;
+        Ok::<_, CoreError>(session)
+    };
+    let session = tokio::time::timeout(CONNECT_TIMEOUT, attempt)
+        .await
+        .map_err(|_| SessionError::Network {
+            message: "connection timed out".to_owned(),
+        })?
+        .map_err(|e| map_connect_error(&e))?;
+    crate::redact::add_secret(&session.username());
+    Ok(session)
+}
+
+impl Link for Session {
+    fn is_invalid(&self) -> bool {
+        Session::is_invalid(self)
+    }
+
+    fn shutdown(&self) {
+        Session::shutdown(self);
+    }
+
+    fn stored_credentials(&self) -> Result<StoredCredentials, SessionError> {
+        let auth_data = self.auth_data();
+        if auth_data.is_empty() {
+            return Err(internal("session has no reusable credentials"));
+        }
+        Ok(StoredCredentials::new(
+            self.device_id().to_owned(),
+            reusable_credentials(self.username(), auth_data),
+        ))
+    }
+}
+
+struct SessionConnector;
+
+impl Connector<Session> for SessionConnector {
+    async fn connect(&self, stored: StoredCredentials) -> Result<Session, SessionError> {
+        connect(stored.config(), stored.credentials).await
     }
 }
 
 /// Session keeps only username and auth_data from the reusable credentials
 /// connect() received; the AP issues them as stored Spotify credentials,
 /// the same assumption login5 makes when it reuses auth_data.
-fn reusable_credentials(username: String, auth_data: Vec<u8>) -> Credentials {
+pub(crate) fn reusable_credentials(username: String, auth_data: Vec<u8>) -> Credentials {
     Credentials {
         username: Some(username),
         auth_type: AuthenticationType::AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS,

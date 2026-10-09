@@ -2,29 +2,6 @@ import Foundation
 import SpotCoreKit
 import Testing
 
-private let tokens = OAuthTokens(
-    accessToken: "access-SECRET-1234",
-    refreshToken: "refresh-SECRET-5678",
-    expiresInSecs: 3600,
-    scopes: ["streaming"]
-)
-
-@MainActor
-private final class LogSpy {
-    var entries: [(LogLevel, String)] = []
-    var log: SessionLog {
-        { [self] in entries.append(($0, $1)) }
-    }
-}
-
-@MainActor
-private func waitUntil(_ condition: () -> Bool) async throws {
-    for _ in 0 ..< 2000 where !condition() {
-        try await Task.sleep(for: .milliseconds(1))
-    }
-    #expect(condition())
-}
-
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct SessionModelTests {

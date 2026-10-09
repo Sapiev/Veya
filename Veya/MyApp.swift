@@ -6,6 +6,7 @@ import SwiftUI
     /// One window and one session per app, restored exactly once at launch.
     @State private var session: SessionModel
     @State private var signIn = SignInModel(browser: WebAuthenticationBrowser())
+    @State private var systemEvents: SystemEvents
 
     init() {
         Diagnostics.startLogging()
@@ -24,6 +25,10 @@ import SwiftUI
             MainActor.assumeIsolated { session.shutdown() }
         }
         _session = State(initialValue: session)
+        _systemEvents = State(initialValue: SystemEvents(
+            onWake: { session.systemDidWake() },
+            onNetworkChange: { session.networkChanged(available: $0) }
+        ))
     }
 
     var body: some Scene {
