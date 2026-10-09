@@ -1,23 +1,31 @@
 //! Playback control over librespot's `Player`, fed through `AudioOutput`.
 //!
-//! A loaded URI expands to an ordered track list (the context); `next` and
-//! `previous` walk it and the end of a track advances it. Shuffle, repeat
-//! and Up Next belong to the queue model (PBI-203).
+//! A loaded URI expands to an ordered track list (the context) held by
+//! `Queue` with Up Next, shuffle and repeat; `next` and `previous` walk it,
+//! the end of a track advances it, and an exhausted context continues with
+//! Spotify's autoplay radio for it.
 
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist};
 use librespot_playback::config::PlayerConfig;
 use librespot_playback::mixer::NoOpVolume;
 use librespot_playback::player::{Player, PlayerEvent};
+use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
+use librespot_protocol::context::Context;
 use log::{info, warn};
 
 use crate::audio::AudioOutput;
+use crate::queue::{Queue, RepeatMode};
 use crate::session::SpotSession;
 
 const POSITION_INTERVAL: Duration = Duration::from_secs(1);
+/// Past this point `previous` restarts the track instead of going back.
+const RESTART_THRESHOLD_MS: u32 = 3_000;
+/// Played tracks sent with an autoplay request so the radio skips them.
+const RECENT_TRACKS: usize = 20;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum PlayerError {
@@ -29,6 +37,8 @@ pub enum PlayerError {
     Metadata { message: String },
     #[error("the audio output already feeds a player")]
     OutputTaken,
+    #[error("no Up Next entry at {index}")]
+    OutOfRange { index: u32 },
 }
 
 /// URIs are canonical `spotify:` strings.
@@ -71,35 +81,62 @@ pub trait PlayerObserver: Send + Sync {
     fn on_event(&self, event: PlaybackEvent);
 }
 
-#[derive(Debug, Default, PartialEq)]
-struct Queue {
-    tracks: Vec<SpotifyUri>,
-    index: usize,
+/// What is playing and what comes next. URIs are canonical `spotify:` strings.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct QueueSnapshot {
+    pub current: Option<String>,
+    pub up_next: Vec<String>,
+    pub next_from_context: Vec<String>,
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+    pub autoplay: bool,
 }
 
-impl Queue {
-    fn current(&self) -> Option<&SpotifyUri> {
-        self.tracks.get(self.index)
-    }
-
-    fn advance(&mut self) -> Option<&SpotifyUri> {
-        if self.index + 1 >= self.tracks.len() {
-            return None;
-        }
-        self.index += 1;
-        self.current()
-    }
-
-    /// Steps back one track; on the first track, stays there to restart it.
-    fn back(&mut self) -> Option<&SpotifyUri> {
-        self.index = self.index.saturating_sub(1);
-        self.current()
-    }
-}
-
+/// Playback position extrapolated from the last player event, so `previous`
+/// can tell how far into the track it is between 1 s position ticks.
 #[derive(Default)]
+struct Clock {
+    position_ms: u32,
+    reported_at: Option<Instant>,
+    playing: bool,
+}
+
+impl Clock {
+    fn note(&mut self, event: &PlaybackEvent) {
+        let (position_ms, playing) = match event {
+            PlaybackEvent::Playing { position_ms, .. } => (*position_ms, true),
+            PlaybackEvent::Paused { position_ms, .. }
+            | PlaybackEvent::Loading { position_ms, .. } => (*position_ms, false),
+            PlaybackEvent::Position { position_ms, .. } => (*position_ms, self.playing),
+            PlaybackEvent::Stopped => (0, false),
+            _ => return,
+        };
+        *self = Self {
+            position_ms,
+            reported_at: Some(Instant::now()),
+            playing,
+        };
+    }
+
+    fn position_ms(&self) -> u32 {
+        let since = match self.reported_at {
+            Some(at) if self.playing => at.elapsed().as_millis(),
+            _ => 0,
+        };
+        self.position_ms
+            .saturating_add(u32::try_from(since).unwrap_or(u32::MAX))
+    }
+}
+
 struct State {
     queue: Queue,
+    /// URI the context was loaded from; autoplay radio is seeded from it.
+    context_uri: Option<SpotifyUri>,
+    autoplay: bool,
+    /// Bumped by every user-initiated load, so an autoplay fetch that
+    /// finishes afterwards does not replace what the user chose.
+    generation: u64,
+    clock: Clock,
     /// Events from earlier play requests are stale: their end of track must
     /// not advance the queue a second time.
     request_id: Option<u64>,
@@ -136,11 +173,17 @@ impl SpotPlayer {
             ..PlayerConfig::default()
         };
         let state = Arc::new(Mutex::new(State {
+            queue: Queue::default(),
+            context_uri: None,
+            autoplay: true,
+            generation: 0,
+            clock: Clock::default(),
+            request_id: None,
             session_id: link.session_id(),
-            ..State::default()
         }));
         let player = Player::new(config, link, Box::new(NoOpVolume), move || Box::new(sink));
         tokio::spawn(forward_events(
+            Arc::clone(&session),
             Arc::clone(&player),
             Arc::clone(&state),
             observer,
@@ -166,7 +209,9 @@ impl SpotPlayer {
         let session = self.sync_session();
         let tracks = resolve(&session, &uri).await?;
         let mut state = lock(&self.state);
-        state.queue = Queue { tracks, index: 0 };
+        state.queue.set_context(tracks, seed());
+        state.context_uri = Some(uri.clone());
+        state.generation += 1;
         let first = state
             .queue
             .current()
@@ -174,7 +219,7 @@ impl SpotPlayer {
             .ok_or_else(|| PlayerError::EmptyContext {
                 uri: canonical(&uri),
             })?;
-        info!("loading context of {} items", state.queue.tracks.len());
+        info!("loading context of {} items", state.queue.tracks().len());
         self.player.load(first, autoplay, start_ms);
         Ok(())
     }
@@ -191,18 +236,90 @@ impl SpotPlayer {
         self.player.seek(position_ms);
     }
 
-    /// No-op on the last track.
+    /// Plays Up Next first, then the context. No-op at the end of the
+    /// context unless repeat is on.
     pub fn next(&self) {
         self.sync_session();
-        if let Some(track) = lock(&self.state).queue.advance().cloned() {
+        let mut state = lock(&self.state);
+        if let Some(track) = state.queue.advance(true).cloned() {
+            state.generation += 1;
             self.player.load(track, true, 0);
         }
     }
 
+    /// Restarts the track once it is more than 3 s in, as Spotify does;
+    /// otherwise goes back one track.
     pub fn previous(&self) {
         self.sync_session();
-        if let Some(track) = lock(&self.state).queue.back().cloned() {
+        let mut state = lock(&self.state);
+        if state.clock.position_ms() > RESTART_THRESHOLD_MS {
+            self.player.seek(0);
+        } else if let Some(track) = state.queue.back().cloned() {
+            state.generation += 1;
             self.player.load(track, true, 0);
+        }
+    }
+
+    /// Puts a track or episode at the front of Up Next.
+    pub fn play_next(&self, uri: String) -> Result<(), PlayerError> {
+        let track = playable(&uri)?;
+        lock(&self.state).queue.play_next(track);
+        Ok(())
+    }
+
+    /// Puts a track or episode at the end of Up Next.
+    pub fn add_to_queue(&self, uri: String) -> Result<(), PlayerError> {
+        let track = playable(&uri)?;
+        lock(&self.state).queue.add(track);
+        Ok(())
+    }
+
+    pub fn remove_from_queue(&self, index: u32) -> Result<(), PlayerError> {
+        lock(&self.state)
+            .queue
+            .remove(index as usize)
+            .map(drop)
+            .ok_or(PlayerError::OutOfRange { index })
+    }
+
+    /// Moves the Up Next entry at `from` so it ends up at `to`.
+    pub fn move_in_queue(&self, from: u32, to: u32) -> Result<(), PlayerError> {
+        if lock(&self.state).queue.reorder(from as usize, to as usize) {
+            Ok(())
+        } else {
+            Err(PlayerError::OutOfRange {
+                index: from.max(to),
+            })
+        }
+    }
+
+    pub fn clear_queue(&self) {
+        lock(&self.state).queue.clear_up_next();
+    }
+
+    pub fn set_shuffle(&self, on: bool) {
+        lock(&self.state).queue.set_shuffle(on, seed());
+    }
+
+    pub fn set_repeat(&self, mode: RepeatMode) {
+        lock(&self.state).queue.repeat = mode;
+    }
+
+    /// Whether an exhausted context continues with radio. On by default.
+    pub fn set_autoplay(&self, on: bool) {
+        lock(&self.state).autoplay = on;
+    }
+
+    pub fn queue(&self) -> QueueSnapshot {
+        let state = lock(&self.state);
+        let q = &state.queue;
+        QueueSnapshot {
+            current: q.current().map(canonical),
+            up_next: q.up_next().map(canonical).collect(),
+            next_from_context: q.next_from_context().map(canonical).collect(),
+            shuffle: q.shuffle(),
+            repeat: q.repeat,
+            autoplay: state.autoplay,
         }
     }
 
@@ -215,14 +332,37 @@ impl SpotPlayer {
     /// Hands the player the supervisor's current session if a reconnect
     /// replaced the one it holds; loads on a dead session would fail.
     fn sync_session(&self) -> Session {
-        let session = self.session.current_session();
-        let id = session.session_id();
-        let mut state = lock(&self.state);
-        if state.session_id != id {
-            self.player.set_session(session.clone());
-            state.session_id = id;
-        }
-        session
+        sync_session(&self.session, &self.player, &self.state)
+    }
+}
+
+fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Session {
+    let session = spot.current_session();
+    let id = session.session_id();
+    let mut state = lock(state);
+    if state.session_id != id {
+        player.set_session(session.clone());
+        state.session_id = id;
+    }
+    session
+}
+
+fn seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64)
+}
+
+/// Up Next takes single items only, not contexts.
+fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
+    match SpotifyUri::from_uri(uri) {
+        Ok(uri @ (SpotifyUri::Track { .. } | SpotifyUri::Episode { .. })) => Ok(uri),
+        Ok(other) => Err(PlayerError::InvalidUri {
+            message: format!("not a track or episode: {}", canonical(&other)),
+        }),
+        Err(e) => Err(PlayerError::InvalidUri {
+            message: e.to_string(),
+        }),
     }
 }
 
@@ -261,6 +401,7 @@ fn canonical(uri: &SpotifyUri) -> String {
 }
 
 async fn forward_events(
+    session: Arc<SpotSession>,
     player: Arc<Player>,
     state: Arc<Mutex<State>>,
     observer: Arc<dyn PlayerObserver>,
@@ -271,6 +412,7 @@ async fn forward_events(
             lock(&state).request_id = Some(play_request_id);
             continue;
         }
+        let mut context_ended = false;
         if let PlayerEvent::EndOfTrack {
             play_request_id, ..
         } = event
@@ -280,18 +422,82 @@ async fn forward_events(
                 if state.request_id != Some(play_request_id) {
                     continue;
                 }
-                state.queue.advance().cloned()
+                state.queue.advance(false).cloned()
             };
             match next {
                 Some(track) => player.load(track, true, 0),
-                None => player.stop(),
+                None => context_ended = true,
             }
         }
         if let Some(event) = map_event(event) {
+            lock(&state).clock.note(&event);
             observer.on_event(event);
+        }
+        if context_ended && !continue_with_radio(&session, &player, &state).await {
+            player.stop();
         }
     }
     warn!("player event channel closed");
+}
+
+/// Replaces the exhausted context with its autoplay radio and starts it.
+/// Returns false when autoplay is off, unavailable, or the user loaded
+/// something else while the radio was fetched.
+async fn continue_with_radio(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> bool {
+    let (request, generation) = {
+        let state = lock(state);
+        let Some(context) = state.context_uri.as_ref() else {
+            return false;
+        };
+        if !state.autoplay
+            || matches!(
+                context,
+                SpotifyUri::Episode { .. } | SpotifyUri::Show { .. }
+            )
+        {
+            return false;
+        }
+        let played: Vec<_> = state.queue.played().map(canonical).collect();
+        let recent = played[played.len().saturating_sub(RECENT_TRACKS)..].to_vec();
+        let request = AutoplayContextRequest {
+            context_uri: Some(canonical(context)),
+            recent_track_uri: recent,
+            ..Default::default()
+        };
+        (request, state.generation)
+    };
+    let session = sync_session(spot, player, state);
+    let tracks = match session.spclient().get_autoplay_context(&request).await {
+        Ok(context) => radio_tracks(&context),
+        Err(e) => {
+            warn!("autoplay request failed: {e}");
+            return false;
+        }
+    };
+    let mut state = lock(state);
+    if state.generation != generation || tracks.is_empty() {
+        return false;
+    }
+    state.queue.set_context(tracks, seed());
+    let Some(first) = state.queue.current().cloned() else {
+        return false;
+    };
+    info!("autoplay radio of {} items", state.queue.tracks().len());
+    player.load(first, true, 0);
+    true
+}
+
+/// Tracks of a resolved autoplay context, skipping page delimiters.
+// shortcut: reads only pages delivered inline, not ones behind `page_url`;
+// follow those if autoplay ever comes back empty in practice.
+fn radio_tracks(context: &Context) -> Vec<SpotifyUri> {
+    context
+        .pages
+        .iter()
+        .flat_map(|page| &page.tracks)
+        .filter_map(|track| SpotifyUri::from_uri(track.uri()).ok())
+        .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
+        .collect()
 }
 
 fn map_event(event: PlayerEvent) -> Option<PlaybackEvent> {
@@ -363,34 +569,60 @@ mod tests {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
     }
 
-    fn queue(len: u8, index: usize) -> Queue {
-        Queue {
-            tracks: (0..len).map(track).collect(),
-            index,
+    #[test]
+    fn clock_extrapolates_only_while_playing() {
+        let uri = canonical(&track(0));
+        let mut clock = Clock::default();
+        clock.note(&PlaybackEvent::Paused {
+            uri: uri.clone(),
+            position_ms: 2_000,
+        });
+        clock.note(&PlaybackEvent::Position {
+            uri: uri.clone(),
+            position_ms: 2_500,
+        });
+        assert_eq!(clock.position_ms(), 2_500, "seek while paused stays put");
+        clock.note(&PlaybackEvent::Playing {
+            uri,
+            position_ms: 2_500,
+        });
+        clock.reported_at = Instant::now().checked_sub(Duration::from_millis(600));
+        assert!(clock.position_ms() > RESTART_THRESHOLD_MS);
+        clock.note(&PlaybackEvent::Stopped);
+        assert_eq!(clock.position_ms(), 0);
+    }
+
+    #[test]
+    fn playable_accepts_tracks_and_episodes_only() {
+        assert!(playable("spotify:track:4uLU6hMCjMI75M1A2tKUQ0").is_ok());
+        assert!(playable("spotify:episode:4uLU6hMCjMI75M1A2tKUQ0").is_ok());
+        for uri in ["spotify:album:4uLU6hMCjMI75M1A2tKUQ0", "nonsense"] {
+            assert!(matches!(playable(uri), Err(PlayerError::InvalidUri { .. })));
         }
     }
 
     #[test]
-    fn queue_advance_walks_forward_and_stops_at_end() {
-        let mut q = queue(2, 0);
-        assert_eq!(q.advance(), Some(&track(1)));
-        assert_eq!(q.advance(), None);
-        assert_eq!(q.index, 1);
-    }
-
-    #[test]
-    fn queue_back_steps_back_and_restarts_first_track() {
-        let mut q = queue(2, 1);
-        assert_eq!(q.back(), Some(&track(0)));
-        assert_eq!(q.back(), Some(&track(0)));
-    }
-
-    #[test]
-    fn queue_empty_has_nothing_to_play() {
-        let mut q = Queue::default();
-        assert_eq!(q.current(), None);
-        assert_eq!(q.advance(), None);
-        assert_eq!(q.back(), None);
+    fn radio_tracks_keeps_tracks_across_pages_and_drops_delimiters() {
+        use librespot_protocol::context_page::ContextPage;
+        use librespot_protocol::context_track::ContextTrack;
+        let page = |uris: &[&str]| ContextPage {
+            tracks: uris
+                .iter()
+                .map(|uri| ContextTrack {
+                    uri: Some((*uri).to_owned()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let context = Context {
+            pages: vec![
+                page(&[&canonical(&track(0)), "spotify:delimiter"]),
+                page(&[&canonical(&track(1))]),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(radio_tracks(&context), [track(0), track(1)]);
     }
 
     #[test]
