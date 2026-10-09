@@ -66,6 +66,20 @@ Name the exact invocation, not a vague "add tests":
 - Rust: `cargo test -p spotcore <pattern>`
 - Swift: `xcodebuild test -scheme Veya -only-testing:<target>/<pattern>`,
   or run the relevant test target from Xcode.
+- UI: `xcodebuild test -project Veya.xcodeproj -scheme Veya -destination 'platform=macOS' -only-testing:VeyaUITests/<Class>/<test>`
+
+Every change to what the user sees or clicks in `Veya/` (screens, menus,
+buttons, banners, alerts) ships with an XCUITest in `VeyaUITests/`, one
+file per area tagged with its PBI. Tests launch through a **scenario**:
+`XCUIApplication.launch(.signedIn)` starts the app on in-memory fakes,
+never Spotify or the Keychain. A new app state means a new case in
+`Veya/UITestScenario.swift` (DEBUG-only) mirrored in
+`VeyaUITests/VeyaApp.swift`. Gotchas:
+- Mark each test method `@MainActor`; the target is nonisolated by default.
+- On macOS a static text's string is its `value`, so predicates match
+  `value`, not `label`; `staticTexts["exact text"]` matches either.
+- Query by visible text first; add `.accessibilityIdentifier` only for
+  elements without stable text.
 
 After changes: update tests, run the relevant ones, report results.
 Logic that lives in the Rust core should be tested there directly, not
