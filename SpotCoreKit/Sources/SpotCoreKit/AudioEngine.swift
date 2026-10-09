@@ -7,8 +7,8 @@ public enum AudioEngineError: Error, Equatable, Sendable {
     case renderHandleTaken
 }
 
-/// Plays an `AudioOutput`'s ring through the system default output device,
-/// following it when it changes (ADR-006).
+/// Plays an `AudioOutput`'s ring through the chosen output device, or the
+/// system default when none is chosen or the chosen one is missing (ADR-006).
 @MainActor
 public final class AudioEngine {
     private static let log = Logger(subsystem: "veya", category: "audio")
@@ -17,6 +17,17 @@ public final class AudioEngine {
     // nonisolated(unsafe) only so deinit, which has sole access, can free it.
     private nonisolated(unsafe) let renderHandle: OpaquePointer
     private var configurationObserver: (any NSObjectProtocol)?
+    private var deviceListener: SystemAudioListener?
+    private var wantsToRun = false
+
+    /// UID of the chosen output device; `nil` follows the system default.
+    public var outputDeviceUID: String? {
+        didSet { route() }
+    }
+
+    var outputDevice: AudioDeviceID {
+        engine.outputNode.auAudioUnit.deviceID
+    }
 
     public init(output: AudioOutput) throws {
         guard let handle = OpaquePointer(bitPattern: UInt(output.takeRenderHandle())) else {
@@ -26,13 +37,23 @@ public final class AudioEngine {
         let source = Self.sourceNode(rendering: handle)
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: source.outputFormat(forBus: 0))
-        // The engine stops when the default device changes; restart it on the new one.
+        // The engine stops when its device changes or goes away; restart it on the target.
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.restart() }
+            MainActor.assumeIsolated {
+                _ = self?.switchToTargetDevice()
+                self?.restart()
+            }
+        }
+        // Moves to the chosen device when it reappears, or to a new default.
+        deviceListener = SystemAudioListener(
+            kAudioHardwarePropertyDevices,
+            kAudioHardwarePropertyDefaultOutputDevice
+        ) { [weak self] in
+            self?.route()
         }
     }
 
@@ -42,15 +63,37 @@ public final class AudioEngine {
     }
 
     public func start() throws {
+        wantsToRun = true
         try engine.start()
     }
 
     public func stop() {
+        wantsToRun = false
         engine.stop()
+    }
+
+    private func route() {
+        if switchToTargetDevice() {
+            restart()
+        }
+    }
+
+    /// Returns whether it stopped the engine to switch devices.
+    private func switchToTargetDevice() -> Bool {
+        let target = outputDeviceUID.flatMap(SystemAudio.outputDevice(uid:)) ?? SystemAudio.defaultOutputDevice
+        guard target != kAudioObjectUnknown, target != outputDevice else { return false }
+        engine.stop()
+        do {
+            try engine.outputNode.auAudioUnit.setDeviceID(target)
+        } catch {
+            Self.log.error("audio output device switch failed: \(error, privacy: .public)")
+        }
+        return true
     }
 
     private func restart() {
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: nil)
+        guard wantsToRun else { return }
         do {
             try engine.start()
         } catch {

@@ -30,9 +30,14 @@ for every call.
   render, so the initial fill does not count. The audio thread only
   increments an atomic. The sink logs new underruns from the player thread.
 - Swift's `AudioEngine` plays the ring through an `AVAudioSourceNode` on an
-  `AVAudioEngine` bound to the system default output. When the default
-  device changes, the engine posts `AVAudioEngineConfigurationChange` and
-  stops; `AudioEngine` reconnects the mixer to the output and restarts it.
+  `AVAudioEngine`. Its output is the device whose UID is in
+  `outputDeviceUID`, or the system default when that is `nil` or the
+  device is missing (PBI-206). A CoreAudio listener on the device list and
+  the default output moves the engine when either changes, so a returning
+  device is picked up again. When its device changes or goes away, the
+  engine posts `AVAudioEngineConfigurationChange` and stops; `AudioEngine`
+  reconnects the mixer to the output and restarts it unless it was stopped
+  on purpose.
 
 ## Consequences
 
