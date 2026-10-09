@@ -50,8 +50,14 @@ struct AppShell: View {
                 SavedItems(kind: .artists, library: library, history: history)
             case .podcasts:
                 SavedItems(kind: .shows, library: library, history: history)
+            case let .album(uri):
+                AlbumPage(uri: uri, library: library, player: player, playlists: playlists, history: history)
+            case let .artist(uri):
+                ArtistPage(uri: uri, library: library, player: player, history: history)
+            case let .playlist(uri):
+                PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
             default:
-                RouteView(route: history.current, playlists: playlists)
+                RouteView(route: history.current)
             }
         }
         .toolbar {
@@ -270,10 +276,9 @@ private extension LibraryKind {
     }
 }
 
-/// Placeholder per route until its screen lands (PBI-404 onwards).
+/// Placeholder per route until its screen lands (Home: PBI-307, shows: PBI-306).
 private struct RouteView: View {
     let route: Route
-    let playlists: PlaylistModel
 
     var body: some View {
         VStack(spacing: 12) {
@@ -297,7 +302,7 @@ private struct RouteView: View {
         case .albums: String(localized: "Albums")
         case .artists: String(localized: "Artists")
         case .podcasts: String(localized: "Podcasts")
-        case let .playlist(uri): playlistName(uri) ?? String(localized: "Playlist")
+        case .playlist: String(localized: "Playlist")
         case .album: String(localized: "Album")
         case .artist: String(localized: "Artist")
         case .show: String(localized: "Podcast")
@@ -314,13 +319,6 @@ private struct RouteView: View {
         case .podcasts, .show: "mic"
         case .playlist: "music.note.list"
         }
-    }
-
-    private func playlistName(_ uri: String) -> String? {
-        for case let .playlist(entryURI, name, _, _, _) in playlists.rootlist where entryURI == uri {
-            return name
-        }
-        return nil
     }
 }
 

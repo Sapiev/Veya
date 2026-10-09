@@ -216,11 +216,26 @@
         )
     }
 
-    private nonisolated let scenarioArtist = ArtistMetadata(uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [])
-    private nonisolated let scenarioAlbum = AlbumMetadata(
-        uri: "spotify:album:ui-test", title: "Test Album", artists: [ItemRef(uri: scenarioArtist.uri, name: scenarioArtist.name)],
-        tracks: [], playability: .playable, artwork: []
+    private nonisolated let scenarioArtist = ArtistMetadata(
+        uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [],
+        topTracks: [likedSongURI(2), likedSongURI(1)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
+        compilations: [], related: [ItemRef(uri: scenarioRelated.uri, name: scenarioRelated.name)]
     )
+    private nonisolated let scenarioRelated = ArtistMetadata(
+        uri: "spotify:artist:ui-test-related", name: "Related Artist", artwork: [],
+        topTracks: [], albums: [], singles: [], compilations: [], related: []
+    )
+    /// Songs 1, 2 and 4; song 3 is the region-locked one.
+    private nonisolated let scenarioAlbum = AlbumMetadata(
+        uri: "spotify:album:ui-test", title: "Test Album", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+        tracks: [1, 2, 4].map(likedSongURI), playability: .playable, artwork: [], year: 2024,
+        copyrights: ["© 2024 Veya Test Records"]
+    )
+    private nonisolated let scenarioSingle = AlbumMetadata(
+        uri: "spotify:album:ui-test-single", title: "Test Single", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+        tracks: [likedSongURI(5)], playability: .playable, artwork: [], year: 2025, copyrights: []
+    )
+    private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
 
     /// A paused "Test Track" that answers play and pause with the matching events.
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
@@ -300,7 +315,7 @@
         }
     }
 
-    /// "Road Trip" when the library is filled; it never changes and its contents are empty.
+    /// "Road Trip" when the library is filled; it never changes.
     private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
         private let fill: LibraryFill
 
@@ -310,7 +325,7 @@
 
         func cachedRootlist() -> [RootlistEntry] {
             guard case .liked = fill else { return [] }
-            return [.playlist(uri: "spotify:playlist:ui-test", name: "Road Trip", owner: "ui-test", trackCount: 0, parent: nil)]
+            return [.playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil)]
         }
 
         func rootlist() async throws -> [RootlistEntry] {
@@ -322,8 +337,16 @@
             nil
         }
 
-        func page(uri _: String, from _: UInt32, length _: UInt32) async throws -> PlaylistPage {
-            throw PlaylistError.Request(message: "ui-test")
+        /// Songs 1, 2 and 5, all on one page.
+        func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
+            guard case .liked = fill, uri == scenarioPlaylistURI else { throw PlaylistError.Request(message: "ui-test") }
+            let tracks = from > 0 ? [] : [1, 2, 5].map {
+                PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
+            }
+            return PlaylistPage(
+                uri: uri, revision: "ui-test", name: "Road Trip", description: "Songs for the road", owner: "ui-test",
+                collaborative: false, artwork: [], total: 3, offset: from, tracks: tracks
+            )
         }
 
         func followerCount(uri _: String) async throws -> UInt64 {
@@ -370,6 +393,8 @@
             uris.map { uri -> MetadataItem in
                 if uri == scenarioAlbum.uri { return .album(album: scenarioAlbum) }
                 if uri == scenarioArtist.uri { return .artist(artist: scenarioArtist) }
+                if uri == scenarioRelated.uri { return .artist(artist: scenarioRelated) }
+                if uri == scenarioSingle.uri { return .album(album: scenarioSingle) }
                 return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }
