@@ -129,6 +129,9 @@ in the same commit set (a `docs:` commit):
 
 - Never commit changes unless explicitly asked; leave changes
   uncommitted for review.
+- `core/target` grows to tens of GB. When a build fails for lack of
+  disk space (ENOSPC), run `cargo clean` in `core/` and rebuild; never
+  delete anything else to free space.
 - Never use an em dash "—"; use a hyphen "-" instead.
 - Always verify work by running the proper tests before claiming done.
 - Never suppress, skip, ignore, or exclude a failing test/file to make
