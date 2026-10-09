@@ -118,6 +118,13 @@ final class FakeLibrary: LibraryServiceProtocol {
 final class FakeMetadata: MetadataServiceProtocol {
     private let requests = OSAllocatedUnfairLock<[[String]]>(initialState: [])
     private let held = OSAllocatedUnfairLock<[CheckedContinuation<Void, Never>]>(initialState: [])
+    private let failure = OSAllocatedUnfairLock(initialState: false)
+
+    /// While true, released requests throw instead of answering.
+    var fails: Bool {
+        get { failure.withLock { $0 } }
+        set { failure.withLock { $0 = newValue } }
+    }
 
     var requested: [[String]] {
         requests.withLock { $0 }
@@ -140,6 +147,7 @@ final class FakeMetadata: MetadataServiceProtocol {
             requests.withLock { $0.append(uris) }
             held.withLock { $0.append(continuation) }
         }
+        if fails { throw MetadataError.Request(message: "down") }
         return uris.map { .unavailable(uri: $0, error: .notFound) }
     }
 }

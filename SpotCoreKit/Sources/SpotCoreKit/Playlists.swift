@@ -8,6 +8,12 @@ public typealias PlaylistLog = @MainActor (LogLevel, String) -> Void
 public final class PlaylistModel {
     public private(set) var rootlist: [RootlistEntry] = []
     public private(set) var state: LibraryLoadState?
+    /// Each opened playlist's attributes with every track loaded so far.
+    public private(set) var pages: [String: PlaylistPage] = [:]
+    public private(set) var pageState: [String: LibraryLoadState] = [:]
+
+    /// Tracks fetched per request while a playlist's contents load.
+    static let pageLength: UInt32 = 200
 
     @ObservationIgnored private let playlists: any PlaylistServiceProtocol
     @ObservationIgnored private let log: PlaylistLog
@@ -35,8 +41,44 @@ public final class PlaylistModel {
         while !Task.isCancelled {
             let change = await playlists.waitForChange()
             guard !Task.isCancelled else { return }
-            if case .playlist = change { continue }
+            if case let .playlist(uri) = change {
+                if pageState[uri] != nil { await refreshPage(uri) }
+                continue
+            }
             await refresh()
+        }
+    }
+
+    /// Shows a fully cached playlist at once, then fetches its tracks page by page.
+    @discardableResult
+    public func loadPage(_ uri: String) -> Task<Void, Never> {
+        if pageState[uri] == nil {
+            let cached = playlists.cachedPage(uri: uri, from: 0, length: .max)
+            pages[uri] = cached
+            pageState[uri] = cached == nil ? .loading : .loaded
+        }
+        return Task { await refreshPage(uri) }
+    }
+
+    private func refreshPage(_ uri: String) async {
+        var tracks: [PlaylistTrack] = []
+        do {
+            repeat {
+                var page = try await playlists.page(uri: uri, from: UInt32(tracks.count), length: Self.pageLength)
+                tracks += page.tracks
+                let done = page.tracks.isEmpty || tracks.count >= page.total
+                // Keep a longer cached list on screen until the fetch catches up with it.
+                if done || tracks.count >= pages[uri]?.tracks.count ?? 0 {
+                    page.offset = 0
+                    page.tracks = tracks
+                    pages[uri] = page
+                }
+                pageState[uri] = .loaded
+                if done { break }
+            } while !Task.isCancelled
+        } catch {
+            log(.warn, "Couldn't load a playlist: \(String(describing: type(of: error)))")
+            if pageState[uri] == .loading { pageState[uri] = .failed }
         }
     }
 
