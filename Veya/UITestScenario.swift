@@ -18,6 +18,8 @@
         case reconnecting
         /// No saved sign-in; signing in finds a Free account.
         case notPremium
+        /// Signed in with 10,000 liked songs.
+        case largeLibrary
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -39,7 +41,8 @@
                 connector: ScenarioConnector(
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,
-                    initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil
+                    initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
+                    likedSongs: self == .largeLibrary ? 10000 : 5
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
@@ -74,11 +77,13 @@
         private let failuresLeft: OSAllocatedUnfairLock<Int>
         private let premium: Bool
         private let initial: ConnectionState?
+        private let likedSongs: Int
 
-        init(failures: Int, premium: Bool, initial: ConnectionState?) {
+        init(failures: Int, premium: Bool, initial: ConnectionState?, likedSongs: Int) {
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
             self.premium = premium
             self.initial = initial
+            self.likedSongs = likedSongs
         }
 
         func isPremium(accessToken _: String) async throws -> Bool {
@@ -105,16 +110,18 @@
             if fails {
                 throw ScenarioConnectError()
             }
-            return ScenarioSession(initial: initial)
+            return ScenarioSession(initial: initial, likedSongs: likedSongs)
         }
     }
 
     private final nonisolated class ScenarioSession: SessionHandle {
         static let blob = Data("ui-test-credentials".utf8)
         private let initial: ConnectionState?
+        private let likedSongs: Int
 
-        init(initial: ConnectionState?) {
+        init(initial: ConnectionState?, likedSongs: Int) {
             self.initial = initial
+            self.likedSongs = likedSongs
         }
 
         func storedCredentials() throws -> Data {
@@ -136,7 +143,7 @@
         func reconnect() {}
 
         func makeLibrary(store _: MetadataStore?) -> any LibraryServiceProtocol {
-            ScenarioLibrary()
+            ScenarioLibrary(likedSongs: likedSongs)
         }
 
         func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
@@ -155,6 +162,27 @@
 
     private nonisolated let scenarioTrackURI = "spotify:track:ui-test"
 
+    /// Liked song `n` is "Song n"; song 3 is region locked so its row is dimmed.
+    private nonisolated func likedSongURI(_ n: Int) -> String {
+        "spotify:track:ui-test-\(n)"
+    }
+
+    private nonisolated func scenarioTrack(_ uri: String) -> TrackMetadata? {
+        if uri == scenarioTrackURI {
+            return TrackMetadata(
+                uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+                album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: 180_000,
+                explicit: false, playability: .playable, artwork: []
+            )
+        }
+        guard let n = uri.split(separator: "-").last.flatMap({ Int($0) }), uri == likedSongURI(n) else { return nil }
+        return TrackMetadata(
+            uri: uri, title: "Song \(n)", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+            album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: UInt32(120_000 + n * 1000),
+            explicit: false, playability: n == 3 ? .regionLocked : .playable, artwork: []
+        )
+    }
+
     /// A paused "Test Track" that answers play and pause with the matching events.
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
         private let observer: any PlayerObserver
@@ -170,6 +198,11 @@
         func addToQueue(uri _: String) throws {}
         func clearQueue() {}
         func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
+        func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
+            let uri = uris[Int(startIndex)]
+            observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
+            observer.onEvent(event: .playing(uri: uri, positionMs: 0))
+        }
         func moveInQueue(from _: UInt32, to _: UInt32) throws {}
         func next() {}
         func playNext(uri _: String) throws {}
@@ -189,14 +222,24 @@
         func stop() {}
     }
 
-    /// An empty library that never changes.
+    /// Liked songs newest first, nothing else saved; never changes.
     private final nonisolated class ScenarioLibrary: LibraryServiceProtocol {
-        func cached(kind _: LibraryKind) -> [LibraryItem] {
-            []
+        private let likedSongs: Int
+
+        init(likedSongs: Int) {
+            self.likedSongs = likedSongs
         }
 
-        func refresh(kind _: LibraryKind) async throws -> [LibraryItem] {
-            []
+        func cached(kind: LibraryKind) -> [LibraryItem] {
+            guard kind == .tracks else { return [] }
+            let newest: Int64 = 1_760_000_000
+            return (1 ..< likedSongs + 1).map {
+                LibraryItem(uri: likedSongURI($0), addedAt: newest - Int64($0) * 86400)
+            }
+        }
+
+        func refresh(kind: LibraryKind) async throws -> [LibraryItem] {
+            cached(kind: kind)
         }
 
         func setSaved(uri _: String, saved _: Bool) async throws {}
@@ -245,12 +288,7 @@
     private final nonisolated class ScenarioMetadata: MetadataServiceProtocol {
         func items(uris: [String]) async throws -> [MetadataItem] {
             uris.map { uri in
-                guard uri == scenarioTrackURI else { return .unavailable(uri: uri, error: .notFound) }
-                return .track(track: TrackMetadata(
-                    uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
-                    album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: 180_000,
-                    explicit: false, playability: .playable, artwork: []
-                ))
+                scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }
     }

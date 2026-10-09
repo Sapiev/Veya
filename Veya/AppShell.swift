@@ -33,7 +33,12 @@ struct AppShell: View {
             Sidebar(selection: selection, playlists: playlists)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
-            RouteView(route: history.current, playlists: playlists)
+            switch history.current {
+            case .likedSongs:
+                LikedSongs(library: library, player: player, playlists: playlists, history: history)
+            default:
+                RouteView(route: history.current, playlists: playlists)
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
@@ -106,7 +111,44 @@ private struct Sidebar: View {
     }
 }
 
-/// Placeholder per route until its screen lands (PBI-403 onwards).
+private struct LikedSongs: View {
+    let library: LibraryModel
+    let player: PlayerModel?
+    let playlists: PlaylistModel
+    let history: NavigationHistory
+
+    var body: some View {
+        let items = library.items[.tracks] ?? []
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Liked Songs")
+                .font(.largeTitle.bold())
+                .accessibilityIdentifier("routeTitle")
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 12)
+            switch library.loadState[.tracks] {
+            case .loading where items.isEmpty:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .failed where items.isEmpty:
+                Text("Couldn't load Liked Songs.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            default:
+                TrackList(
+                    entries: items.map { TrackEntry(uri: $0.uri, addedAt: Date(timeIntervalSince1970: TimeInterval($0.addedAt))) },
+                    context: nil,
+                    library: library,
+                    player: player,
+                    playlists: playlists,
+                    history: history
+                )
+            }
+        }
+        .navigationTitle("Liked Songs")
+    }
+}
+
+/// Placeholder per route until its screen lands (PBI-404 onwards).
 private struct RouteView: View {
     let route: Route
     let playlists: PlaylistModel
