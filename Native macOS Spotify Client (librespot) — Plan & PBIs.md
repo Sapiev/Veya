@@ -381,11 +381,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `LibraryService` in `spotcore` (collection v2 paging, delta, write, disk cache, dealer push wait) and SpotCoreKit `LibraryModel` (optimistic saves with rollback, metadata lookup, change watch) merged to develop; sidebar UI pending.
+**Status:** In progress - `LibraryService` in `spotcore` (collection v2 paging, delta, write, disk cache, dealer push wait) and SpotCoreKit `LibraryModel` (optimistic saves with rollback, metadata lookup, change watch) merged to develop; Liked Songs screen in PBI-403; Albums and Artists screens pending.
 
 - [ ] Collection is loaded through the spclient collection endpoints, paginated, and kept fresh via dealer push updates. (Done in `spotcore` `library.rs`; no app UI yet, and not yet checked against a live account.)
-- [ ] Liking/unliking a track or saving an album updates the server and the UI optimistically, rolling back on error. (Server write in `LibraryService::set_saved`, optimistic update and rollback in `LibraryModel`; no app UI uses them yet.)
-- [ ] Liked Songs with 10,000 tracks loads its first screen in under 1 s from cache. (The cached 10,000-item list decodes in under 250 ms; track titles now come from the PBI-308 metadata store; no app screen renders the list yet.)
+- [ ] Liking/unliking a track or saving an album updates the server and the UI optimistically, rolling back on error. (Server write in `LibraryService::set_saved`, optimistic update and rollback in `LibraryModel`; the now-playing bar and the track list context menu use them; not yet checked against a live account.)
+- [ ] Liked Songs with 10,000 tracks loads its first screen in under 1 s from cache. (The cached 10,000-item list decodes in under 250 ms; track titles now come from the PBI-308 metadata store; the Liked Songs screen renders it (PBI-403), not yet timed against a live account.)
 
 #### PBI-304 · Playlists (root list and contents)
 
@@ -471,7 +471,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-202, PBI-401
 
-**Status:** In progress - merged to develop: SpotCoreKit `PlayerModel` (events from `SpotPlayer`, interpolated position, shuffle, repeat, persisted volume and output device) and `SessionHandle.makePlayer` (starts `AudioEngine` and `SpotPlayer`); app `NowPlayingBar` and expanded view. Nothing in the app calls `load` yet, so the bar shows "Not Playing" until a track list can start playback (PBI-403).
+**Status:** In progress - merged to develop: SpotCoreKit `PlayerModel` (events from `SpotPlayer`, interpolated position, shuffle, repeat, persisted volume and output device) and `SessionHandle.makePlayer` (starts `AudioEngine` and `SpotPlayer`); app `NowPlayingBar` and expanded view. The track list starts playback since PBI-403.
 
 **UI tests:** `NowPlayingUITests` (bar controls, play/pause, artist link opens the artist route, expanded view with lyrics tab).
 
@@ -485,11 +485,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301, PBI-401
 
-- [ ] Reusable list (SwiftUI `Table` or `NSTableView` wrapper) with columns #, Title/Artist, Album, Date added, Duration; sortable and resizable.
-- [ ] 10,000 rows scroll at 60 fps; rows load metadata lazily as they appear.
-- [ ] Double-click or Return plays; multi-select; context menu (Play Next, Add to Queue, Add to Playlist, Go to Album/Artist, Copy Link, Like).
-- [ ] Currently playing row is highlighted; unavailable rows dimmed.
-- [ ] Drag rows to sidebar playlists and to the queue.
+**Status:** In review (`feat/pbi-403-track-list`) - app `TrackList` (SwiftUI `Table`) on Liked Songs; `SpotPlayer::load_tracks` in `spotcore` plays a list the app holds from a chosen row; SpotCoreKit `PlayerModel.play(_:from:context:)`, `playNext(_:)`, `addToQueue(_:)`.
+
+- [x] Reusable list (SwiftUI `Table` or `NSTableView` wrapper) with columns #, Title/Artist, Album, Date added, Duration; sortable and resizable.
+- [ ] 10,000 rows scroll at 60 fps; rows load metadata lazily as they appear. (Metadata resolves in batches of 50 as rows appear, and a 10,000-song library opens in a UI test. Frame rate not measured: XCUITest's accessibility snapshot of a table this size takes about 27 s per query, so it needs an Instruments run on an M1 MacBook Air.)
+- [ ] Double-click or Return plays; multi-select; context menu (Play Next, Add to Queue, Add to Playlist, Go to Album/Artist, Copy Link, Like). (All done except Add to Playlist, which is shown disabled: `spotcore` has no playlist write API yet.)
+- [x] Currently playing row is highlighted; unavailable rows dimmed.
+- [ ] Drag rows to sidebar playlists and to the queue. (Rows are drag sources carrying their URI; the queue drop target comes with the queue panel (PBI-406), the sidebar drop with a playlist write API.)
 
 #### PBI-404 · Album, artist and playlist pages
 
