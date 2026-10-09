@@ -144,6 +144,19 @@ public final class SessionModel {
         _ = begin(.signedOut)
     }
 
+    /// Ends the session before deleting so no reconnect can save the blob back.
+    /// Safe to repeat; the session ends even if the Keychain delete throws.
+    public func signOut() throws {
+        _ = begin(.signedOut)
+        do {
+            try store.delete()
+        } catch {
+            log(.warn, "Couldn't delete stored credentials on sign out: \(Self.summary(error))")
+            throw error
+        }
+        log(.info, "Signed out")
+    }
+
     /// For app termination; the stored credentials stay.
     public func shutdown() {
         _ = begin(.signedOut)
