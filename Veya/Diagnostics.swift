@@ -13,13 +13,21 @@ enum Diagnostics {
         return "\(short) (\(build))"
     }
 
+    /// The Settings › Advanced choice, stored by name.
+    static let levelKey = "advanced.logLevel"
+
+    #if DEBUG
+        static let defaultLevel = LogLevel.debug
+    #else
+        static let defaultLevel = LogLevel.info
+    #endif
+
+    static func savedLevel(in defaults: UserDefaults) -> LogLevel {
+        defaults.string(forKey: levelKey).flatMap(LogLevel.init(storedName:)) ?? defaultLevel
+    }
+
     /// Safe to call more than once; spotcore swaps the configuration in place.
-    static func startLogging() {
-        #if DEBUG
-            let level = LogLevel.debug
-        #else
-            let level = LogLevel.info
-        #endif
+    static func startLogging(level: LogLevel) {
         let logDir = URL.libraryDirectory.appending(path: "Logs/Veya", directoryHint: .isDirectory)
         let sink = OSLogSink(subsystemPrefix: bundleID)
         do {
@@ -54,5 +62,24 @@ enum Diagnostics {
             logMessage(level: .error, category: "diagnostics", message: "Export failed: \(error)")
             NSAlert(error: error).runModal()
         }
+    }
+}
+
+extension LogLevel {
+    static let choices: [LogLevel] = [.error, .warn, .info, .debug]
+
+    /// Stable names, so a reordered Rust enum cannot remap saved choices.
+    var storedName: String {
+        switch self {
+        case .error: "error"
+        case .warn: "warn"
+        case .info: "info"
+        case .debug: "debug"
+        }
+    }
+
+    init?(storedName: String) {
+        guard let level = Self.choices.first(where: { $0.storedName == storedName }) else { return nil }
+        self = level
     }
 }
