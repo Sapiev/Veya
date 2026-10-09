@@ -45,6 +45,18 @@ impl Queue {
         }
     }
 
+    /// Like `set_context`, but `tracks[start]` plays first even when shuffled.
+    pub fn set_context_at(&mut self, tracks: Vec<SpotifyUri>, start: usize, seed: u64) {
+        self.set_context(tracks, seed);
+        if let Some(at) = self.order.iter().position(|&i| i == start) {
+            if self.shuffle {
+                self.order.swap(0, at);
+            } else {
+                self.pos = at;
+            }
+        }
+    }
+
     pub fn tracks(&self) -> &[SpotifyUri] {
         &self.tracks
     }
@@ -351,6 +363,38 @@ mod tests {
         let first_pass = played_by_advancing(&mut q, 4);
         let second_pass = played_by_advancing(&mut q, 4);
         assert_eq!(first_pass, second_pass);
+    }
+
+    #[test]
+    fn set_context_at_starts_at_the_chosen_track() {
+        let mut q = Queue::default();
+        q.set_context_at((0..5).map(track).collect(), 3, 7);
+        assert_eq!(q.current(), Some(&track(3)));
+        assert_eq!(
+            q.played().cloned().collect::<Vec<_>>(),
+            (0..=3).map(track).collect::<Vec<_>>()
+        );
+        assert_eq!(q.advance(false), Some(&track(4)));
+    }
+
+    #[test]
+    fn set_context_at_while_shuffled_plays_the_chosen_track_first_then_the_rest_once() {
+        let mut q = Queue::default();
+        q.set_shuffle(true, 0);
+        q.set_context_at((0..10).map(track).collect(), 6, 42);
+        assert_eq!(q.current(), Some(&track(6)));
+        let mut rest = played_by_advancing(&mut q, 9);
+        rest.sort_by_key(|t| format!("{t:?}"));
+        let mut expected: Vec<_> = (0..10).filter(|&n| n != 6).map(track).collect();
+        expected.sort_by_key(|t| format!("{t:?}"));
+        assert_eq!(rest, expected);
+    }
+
+    #[test]
+    fn set_context_at_out_of_range_starts_at_the_first_track() {
+        let mut q = Queue::default();
+        q.set_context_at((0..3).map(track).collect(), 9, 7);
+        assert_eq!(q.current(), Some(&track(0)));
     }
 
     #[test]
