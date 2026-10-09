@@ -11,12 +11,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use log::{info, warn};
-use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
+use oauth2::basic::{BasicClient, BasicErrorResponse, BasicErrorResponseType, BasicTokenResponse};
 use oauth2::url::Url;
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet, HttpClientError,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RequestTokenError, Scope, TokenResponse,
-    TokenUrl,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    TokenResponse, TokenUrl,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -53,6 +53,8 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_REQUEST_HEAD: usize = 8 * 1024;
 const TOKEN_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REASON_LEN: usize = 64;
+/// Spotify access tokens last an hour; assumed when a response omits `expires_in`.
+const DEFAULT_EXPIRES_IN: Duration = Duration::from_secs(3600);
 
 /// Sent before the code exchange, so it must not claim success.
 const PAGE_RECEIVED: &str = "<!doctype html><meta charset=\"utf-8\"><title>Veya</title>\
@@ -113,6 +115,9 @@ pub enum AuthError {
     Exchange { message: String },
     #[error("invalid OAuth configuration: {message}")]
     InvalidConfig { message: String },
+    /// The refresh token was revoked or expired (`invalid_grant`); drop it.
+    #[error("refresh token was rejected")]
+    RefreshRejected,
     #[error("sign-in flow already finished")]
     AlreadyFinished,
     #[error("internal error: {message}")]
@@ -234,22 +239,7 @@ impl LoginFlow {
         settings: FlowSettings,
         listener: TcpListener,
     ) -> Result<Self, AuthError> {
-        validate(&config)?;
-        let redirect = format!("http://127.0.0.1:{}{CALLBACK_PATH}", config.redirect_port);
-        let client = BasicClient::new(ClientId::new(config.client_id))
-            .set_auth_uri(AuthUrl::new(settings.authorize_url).map_err(invalid_config)?)
-            .set_token_uri(TokenUrl::new(settings.token_url).map_err(invalid_config)?)
-            .set_redirect_uri(RedirectUrl::new(redirect).map_err(invalid_config)?);
-        let http = reqwest::Client::builder()
-            // The token endpoint must answer directly; following redirects
-            // would forward the code elsewhere.
-            .redirect(reqwest::redirect::Policy::none())
-            // Trust only the macOS keychain roots, honoring the user's trust settings.
-            .tls_built_in_webpki_certs(false)
-            .timeout(TOKEN_REQUEST_TIMEOUT)
-            .build()
-            .map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
-
+        let (client, http) = oauth_client(&config, &settings)?;
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
         let (url, state) = client
             .authorize_url(CsrfToken::new_random)
@@ -278,6 +268,62 @@ impl LoginFlow {
     fn lock_slot(&self) -> std::sync::MutexGuard<'_, Slot> {
         self.slot.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+fn oauth_client(
+    config: &OAuthConfig,
+    settings: &FlowSettings,
+) -> Result<(SpotifyClient, reqwest::Client), AuthError> {
+    validate(config)?;
+    let redirect = format!("http://127.0.0.1:{}{CALLBACK_PATH}", config.redirect_port);
+    let client = BasicClient::new(ClientId::new(config.client_id.clone()))
+        .set_auth_uri(AuthUrl::new(settings.authorize_url.clone()).map_err(invalid_config)?)
+        .set_token_uri(TokenUrl::new(settings.token_url.clone()).map_err(invalid_config)?)
+        .set_redirect_uri(RedirectUrl::new(redirect).map_err(invalid_config)?);
+    let http = reqwest::Client::builder()
+        // The token endpoint must answer directly; following redirects
+        // would forward the code or refresh token elsewhere.
+        .redirect(reqwest::redirect::Policy::none())
+        // Trust only the macOS keychain roots, honoring the user's trust settings.
+        .tls_built_in_webpki_certs(false)
+        .timeout(TOKEN_REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
+    Ok((client, http))
+}
+
+/// Trades a refresh token for a fresh access token. When Spotify does not
+/// rotate the refresh token, the result carries the one passed in.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn refresh_tokens(
+    config: OAuthConfig,
+    refresh_token: String,
+) -> Result<OAuthTokens, AuthError> {
+    refresh_with(&config, &FlowSettings::spotify(), refresh_token).await
+}
+
+async fn refresh_with(
+    config: &OAuthConfig,
+    settings: &FlowSettings,
+    refresh_token: String,
+) -> Result<OAuthTokens, AuthError> {
+    let (client, http) = oauth_client(config, settings)?;
+    let previous = RefreshToken::new(refresh_token);
+    let response = client
+        .exchange_refresh_token(&previous)
+        .request_async(&http)
+        .await
+        .map_err(|error| match error {
+            RequestTokenError::ServerResponse(ref response)
+                if *response.error() == BasicErrorResponseType::InvalidGrant =>
+            {
+                AuthError::RefreshRejected
+            }
+            other => map_exchange_error(other),
+        })?;
+    let tokens = into_tokens(&response, Some(&previous))?;
+    info!("access token refreshed");
+    Ok(tokens)
 }
 
 fn validate(config: &OAuthConfig) -> Result<(), AuthError> {
@@ -314,20 +360,26 @@ impl Pending {
             .request_async(&http)
             .await
             .map_err(map_exchange_error)?;
-        let tokens = into_tokens(&response)?;
+        let tokens = into_tokens(&response, None)?;
         info!("sign-in succeeded");
         Ok(tokens)
     }
 }
 
-fn into_tokens(response: &BasicTokenResponse) -> Result<OAuthTokens, AuthError> {
-    let missing = |field: &str| AuthError::Exchange {
-        message: format!("token response has no {field}"),
-    };
-    let refresh_token = response
-        .refresh_token()
-        .ok_or_else(|| missing("refresh_token"))?;
-    let expires_in = response.expires_in().ok_or_else(|| missing("expires_in"))?;
+/// `previous` is the refresh token a refresh used; it stands in when the
+/// response does not rotate it.
+fn into_tokens(
+    response: &BasicTokenResponse,
+    previous: Option<&RefreshToken>,
+) -> Result<OAuthTokens, AuthError> {
+    let refresh_token =
+        response
+            .refresh_token()
+            .or(previous)
+            .ok_or_else(|| AuthError::Exchange {
+                message: "token response has no refresh_token".to_owned(),
+            })?;
+    let expires_in = response.expires_in().unwrap_or(DEFAULT_EXPIRES_IN);
     // RFC 6749 5.1: an omitted scope means the requested scopes were granted.
     let scopes = match response.scopes() {
         Some(scopes) => scopes.iter().map(|s| s.to_string()).collect(),
@@ -1110,6 +1162,92 @@ mod tests {
             panic!("expected Network, got {err:?}");
         };
         assert!(!message.contains(CODE));
+    }
+
+    async fn refresh(token_url: &str, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
+        let config = OAuthConfig {
+            client_id: CLIENT_ID.to_owned(),
+            redirect_port: DEFAULT_REDIRECT_PORT,
+        };
+        let settings = FlowSettings {
+            authorize_url: AUTHORIZE_URL.to_owned(),
+            token_url: token_url.to_owned(),
+            connection_timeout: CONNECTION_TIMEOUT,
+        };
+        refresh_with(&config, &settings, refresh_token.to_owned()).await
+    }
+
+    #[tokio::test]
+    async fn refresh_sends_refresh_grant_and_returns_rotated_token() {
+        let (token_url, server) = fake_token_endpoint(
+            "200 OK",
+            r#"{"access_token":"at-new","token_type":"Bearer","expires_in":1800,"refresh_token":"rt-new","scope":"streaming"}"#,
+        )
+        .await;
+        let tokens = refresh(&token_url, "rt-old").await.unwrap();
+        assert_eq!(
+            tokens,
+            OAuthTokens {
+                access_token: "at-new".to_owned(),
+                refresh_token: "rt-new".to_owned(),
+                expires_in_secs: 1800,
+                scopes: vec!["streaming".to_owned()],
+            }
+        );
+        let form = server.await.unwrap();
+        assert!(form.contains("grant_type=refresh_token"), "{form}");
+        assert!(form.contains("refresh_token=rt-old"), "{form}");
+        assert!(form.contains(&format!("client_id={CLIENT_ID}")), "{form}");
+    }
+
+    #[tokio::test]
+    async fn refresh_without_rotation_keeps_the_old_token_and_defaults_expiry() {
+        let (token_url, _server) = fake_token_endpoint(
+            "200 OK",
+            r#"{"access_token":"at-new","token_type":"Bearer"}"#,
+        )
+        .await;
+        let tokens = refresh(&token_url, "rt-old").await.unwrap();
+        assert_eq!(tokens.access_token, "at-new");
+        assert_eq!(tokens.refresh_token, "rt-old");
+        assert_eq!(tokens.expires_in_secs, DEFAULT_EXPIRES_IN.as_secs());
+    }
+
+    #[tokio::test]
+    async fn rejected_refresh_token_is_refresh_rejected() {
+        let (token_url, _server) = fake_token_endpoint(
+            "400 Bad Request",
+            r#"{"error":"invalid_grant","error_description":"Refresh token revoked"}"#,
+        )
+        .await;
+        let err = refresh(&token_url, "rt-old").await.unwrap_err();
+        assert!(matches!(err, AuthError::RefreshRejected), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn other_refresh_errors_stay_exchange_errors_without_the_token() {
+        let (token_url, _server) = fake_token_endpoint(
+            "400 Bad Request",
+            r#"{"error":"invalid_client","error_description":"Invalid client"}"#,
+        )
+        .await;
+        let err = refresh(&token_url, "rt-old").await.unwrap_err();
+        let AuthError::Exchange { message } = &err else {
+            panic!("expected Exchange, got {err:?}");
+        };
+        assert!(!message.contains("rt-old"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn refresh_validates_config() {
+        let config = OAuthConfig {
+            client_id: " ".to_owned(),
+            redirect_port: DEFAULT_REDIRECT_PORT,
+        };
+        let err = refresh_tokens(config, "rt-old".to_owned())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AuthError::InvalidConfig { .. }), "{err:?}");
     }
 
     #[test]

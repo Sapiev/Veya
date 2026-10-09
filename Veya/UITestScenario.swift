@@ -35,6 +35,7 @@
             let signInCompletes = self != .signInCancelled
             return AppDependencies(
                 store: InMemoryCredentialStore(blob: hasSavedSignIn ? ScenarioSession.blob : nil),
+                refreshTokenStore: InMemoryCredentialStore(blob: nil),
                 connector: ScenarioConnector(
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,

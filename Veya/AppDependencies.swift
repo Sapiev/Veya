@@ -5,6 +5,7 @@ import SpotCoreKit
 /// Everything the app talks to outside its own process.
 struct AppDependencies {
     var store: any CredentialStore
+    var refreshTokenStore: any CredentialStore
     var connector: any SessionConnector
     var browser: any SignInBrowser
     var startFlow: SignInFlowStarter
@@ -20,6 +21,10 @@ struct AppDependencies {
             store: KeychainCredentialStore(
                 service: Bundle.main.bundleIdentifier ?? "Veya",
                 account: "spotcore-credentials"
+            ),
+            refreshTokenStore: KeychainCredentialStore(
+                service: Bundle.main.bundleIdentifier ?? "Veya",
+                account: "spotify-refresh-token"
             ),
             connector: SpotSessionConnector(audioCache: openAudioCache()),
             browser: WebAuthenticationBrowser(),
