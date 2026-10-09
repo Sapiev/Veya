@@ -220,7 +220,11 @@ mod tests {
                 for _ in 0..7 {
                     let peeked = q.upcoming().cloned();
                     assert_eq!(q.upcoming().cloned(), peeked);
-                    assert_eq!(q.advance(false).cloned(), peeked, "{repeat:?} shuffle={shuffle}");
+                    assert_eq!(
+                        q.advance(false).cloned(),
+                        peeked,
+                        "{repeat:?} shuffle={shuffle}"
+                    );
                 }
             }
         }

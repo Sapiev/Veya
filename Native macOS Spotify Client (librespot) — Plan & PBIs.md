@@ -320,8 +320,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-201
 
-- [ ] App volume slider (logarithmic curve) independent from system volume; persisted across launches.
-- [ ] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings.
+**Status:** In progress - merged to develop: `SpotPlayer.set_volume` (librespot soft mixer, 60 dB log curve) and `set_normalisation` (rebuilds the player live) plus SpotCoreKit `PlaybackSettings` persisted in UserDefaults; slider and toggle UI land with PBI-402 and PBI-407.
+
+- [ ] App volume slider (logarithmic curve) independent from system volume; persisted across launches. (Core volume and persistence done; no slider until the now-playing bar, PBI-402.)
+- [ ] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings. (Preset mapping and persistence done; no toggle until the Settings window, PBI-407.)
 
 #### PBI-206 · Output device selection
 

@@ -97,7 +97,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = AudioOutput::new();
     drain_forever(output.take_render_handle());
     let (tx, events) = channel();
-    let player = SpotPlayer::new(session, output, Arc::new(Forward(tx.into()))).await?;
+    let player = SpotPlayer::new(
+        session,
+        output,
+        Arc::new(Forward(tx.into())),
+        u16::MAX,
+        None,
+    )
+    .await?;
 
     let playing = |e: &PlaybackEvent| matches!(e, PlaybackEvent::Playing { .. });
     let start = Instant::now();
