@@ -154,6 +154,11 @@ final class FakeSession: SessionHandle {
     func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
         StubPlaylists(rootlist: .success([]), pages: [])
     }
+
+    @MainActor
+    func makePlayer(observer _: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
+        PlayerConnection(player: FakePlayer(), engine: nil)
+    }
 }
 
 enum Credential: Equatable {

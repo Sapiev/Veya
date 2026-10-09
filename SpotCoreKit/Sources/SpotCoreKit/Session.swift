@@ -15,6 +15,8 @@ public protocol SessionHandle: AnyObject, Sendable {
     func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol
     /// Without `store` the playlists are fetched again on every launch.
     func makePlaylists(store: MetadataStore?) -> any PlaylistServiceProtocol
+    /// Starts audio output and a player whose events go to `observer`.
+    @MainActor func makePlayer(observer: any PlayerObserver, settings: PlaybackSettings) async throws -> PlayerConnection
 }
 
 extension SpotSession: SessionHandle {
