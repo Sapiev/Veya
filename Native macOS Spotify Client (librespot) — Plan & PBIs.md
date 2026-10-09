@@ -209,9 +209,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M1 · **Depends on:** PBI-101
 
-- [ ] Reusable credentials are stored in the Keychain (access group scoped to the app), never on disk in plain text.
-- [ ] On launch the app connects silently; if credentials are rejected it falls back to the sign-in screen.
-- [ ] Session is ready (able to play) within 2 s of launch on a normal connection.
+**Status:** In review (feat/pbi-102-credentials)
+
+- [ ] Reusable credentials are stored in the Keychain (access group scoped to the app), never on disk in plain text. (Stored in the legacy login keychain with a creator-only ACL; an access group needs a Team ID, see ADR-003 follow-up.)
+- [x] On launch the app connects silently; if credentials are rejected it falls back to the sign-in screen.
+- [x] Session is ready (able to play) within 2 s of launch on a normal connection. (Measured 631 ms restore against live Spotify.)
 
 #### PBI-103 · Session lifecycle and reconnect
 
