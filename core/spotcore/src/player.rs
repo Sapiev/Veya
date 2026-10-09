@@ -5,19 +5,24 @@
 //! the end of a track advances it, and an exhausted context continues with
 //! Spotify's autoplay radio for it.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist};
-use librespot_playback::config::PlayerConfig;
-use librespot_playback::mixer::NoOpVolume;
-use librespot_playback::player::{Player, PlayerEvent};
+use librespot_playback::audio_backend::{Sink, SinkResult};
+use librespot_playback::config::{NormalisationMethod, PlayerConfig};
+use librespot_playback::convert::Converter;
+use librespot_playback::decoder::AudioPacket;
+use librespot_playback::mixer::softmixer::SoftMixer;
+use librespot_playback::mixer::{Mixer, MixerConfig};
+use librespot_playback::player::{Player, PlayerEvent, PlayerEventChannel};
 use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
 use librespot_protocol::context::Context;
 use log::{info, warn};
 
-use crate::audio::AudioOutput;
+use crate::audio::{AudioOutput, CoreAudioSink};
 use crate::queue::{Queue, RepeatMode};
 use crate::session::SpotSession;
 
@@ -39,6 +44,14 @@ pub enum PlayerError {
     OutputTaken,
     #[error("no Up Next entry at {index}")]
     OutOfRange { index: u32 },
+}
+
+/// Spotify's loudness levels: Quiet is about -19 LUFS, Normal -14, Loud -11.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LoudnessPreset {
+    Quiet,
+    Normal,
+    Loud,
 }
 
 /// URIs are canonical `spotify:` strings.
@@ -99,6 +112,11 @@ struct Clock {
     position_ms: u32,
     reported_at: Option<Instant>,
     playing: bool,
+    /// A track is loaded in the player, playing or paused.
+    active: bool,
+    /// Last play or pause the user asked for; unlike `playing` it holds
+    /// through `Loading`.
+    wants_play: bool,
 }
 
 impl Clock {
@@ -111,10 +129,17 @@ impl Clock {
             PlaybackEvent::Stopped => (0, false),
             _ => return,
         };
+        let wants_play = match event {
+            PlaybackEvent::Playing { .. } => true,
+            PlaybackEvent::Paused { .. } | PlaybackEvent::Stopped => false,
+            _ => self.wants_play,
+        };
         *self = Self {
             position_ms,
             reported_at: Some(Instant::now()),
             playing,
+            active: !matches!(event, PlaybackEvent::Stopped),
+            wants_play,
         };
     }
 
@@ -147,12 +172,17 @@ struct State {
 #[derive(uniffi::Object)]
 pub struct SpotPlayer {
     session: Arc<SpotSession>,
-    player: Arc<Player>,
+    /// Replaced by `set_normalisation`, as librespot fixes it at creation.
+    player: Mutex<Arc<Player>>,
+    sink: Arc<Mutex<CoreAudioSink>>,
+    epoch: Epoch,
+    mixer: SoftMixer,
+    observer: Arc<dyn PlayerObserver>,
     state: Arc<Mutex<State>>,
 }
 
-fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
-    state
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
@@ -160,18 +190,24 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
 #[uniffi::export(async_runtime = "tokio")]
 impl SpotPlayer {
     /// Async so librespot's tasks spawn on the UniFFI tokio runtime.
+    /// `normalisation` of `None` plays tracks at their mastered loudness.
     #[uniffi::constructor]
     pub async fn new(
         session: Arc<SpotSession>,
         output: Arc<AudioOutput>,
         observer: Arc<dyn PlayerObserver>,
+        volume: u16,
+        normalisation: Option<LoudnessPreset>,
     ) -> Result<Arc<Self>, PlayerError> {
-        let sink = output.take_sink().ok_or(PlayerError::OutputTaken)?;
-        let link = session.current_session();
-        let config = PlayerConfig {
-            position_update_interval: Some(POSITION_INTERVAL),
-            ..PlayerConfig::default()
+        let sink = Arc::new(Mutex::new(
+            output.take_sink().ok_or(PlayerError::OutputTaken)?,
+        ));
+        let mixer = soft_mixer(volume);
+        let epoch = Epoch {
+            current: Arc::default(),
+            mine: 0,
         };
+        let link = session.current_session();
         let state = Arc::new(Mutex::new(State {
             queue: Queue::default(),
             context_uri: None,
@@ -181,18 +217,67 @@ impl SpotPlayer {
             request_id: None,
             session_id: link.session_id(),
         }));
-        let player = Player::new(config, link, Box::new(NoOpVolume), move || Box::new(sink));
-        tokio::spawn(forward_events(
-            Arc::clone(&session),
-            Arc::clone(&player),
-            Arc::clone(&state),
-            observer,
-        ));
+        let shared = SharedSink {
+            sink: Arc::clone(&sink),
+            epoch: epoch.clone(),
+        };
+        let player = spawn_player(
+            &session,
+            link,
+            shared,
+            &mixer,
+            &state,
+            &observer,
+            normalisation,
+        );
         Ok(Arc::new(Self {
             session,
-            player,
+            player: Mutex::new(player),
+            sink,
+            epoch,
+            mixer,
+            observer,
             state,
         }))
+    }
+
+    /// App volume on a logarithmic curve, independent of the system volume.
+    pub fn set_volume(&self, volume: u16) {
+        self.mixer.set_volume(volume);
+    }
+
+    /// Rebuilds the librespot player with the new normaliser settings and
+    /// resumes the current track where it was. `None` turns normalisation off.
+    pub async fn set_normalisation(&self, normalisation: Option<LoudnessPreset>) {
+        // Held throughout so overlapping calls and queue moves serialise.
+        let mut state = lock(&self.state);
+        // From here the old player's writes and events are dropped.
+        let epoch = self.epoch.next();
+        // Stops an in-flight autoplay fetch from loading into the old player.
+        state.generation += 1;
+        let resume = resume_point(&state);
+        let link = self.session.current_session();
+        state.session_id = link.session_id();
+        let shared = SharedSink {
+            sink: Arc::clone(&self.sink),
+            epoch,
+        };
+        let player = spawn_player(
+            &self.session,
+            link,
+            shared,
+            &self.mixer,
+            &self.state,
+            &self.observer,
+            normalisation,
+        );
+        if let Some((track, play, position_ms)) = resume {
+            player.load(track, play, position_ms);
+        }
+        let old = std::mem::replace(&mut *lock(&self.player), player);
+        drop(state);
+        // `Player::drop` joins its thread; keep that off the async workers.
+        tokio::task::spawn_blocking(move || drop(old));
     }
 
     /// Expands `uri` (track, episode, album, playlist or artist top tracks)
@@ -220,20 +305,23 @@ impl SpotPlayer {
                 uri: canonical(&uri),
             })?;
         info!("loading context of {} items", state.queue.tracks().len());
-        self.player.load(first, autoplay, start_ms);
+        state.clock.wants_play = autoplay;
+        self.player().load(first, autoplay, start_ms);
         Ok(())
     }
 
     pub fn play(&self) {
-        self.player.play();
+        lock(&self.state).clock.wants_play = true;
+        self.player().play();
     }
 
     pub fn pause(&self) {
-        self.player.pause();
+        lock(&self.state).clock.wants_play = false;
+        self.player().pause();
     }
 
     pub fn seek(&self, position_ms: u32) {
-        self.player.seek(position_ms);
+        self.player().seek(position_ms);
     }
 
     /// Plays Up Next first, then the context. No-op at the end of the
@@ -243,7 +331,8 @@ impl SpotPlayer {
         let mut state = lock(&self.state);
         if let Some(track) = state.queue.advance(true).cloned() {
             state.generation += 1;
-            self.player.load(track, true, 0);
+            state.clock.wants_play = true;
+            self.player().load(track, true, 0);
         }
     }
 
@@ -253,10 +342,11 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
-            self.player.seek(0);
+            self.player().seek(0);
         } else if let Some(track) = state.queue.back().cloned() {
             state.generation += 1;
-            self.player.load(track, true, 0);
+            state.clock.wants_play = true;
+            self.player().load(track, true, 0);
         }
     }
 
@@ -324,7 +414,7 @@ impl SpotPlayer {
     }
 
     pub fn stop(&self) {
-        self.player.stop();
+        self.player().stop();
     }
 }
 
@@ -332,8 +422,129 @@ impl SpotPlayer {
     /// Hands the player the supervisor's current session if a reconnect
     /// replaced the one it holds; loads on a dead session would fail.
     fn sync_session(&self) -> Session {
-        sync_session(&self.session, &self.player, &self.state)
+        sync_session(&self.session, &self.player(), &self.state)
     }
+
+    fn player(&self) -> Arc<Player> {
+        Arc::clone(&lock(&self.player))
+    }
+}
+
+fn soft_mixer(volume: u16) -> SoftMixer {
+    // `VolumeCtrl::default()` is librespot's 60 dB logarithmic curve.
+    let mixer = SoftMixer::open(MixerConfig::default()).expect("SoftMixer::open never fails");
+    mixer.set_volume(volume);
+    mixer
+}
+
+fn player_config(normalisation: Option<LoudnessPreset>) -> PlayerConfig {
+    let config = PlayerConfig {
+        position_update_interval: Some(POSITION_INTERVAL),
+        ..PlayerConfig::default()
+    };
+    let Some(preset) = normalisation else {
+        return config;
+    };
+    // Spotify's gain data targets -14 LUFS. Below it the peak-capped basic
+    // method cannot clip; Loud needs the limiter.
+    let (pregain_db, method) = match preset {
+        LoudnessPreset::Quiet => (-5.0, NormalisationMethod::Basic),
+        LoudnessPreset::Normal => (0.0, NormalisationMethod::Basic),
+        LoudnessPreset::Loud => (3.0, NormalisationMethod::Dynamic),
+    };
+    PlayerConfig {
+        normalisation: true,
+        normalisation_pregain_db: pregain_db,
+        normalisation_method: method,
+        ..config
+    }
+}
+
+/// Starts a librespot player on the shared sink and forwards its events.
+/// The caller records `link`'s session id in the state.
+fn spawn_player(
+    session: &Arc<SpotSession>,
+    link: Session,
+    sink: SharedSink,
+    mixer: &SoftMixer,
+    state: &Arc<Mutex<State>>,
+    observer: &Arc<dyn PlayerObserver>,
+    normalisation: Option<LoudnessPreset>,
+) -> Arc<Player> {
+    let epoch = sink.epoch.clone();
+    let player = Player::new(
+        player_config(normalisation),
+        link,
+        mixer.get_soft_volume(),
+        move || Box::new(sink),
+    );
+    tokio::spawn(forward_events(
+        Arc::clone(session),
+        player.get_player_event_channel(),
+        Arc::downgrade(&player),
+        epoch,
+        Arc::clone(state),
+        Arc::clone(observer),
+    ));
+    player
+}
+
+/// Which librespot player is live. `current` only moves while the state lock
+/// is held, so a check under that lock cannot race a rebuild.
+#[derive(Clone)]
+struct Epoch {
+    current: Arc<AtomicU64>,
+    mine: u64,
+}
+
+impl Epoch {
+    fn next(&self) -> Self {
+        Self {
+            current: Arc::clone(&self.current),
+            mine: self.current.fetch_add(1, SeqCst) + 1,
+        }
+    }
+
+    fn is_current(&self) -> bool {
+        self.current.load(SeqCst) == self.mine
+    }
+}
+
+/// The one CoreAudio ring, shared by each rebuilt librespot player. A
+/// replaced player may run until its thread is joined; its output is dropped.
+struct SharedSink {
+    sink: Arc<Mutex<CoreAudioSink>>,
+    epoch: Epoch,
+}
+
+impl Sink for SharedSink {
+    fn start(&mut self) -> SinkResult<()> {
+        if !self.epoch.is_current() {
+            return Ok(());
+        }
+        lock(&self.sink).start()
+    }
+
+    fn stop(&mut self) -> SinkResult<()> {
+        if !self.epoch.is_current() {
+            return Ok(());
+        }
+        lock(&self.sink).stop()
+    }
+
+    fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        if !self.epoch.is_current() {
+            return Ok(());
+        }
+        lock(&self.sink).write(packet, converter)
+    }
+}
+
+/// Track, play intent and position to restart a rebuilt player at.
+fn resume_point(state: &State) -> Option<(SpotifyUri, bool, u32)> {
+    let clock = &state.clock;
+    let track = state.queue.current().filter(|_| clock.active)?;
+    Some((track.clone(), clock.wants_play, clock.position_ms()))
 }
 
 fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Session {
@@ -368,7 +579,7 @@ fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
 
 impl Drop for SpotPlayer {
     fn drop(&mut self) {
-        self.player.stop();
+        self.player().stop();
     }
 }
 
@@ -400,16 +611,27 @@ fn canonical(uri: &SpotifyUri) -> String {
     uri.to_uri().unwrap_or_else(|_| "<unprintable>".to_owned())
 }
 
+/// Holds the player weakly so `set_normalisation` can drop it. Once a rebuild
+/// moves the epoch on, this player's events are stale and end the loop;
+/// state changes check it under the state lock.
 async fn forward_events(
     session: Arc<SpotSession>,
-    player: Arc<Player>,
+    mut events: PlayerEventChannel,
+    player: Weak<Player>,
+    epoch: Epoch,
     state: Arc<Mutex<State>>,
     observer: Arc<dyn PlayerObserver>,
 ) {
-    let mut events = player.get_player_event_channel();
     while let Some(event) = events.recv().await {
+        let Some(player) = player.upgrade().filter(|_| epoch.is_current()) else {
+            return;
+        };
         if let PlayerEvent::PlayRequestIdChanged { play_request_id } = event {
-            lock(&state).request_id = Some(play_request_id);
+            let mut state = lock(&state);
+            if !epoch.is_current() {
+                return;
+            }
+            state.request_id = Some(play_request_id);
             continue;
         }
         // librespot fires this ~30 s before the end; a preloaded track lets the
@@ -436,6 +658,9 @@ async fn forward_events(
         {
             let next = {
                 let mut state = lock(&state);
+                if !epoch.is_current() {
+                    return;
+                }
                 if state.request_id != Some(play_request_id) {
                     continue;
                 }
@@ -447,14 +672,22 @@ async fn forward_events(
             }
         }
         if let Some(event) = map_event(event) {
-            lock(&state).clock.note(&event);
+            {
+                let mut state = lock(&state);
+                if !epoch.is_current() {
+                    return;
+                }
+                state.clock.note(&event);
+            }
             observer.on_event(event);
         }
         if context_ended && !continue_with_radio(&session, &player, &state).await {
             player.stop();
         }
     }
-    warn!("player event channel closed");
+    if epoch.is_current() {
+        warn!("player event channel closed");
+    }
 }
 
 /// Replaces the exhausted context with its autoplay radio and starts it.
@@ -605,8 +838,88 @@ mod tests {
         });
         clock.reported_at = Instant::now().checked_sub(Duration::from_millis(600));
         assert!(clock.position_ms() > RESTART_THRESHOLD_MS);
+        assert!(clock.active);
         clock.note(&PlaybackEvent::Stopped);
         assert_eq!(clock.position_ms(), 0);
+        assert!(!clock.active, "nothing to resume after a stop");
+    }
+
+    fn state_playing(track: SpotifyUri) -> State {
+        let mut queue = Queue::default();
+        queue.set_context(vec![track], 0);
+        State {
+            queue,
+            context_uri: None,
+            autoplay: true,
+            generation: 0,
+            clock: Clock::default(),
+            request_id: None,
+            session_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn resume_point_keeps_play_intent_through_loading() {
+        let uri = canonical(&track(0));
+        let mut state = state_playing(track(0));
+        assert_eq!(resume_point(&state), None, "nothing loaded yet");
+
+        state.clock.wants_play = true;
+        state.clock.note(&PlaybackEvent::Loading {
+            uri: uri.clone(),
+            position_ms: 1_000,
+        });
+        assert_eq!(resume_point(&state), Some((track(0), true, 1_000)));
+
+        state.clock.note(&PlaybackEvent::Paused {
+            uri,
+            position_ms: 1_500,
+        });
+        assert_eq!(resume_point(&state), Some((track(0), false, 1_500)));
+
+        state.clock.note(&PlaybackEvent::Stopped);
+        assert_eq!(resume_point(&state), None);
+    }
+
+    #[test]
+    fn next_epoch_retires_every_earlier_player() {
+        let first = Epoch {
+            current: Arc::default(),
+            mine: 0,
+        };
+        assert!(first.is_current());
+        let second = first.next();
+        let third = first.next();
+        assert!(!first.is_current());
+        assert!(!second.is_current(), "a rebuild racing another loses");
+        assert!(third.is_current());
+    }
+
+    #[test]
+    fn soft_mixer_attenuates_on_a_log_curve() {
+        let gain = |volume| soft_mixer(volume).get_soft_volume().attenuation_factor();
+        assert_eq!(gain(u16::MAX), 1.0);
+        assert_eq!(gain(0), 0.0);
+        let half = gain(u16::MAX / 2);
+        assert!(
+            half < 0.1,
+            "half volume is ~-30 dB on a 60 dB log curve, got {half}"
+        );
+    }
+
+    #[test]
+    fn player_config_maps_loudness_presets_to_normaliser() {
+        assert!(!player_config(None).normalisation);
+        let check = |preset, pregain_db, method| {
+            let config = player_config(Some(preset));
+            assert!(config.normalisation);
+            assert_eq!(config.normalisation_pregain_db, pregain_db);
+            assert_eq!(config.normalisation_method, method);
+            assert_eq!(config.position_update_interval, Some(POSITION_INTERVAL));
+        };
+        check(LoudnessPreset::Quiet, -5.0, NormalisationMethod::Basic);
+        check(LoudnessPreset::Normal, 0.0, NormalisationMethod::Basic);
+        check(LoudnessPreset::Loud, 3.0, NormalisationMethod::Dynamic);
     }
 
     #[test]
