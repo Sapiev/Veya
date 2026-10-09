@@ -19,6 +19,8 @@ struct PlaybackSettingsTests {
         #expect(settings.playerVolume == .max)
         #expect(settings.normalisation == .normal)
         #expect(settings.outputDeviceUID == nil)
+        #expect(settings.bitrate == .kbps320)
+        #expect(settings.audioCacheLimitBytes == 1_073_741_824)
     }
 
     @Test func choicesSurviveARelaunch() {
@@ -27,6 +29,8 @@ struct PlaybackSettingsTests {
         settings.loudness = .loud
         settings.normalises = false
         settings.outputDeviceUID = "interface-uid"
+        settings.bitrate = .kbps96
+        settings.audioCacheLimitBytes = 5 << 30
 
         let relaunched = PlaybackSettings(defaults: defaults)
 
@@ -35,6 +39,8 @@ struct PlaybackSettingsTests {
         #expect(relaunched.loudness == .loud)
         #expect(relaunched.normalisation == nil)
         #expect(relaunched.outputDeviceUID == "interface-uid")
+        #expect(relaunched.bitrate == .kbps96)
+        #expect(relaunched.audioCacheLimitBytes == 5 << 30)
     }
 
     @Test func choosingSystemDefaultAgainIsRemembered() {
@@ -74,5 +80,14 @@ struct PlaybackSettingsTests {
         defaults.set("deafening", forKey: "playback.loudness")
 
         #expect(PlaybackSettings(defaults: defaults).loudness == .normal)
+    }
+
+    @Test func unknownStoredQualityAndCacheLimitFallBackToDefaults() {
+        defaults.set("9000", forKey: "playback.bitrate")
+        defaults.set("-1", forKey: "playback.audioCacheLimit")
+        let settings = PlaybackSettings(defaults: defaults)
+
+        #expect(settings.bitrate == .kbps320)
+        #expect(settings.audioCacheLimitBytes == PlaybackSettings.defaultAudioCacheLimitBytes)
     }
 }

@@ -91,6 +91,8 @@
             try nextSession()
         }
 
+        func setAudioCacheLimit(bytes _: UInt64) throws {}
+
         private func nextSession() throws -> any SessionHandle {
             let fails = failuresLeft.withLock { left in
                 defer { left = max(left - 1, 0) }
@@ -126,6 +128,8 @@
         func systemDidWake() {}
 
         func networkChanged(available _: Bool) {}
+
+        func reconnect() {}
     }
 
     private final class ScenarioBrowser: SignInBrowser {
