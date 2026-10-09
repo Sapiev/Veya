@@ -142,6 +142,14 @@ final class FakeSession: SessionHandle {
     func reconnect() {
         box.withLock { $0.reconnects += 1 }
     }
+
+    func makeLibrary(cacheDirectory _: URL?) -> any LibraryServiceProtocol {
+        FakeLibrary()
+    }
+
+    func makeMetadata() -> any MetadataServiceProtocol {
+        FakeMetadata()
+    }
 }
 
 enum Credential: Equatable {
