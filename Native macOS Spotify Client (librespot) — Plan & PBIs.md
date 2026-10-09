@@ -209,7 +209,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M1 · **Depends on:** PBI-101
 
-**Status:** In review (feat/pbi-102-credentials)
+**Status:** Done (merged to develop).
 
 - [ ] Reusable credentials are stored in the Keychain (access group scoped to the app), never on disk in plain text. (Stored in the legacy login keychain with a creator-only ACL; an access group needs a Team ID, see ADR-003 follow-up.)
 - [x] On launch the app connects silently; if credentials are rejected it falls back to the sign-in screen.
