@@ -418,9 +418,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303
 
-- [ ] Followed shows list, show page with episode list, episode detail with description.
-- [ ] Resume position syncs with Spotify; played state is shown.
-- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer).
+**Status:** In progress (`feat/pbi-306-podcasts`) - `LibraryKind::Shows`, show metadata (`SHOW_V4`), Web API resume points (`podcast.rs`, `user-read-playback-position`), SpotCoreKit `PodcastModel` and episode speed via `AVAudioUnitTimePitch` (ADR-007); UI, access-token supply and live checks pending.
+
+- [ ] Followed shows list, show page with episode list, episode detail with description. (core and Kit done; UI waits on PBI-401; episode list in `SHOW_V4` not yet checked live)
+- [ ] Resume position syncs with Spotify; played state is shown. (read path done; the Kit has no access token on restored sessions; writing back relies on Spotify recording playback, unverified)
+- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer). (engine and setting done, ADR-007; picker UI pending, not yet listened to)
 
 #### PBI-307 · Home and discovery
 
