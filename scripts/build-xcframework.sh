@@ -155,7 +155,12 @@ clean_env cargo run ${LOCKED[@]+"${LOCKED[@]}"} --quiet -p uniffi-bindgen -- \
 # Nested header dir keeps this module.modulemap from colliding with other
 # xcframeworks that also ship one at the Headers root.
 cp "$STAGING/swift/spotcoreFFI.h" "$STAGING/headers/spotcoreFFI/"
-cp "$STAGING/swift/spotcoreFFI.modulemap" "$STAGING/headers/spotcoreFFI/module.modulemap"
+cp "$CORE/spotcore/include/spotcore_audio.h" "$STAGING/headers/spotcoreFFI/"
+# The real-time audio C API (ADR-006) is not UniFFI's, so add its header to the module.
+sed 's|^\( *\)header "spotcoreFFI.h"|&\
+\1header "spotcore_audio.h"|' "$STAGING/swift/spotcoreFFI.modulemap" \
+    > "$STAGING/headers/spotcoreFFI/module.modulemap"
+grep -q 'header "spotcore_audio.h"' "$STAGING/headers/spotcoreFFI/module.modulemap"
 
 clean_env xcodebuild -create-xcframework \
     -library "$STAGING/libspotcore.a" \
