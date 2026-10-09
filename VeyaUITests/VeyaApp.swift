@@ -11,6 +11,7 @@ enum Scenario: String {
     case largeLibrary
     case emptyLibrary
     case libraryFails
+    case recentlyPlayedNeedsSignIn
 }
 
 @MainActor

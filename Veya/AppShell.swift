@@ -18,19 +18,32 @@ struct AppShell: View {
     private let settings: PlaybackSettings
     @State private var player: PlayerModel?
     @State private var search: SearchModel
+    @State private var home: HomeModel
     @State private var searchFocusRequest = 0
     private let recentSearches: RecentSearches
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
+    init(
+        session: any SessionHandle,
+        webAPITokens: WebAPITokenProvider,
+        metadataStore: MetadataStore?,
+        recentSearches: RecentSearches,
+        settings: PlaybackSettings
+    ) {
         self.session = session
         self.settings = settings
         self.recentSearches = recentSearches
         _search = State(initialValue: SearchModel(service: session.makeSearch()))
         let metadata = session.makeMetadata(store: metadataStore)
         self.metadata = metadata
-        _playlists = State(initialValue: PlaylistModel(playlists: session.makePlaylists(store: metadataStore)))
+        let playlistService = session.makePlaylists(store: metadataStore)
+        _playlists = State(initialValue: PlaylistModel(playlists: playlistService))
+        _home = State(initialValue: HomeModel(
+            metadata: metadata,
+            playlists: playlistService,
+            recentlyPlayed: session.makeRecentlyPlayed { try await webAPITokens.accessToken() }
+        ))
         _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
     }
 
@@ -40,6 +53,8 @@ struct AppShell: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             switch history.current {
+            case .home:
+                HomeView(home: home, player: player, history: history)
             case .search:
                 SearchView(search: search, recent: recentSearches, player: player, history: history, focusRequest: searchFocusRequest)
             case .likedSongs:
@@ -239,7 +254,7 @@ private struct SavedItems: View {
     }
 }
 
-private struct PageTitle: View {
+struct PageTitle: View {
     let title: String
 
     var body: some View {
@@ -280,7 +295,7 @@ private extension LibraryKind {
     }
 }
 
-/// Placeholder per route until its screen lands (Home: PBI-307, shows: PBI-306).
+/// Placeholder per route until its screen lands (shows: PBI-306).
 private struct RouteView: View {
     let route: Route
 

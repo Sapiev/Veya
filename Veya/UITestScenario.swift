@@ -24,6 +24,8 @@
         case emptyLibrary
         /// Signed in; the library and playlists can't be fetched and nothing is cached.
         case libraryFails
+        /// Signed in before Veya asked for the scope Recently Played needs.
+        case recentlyPlayedNeedsSignIn
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -62,7 +64,8 @@
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
-                    library: library
+                    library: library,
+                    recentlyPlayedScope: self != .recentlyPlayedNeedsSignIn
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
@@ -107,12 +110,14 @@
         private let premium: Bool
         private let initial: ConnectionState?
         private let library: LibraryFill
+        private let recentlyPlayedScope: Bool
 
-        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill) {
+        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
             self.premium = premium
             self.initial = initial
             self.library = library
+            self.recentlyPlayedScope = recentlyPlayedScope
         }
 
         func isPremium(accessToken _: String) async throws -> Bool {
@@ -139,7 +144,7 @@
             if fails {
                 throw ScenarioConnectError()
             }
-            return ScenarioSession(initial: initial, library: library)
+            return ScenarioSession(initial: initial, library: library, recentlyPlayedScope: recentlyPlayedScope)
         }
     }
 
@@ -147,10 +152,12 @@
         static let blob = Data("ui-test-credentials".utf8)
         private let initial: ConnectionState?
         private let library: LibraryFill
+        private let recentlyPlayedScope: Bool
 
-        init(initial: ConnectionState?, library: LibraryFill) {
+        init(initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
             self.initial = initial
             self.library = library
+            self.recentlyPlayedScope = recentlyPlayedScope
         }
 
         func storedCredentials() throws -> Data {
@@ -185,6 +192,10 @@
 
         func makeSearch() -> any SearchServiceProtocol {
             ScenarioSearch()
+        }
+
+        func makeRecentlyPlayed(accessToken _: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
+            ScenarioRecentlyPlayed(fill: library, scope: recentlyPlayedScope)
         }
 
         @MainActor
@@ -236,6 +247,8 @@
         tracks: [likedSongURI(5)], playability: .playable, artwork: [], year: 2025, copyrights: []
     )
     private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
+    /// Spotify-owned, so Home lists it under Made for You.
+    private nonisolated let scenarioMixURI = "spotify:playlist:ui-test-mix"
 
     /// A paused "Test Track" that answers play and pause with the matching events.
     /// Songs 5 and 6 are queued and songs 7 and 8 follow; playing a list makes it the context.
@@ -324,7 +337,7 @@
         }
     }
 
-    /// "Road Trip" when the library is filled; it never changes.
+    /// "Road Trip" and Spotify's "Daily Mix 1" when the library is filled; they never change.
     private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
         private let fill: LibraryFill
 
@@ -334,7 +347,10 @@
 
         func cachedRootlist() -> [RootlistEntry] {
             guard case .liked = fill else { return [] }
-            return [.playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil)]
+            return [
+                .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil),
+                .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil),
+            ]
         }
 
         func rootlist() async throws -> [RootlistEntry] {
@@ -346,15 +362,20 @@
             nil
         }
 
-        /// Songs 1, 2 and 5, all on one page.
+        /// Road Trip has songs 1, 2 and 5, Daily Mix 1 songs 4 and 6, each on one page.
         func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
-            guard case .liked = fill, uri == scenarioPlaylistURI else { throw PlaylistError.Request(message: "ui-test") }
-            let tracks = from > 0 ? [] : [1, 2, 5].map {
+            guard case .liked = fill, [scenarioPlaylistURI, scenarioMixURI].contains(uri) else {
+                throw PlaylistError.Request(message: "ui-test")
+            }
+            let mix = uri == scenarioMixURI
+            let songs = mix ? [4, 6] : [1, 2, 5]
+            let tracks = from > 0 ? [] : songs.map {
                 PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
             }
             return PlaylistPage(
-                uri: uri, revision: "ui-test", name: "Road Trip", description: "Songs for the road", owner: "ui-test",
-                collaborative: false, artwork: [], total: 3, offset: from, tracks: tracks
+                uri: uri, revision: "ui-test", name: mix ? "Daily Mix 1" : "Road Trip",
+                description: mix ? "Made for you" : "Songs for the road", owner: mix ? "spotify" : "ui-test",
+                collaborative: false, artwork: [], total: UInt32(songs.count), offset: from, tracks: tracks
             )
         }
 
@@ -367,6 +388,32 @@
                 try? await Task.sleep(for: .seconds(3600))
             }
             return .rootlist
+        }
+    }
+
+    /// Songs 2 and 1, played from Test Album, Road Trip and Test Artist.
+    private final nonisolated class ScenarioRecentlyPlayed: RecentlyPlayedProvider {
+        private let fill: LibraryFill
+        private let scope: Bool
+
+        init(fill: LibraryFill, scope: Bool) {
+            self.fill = fill
+            self.scope = scope
+        }
+
+        func recentlyPlayed() async throws -> RecentlyPlayed {
+            guard scope else { throw HomeError.MissingScope }
+            switch fill {
+            case .liked:
+                return RecentlyPlayed(
+                    tracks: [likedSongURI(2), likedSongURI(1)],
+                    contexts: [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri]
+                )
+            case .empty:
+                return RecentlyPlayed(tracks: [], contexts: [])
+            case .failing:
+                throw HomeError.Network(message: "ui-test")
+            }
         }
     }
 

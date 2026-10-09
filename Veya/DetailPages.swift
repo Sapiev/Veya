@@ -252,7 +252,7 @@ private struct PageHeading: View {
     }
 }
 
-private struct PageSection<Content: View>: View {
+struct PageSection<Content: View>: View {
     let title: LocalizedStringKey
     @ViewBuilder let content: () -> Content
 
@@ -352,7 +352,7 @@ private struct AlbumGrid: View {
     }
 }
 
-private struct Card: View {
+struct Card: View {
     let title: String
     var subtitle: String?
     let artwork: [Artwork]
