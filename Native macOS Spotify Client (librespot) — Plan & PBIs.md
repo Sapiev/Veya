@@ -296,7 +296,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-202
 
-**Status:** In progress - queue, shuffle, repeat and autoplay radio in `spotcore` (`queue.rs`, `SpotPlayer`); Settings toggle pending.
+**Status:** In progress - queue, shuffle, repeat and autoplay radio merged to develop (`queue.rs`, `SpotPlayer`); Settings toggle pending.
 
 - [x] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
 - [x] Play Next, Add to Queue, remove, reorder and clear are supported.
