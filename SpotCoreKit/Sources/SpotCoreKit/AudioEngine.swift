@@ -13,8 +13,8 @@ public enum AudioEngineError: Error, Equatable, Sendable {
 public final class AudioEngine {
     private static let log = Logger(subsystem: "veya", category: "audio")
 
-    private let engine = AVAudioEngine()
-    // nonisolated(unsafe) only so deinit, which has sole access, can free it.
+    // nonisolated(unsafe) only so deinit, which has sole access, can stop and free them.
+    private nonisolated(unsafe) let engine = AVAudioEngine()
     private nonisolated(unsafe) let renderHandle: OpaquePointer
     private var configurationObserver: (any NSObjectProtocol)?
     private var deviceListener: SystemAudioListener?
