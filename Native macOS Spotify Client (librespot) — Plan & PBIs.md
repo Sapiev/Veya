@@ -331,7 +331,7 @@ veya/
 
 **Priority:** Could · **Estimate:** 3 · **Milestone:** M3 · **Depends on:** PBI-201
 
-**Status:** In progress - SpotCoreKit `OutputDevices` (live CoreAudio list), `AudioEngine.outputDeviceUID` (routes to the chosen device, falls back to the default and returns when it reappears) and `PlaybackSettings.outputDeviceUID` (UserDefaults); the picker UI lands with the Settings window, PBI-407.
+**Status:** In progress - merged to develop: SpotCoreKit `OutputDevices` (live CoreAudio list), `AudioEngine.outputDeviceUID` (routes to the chosen device, falls back to the default and returns when it reappears) and `PlaybackSettings.outputDeviceUID` (UserDefaults); the picker UI lands with the Settings window, PBI-407.
 
 - [ ] Settings lists CoreAudio output devices and updates live as devices appear/disappear. (Live list done in `OutputDevices`; no picker until the Settings window, PBI-407.)
 - [ ] Selected device is remembered; falls back to system default if missing. (Persistence and fallback done in SpotCoreKit; the app does not create an `AudioEngine` yet, so nothing applies the saved choice at launch.)
