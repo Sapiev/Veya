@@ -24,7 +24,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testPlaybackChoiceIsKeptAfterReopeningSettings() {
         let app = openSettings()
         tab(app, "Playback").click()
-        let quality = app.popUpButtons["streamingQuality"]
+        let quality = app.popUpButtons["Streaming quality"]
         XCTAssertTrue(quality.waitForExistence(timeout: XCUIApplication.timeout))
 
         quality.click()
@@ -33,7 +33,7 @@ final class SettingsUITests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         tab(app, "Playback").click()
 
-        XCTAssertEqual(app.popUpButtons["streamingQuality"].value as? String, "Low (96 kbps)")
+        XCTAssertEqual(app.popUpButtons["Streaming quality"].value as? String, "Low (96 kbps)")
     }
 
     @MainActor func testAccountSignOutReturnsToSignIn() {
@@ -62,6 +62,6 @@ final class SettingsUITests: XCTestCase {
         let app = openSettings()
         tab(app, "Advanced").click()
 
-        XCTAssertTrue(app.popUpButtons["logLevel"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.popUpButtons["Log level"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 }

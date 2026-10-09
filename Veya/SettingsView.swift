@@ -48,7 +48,8 @@ private struct PlaybackSettingsTab: View {
                 Text("Normal (160 kbps)").tag(Bitrate.kbps160)
                 Text("High (320 kbps)").tag(Bitrate.kbps320)
             }
-            .accessibilityIdentifier("streamingQuality")
+            // The grouped form shows the row label but leaves the pop-up button unnamed for VoiceOver.
+            .accessibilityLabel("Streaming quality")
             Toggle("Normalize volume", isOn: $settings.normalises)
             Picker("Loudness", selection: $settings.loudness) {
                 Text("Quiet").tag(LoudnessPreset.quiet)
@@ -171,7 +172,7 @@ private struct AdvancedSettingsTab: View {
                     Text(level.title).tag(level.storedName)
                 }
             }
-            .accessibilityIdentifier("logLevel")
+            .accessibilityLabel("Log level")
             .onChange(of: levelName) { _, name in
                 Diagnostics.startLogging(level: LogLevel(storedName: name) ?? Diagnostics.defaultLevel)
             }
