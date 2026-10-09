@@ -5,6 +5,7 @@
 use librespot_core::SpotifyUri;
 
 mod account;
+mod audio;
 mod auth;
 mod logging;
 mod reconnect;
@@ -12,6 +13,7 @@ mod redact;
 mod session;
 
 pub use account::is_premium_account;
+pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
 pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
 pub use reconnect::{ConnectionObserver, ConnectionState};

@@ -270,10 +270,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M1 · **Depends on:** PBI-002, PBI-003
 
-- [ ] Rust implements librespot's `Sink` trait and writes 44.1 kHz stereo PCM (f32) into a lock-free SPSC ring buffer exposed over FFI.
-- [ ] Swift drains it from an `AVAudioSourceNode` render block with no allocations or locks on the audio thread.
-- [ ] No audible glitches across 1 h of continuous playback; buffer underruns are logged and counted.
-- [ ] Output follows the system default device when it changes (AirPods connect/disconnect) within 1 s.
+**Status:** In progress - sink, ring, C render API and Swift engine merged to develop (ADR-006); listening and device checks wait on the player, PBI-202.
+
+- [x] Rust implements librespot's `Sink` trait and writes 44.1 kHz stereo PCM (f32) into a lock-free SPSC ring buffer exposed over FFI.
+- [x] Swift drains it from an `AVAudioSourceNode` render block with no allocations or locks on the audio thread.
+- [ ] No audible glitches across 1 h of continuous playback; buffer underruns are logged and counted. (Underruns are counted and logged; the 1 h listening test needs the player, PBI-202.)
+- [ ] Output follows the system default device when it changes (AirPods connect/disconnect) within 1 s. (Engine restarts on `AVAudioEngineConfigurationChange`; not yet checked on hardware, needs the player, PBI-202.)
 
 #### PBI-202 · Player control API
 
