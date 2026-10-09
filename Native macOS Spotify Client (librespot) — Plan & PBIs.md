@@ -369,9 +369,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M1 · **Depends on:** PBI-301
 
-- [ ] Swift image pipeline picks the smallest size that fits the view at the screen's backing scale.
-- [ ] Memory cache plus disk cache (default 300 MB, LRU) in Caches; downscaled thumbnails decoded off the main thread.
-- [ ] Scrolling a 1,000-item grid stays at 60 fps on an M1 MacBook Air.
+**Status:** In progress - SpotCoreKit `ArtworkLoader` and app `ArtworkView` on `feat/pbi-302-artwork`; the frame-rate check waits on the first grid (PBI-303, PBI-304).
+
+- [x] Swift image pipeline picks the smallest size that fits the view at the screen's backing scale.
+- [x] Memory cache plus disk cache (default 300 MB, LRU) in Caches; downscaled thumbnails decoded off the main thread.
+- [ ] Scrolling a 1,000-item grid stays at 60 fps on an M1 MacBook Air. (No grid exists yet: PBI-303, PBI-304.)
 
 #### PBI-303 · User library: liked songs, saved albums, followed artists
 
