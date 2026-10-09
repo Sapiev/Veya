@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     let session: SessionModel
     let signIn: SignInModel
+    let signOut: () -> Void
 
     var body: some View {
         content
@@ -22,7 +23,7 @@ struct ContentView: View {
         case .signedOut:
             SignInView(model: signIn)
         case .ready:
-            SignedInView()
+            SignedInView(signOut: signOut)
                 .overlay(alignment: .top) {
                     ReconnectBanner(connection: session.connection)
                 }
@@ -119,12 +120,16 @@ private struct ReconnectBanner: View {
 }
 
 private struct SignedInView: View {
+    let signOut: () -> Void
+
     var body: some View {
         VStack(spacing: 8) {
             Text("You're signed in.")
                 .font(.title2)
             Text("spotcore \(version())")
                 .foregroundStyle(.secondary)
+            Button("Sign Out", action: signOut)
+                .padding(.top, 16)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -134,6 +139,7 @@ private struct SignedInView: View {
 #Preview {
     ContentView(
         session: SessionModel(store: KeychainCredentialStore(service: "preview", account: "preview")),
-        signIn: SignInModel(browser: WebAuthenticationBrowser())
+        signIn: SignInModel(browser: WebAuthenticationBrowser()),
+        signOut: {}
     )
 }

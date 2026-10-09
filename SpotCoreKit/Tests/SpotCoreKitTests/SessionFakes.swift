@@ -10,6 +10,7 @@ final class FakeStore: CredentialStore {
         var blob: Data?
         var loadError: (any Error)?
         var saveError: (any Error)?
+        var deleteError: (any Error)?
         var saves = 0
         var deletes = 0
     }
@@ -18,6 +19,10 @@ final class FakeStore: CredentialStore {
 
     init(blob: Data? = nil, loadError: (any Error)? = nil, saveError: (any Error)? = nil) {
         box = OSAllocatedUnfairLock(initialState: Box(blob: blob, loadError: loadError, saveError: saveError))
+    }
+
+    func failDeletes(with error: (any Error)?) {
+        box.withLock { $0.deleteError = error }
     }
 
     var blob: Data? {
@@ -57,8 +62,11 @@ final class FakeStore: CredentialStore {
     }
 
     func delete() throws {
-        box.withLock { box in
+        try box.withLock { box in
             box.deletes += 1
+            if let error = box.deleteError {
+                throw error
+            }
             box.blob = nil
         }
     }

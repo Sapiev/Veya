@@ -7,6 +7,7 @@ import SwiftUI
     @State private var session: SessionModel
     @State private var signIn = SignInModel(browser: WebAuthenticationBrowser())
     @State private var systemEvents: SystemEvents
+    @State private var signOutFailed = false
 
     init() {
         Diagnostics.startLogging()
@@ -33,14 +34,49 @@ import SwiftUI
 
     var body: some Scene {
         Window("Veya", id: "main") {
-            ContentView(session: session, signIn: signIn)
+            ContentView(session: session, signIn: signIn) {
+                AccountCommands.signOut(session, failed: $signOutFailed)
+            }
+            .alert("Couldn't Sign Out Completely", isPresented: $signOutFailed) {
+                Button("Try Again") { AccountCommands.signOut(session, failed: $signOutFailed) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The saved sign-in is still in the Keychain, so Veya may sign in again at launch.")
+            }
         }
         .commands {
+            AccountCommands(session: session, signOutFailed: $signOutFailed)
             CommandGroup(after: .help) {
                 Button("Export Diagnostics…") {
                     Task { await Diagnostics.export() }
                 }
             }
+        }
+    }
+}
+
+private struct AccountCommands: Commands {
+    let session: SessionModel
+    @Binding var signOutFailed: Bool
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandMenu("Account") {
+            Button("Sign Out") {
+                openWindow(id: "main")
+                Self.signOut(session, failed: $signOutFailed)
+            }
+            .disabled(session.state == .signedOut)
+        }
+    }
+
+    /// Raised on the next turn: an alert button's own action can reset its flag.
+    @MainActor
+    static func signOut(_ session: SessionModel, failed: Binding<Bool>) {
+        do {
+            try session.signOut()
+        } catch {
+            Task { @MainActor in failed.wrappedValue = true }
         }
     }
 }

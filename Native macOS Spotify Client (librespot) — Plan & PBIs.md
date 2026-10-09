@@ -234,8 +234,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-102
 
-- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache.
-- [ ] App returns to the sign-in screen without a relaunch.
+**Status:** In progress - Account › Sign Out ends the session and deletes the Keychain item; playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
+
+- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end and Keychain delete done; playback, metadata cache and audio cache do not exist yet: PBI-202, PBI-308, PBI-207.)
+- [x] App returns to the sign-in screen without a relaunch.
 
 #### PBI-105 · Premium and region checks
 
