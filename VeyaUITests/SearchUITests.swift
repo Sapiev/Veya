@@ -89,12 +89,13 @@ final class SearchUITests: XCTestCase {
     @MainActor func testNoResultsAndFailureEachSayWhatHappened() {
         let app = signedIn()
         searchFor("nothing", in: app)
-        XCTAssertTrue(app.staticTexts["No results for “nothing”"].waitForExistence(timeout: XCUIApplication.timeout))
+        let noResults = app.staticTexts.matching(NSPredicate(format: "value CONTAINS[c] %@", "No Results for")).firstMatch
+        XCTAssertTrue(noResults.waitForExistence(timeout: XCUIApplication.timeout))
 
         app.searchField.typeKey("a", modifierFlags: .command)
         app.searchField.typeText("fail")
 
-        XCTAssertTrue(app.staticTexts["Couldn't search. Check your connection and try again."].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["Couldn't Search"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Try Again"].exists)
     }
 

@@ -9,6 +9,8 @@ enum Scenario: String {
     case reconnecting
     case notPremium
     case largeLibrary
+    case emptyLibrary
+    case libraryFails
 }
 
 @MainActor
