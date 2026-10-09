@@ -92,6 +92,16 @@ jobs:
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath "$SPM_DIR"
           CODE_SIGNING_ALLOWED=NO
+      # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release,
+      # so this step also builds the debug xcframework.
+      - name: UI tests
+        run: >-
+          xcodebuild test
+          -project Veya.xcodeproj
+          -scheme Veya
+          -destination 'platform=macOS'
+          -only-testing:VeyaUITests
+          -clonedSourcePackagesDirPath "$SPM_DIR"
       # The scheme pre-action ignores its exit code and logs here instead.
       - name: Upload xcframework pre-action log
         if: failure()
