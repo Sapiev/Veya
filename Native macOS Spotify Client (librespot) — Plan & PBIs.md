@@ -393,9 +393,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree.
-- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown.
-- [ ] Changes made on other devices appear within 10 s via dealer notifications.
+**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit model and sidebar UI pending.
+
+- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Fetch and folder nesting done in `spotcore` `playlist.rs`; no tree UI yet.)
+- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (`PlaylistService::page` and `follower_count` exist; no UI yet, not checked against a live account.)
+- [ ] Changes made on other devices appear within 10 s via dealer notifications. (`wait_for_change` reports root list and playlist pushes; nothing refreshes on it yet.)
 
 #### PBI-305 · Search
 
