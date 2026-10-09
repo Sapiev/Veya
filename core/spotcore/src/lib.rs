@@ -17,6 +17,7 @@ mod push;
 mod queue;
 mod reconnect;
 mod redact;
+mod search;
 mod session;
 
 pub use account::is_premium_account;
@@ -34,6 +35,7 @@ pub use playlist::{
     PlaylistChange, PlaylistError, PlaylistPage, PlaylistService, PlaylistTrack, RootlistEntry,
 };
 pub use reconnect::{ConnectionObserver, ConnectionState};
+pub use search::{SearchError, SearchGroup, SearchHit, SearchKind, SearchService};
 pub use session::{SessionError, SpotSession};
 
 uniffi::setup_scaffolding!();
