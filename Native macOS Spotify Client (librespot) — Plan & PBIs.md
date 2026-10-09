@@ -418,11 +418,13 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303
 
-**Status:** In progress - merged to develop: `LibraryKind::Shows`, show metadata (`SHOW_V4`), Web API resume points (`podcast.rs`, `user-read-playback-position`), SpotCoreKit `PodcastModel` and episode speed via `AVAudioUnitTimePitch` (ADR-007); Web API token refresh (`refresh_tokens`, Keychain refresh token, `WebAPITokenProvider`) merged to develop; UI and live checks pending.
+**Status:** In review (claude/magical-meitner-12y709) - show page (`ShowPage`: header, episodes with release date, length, played and resume progress, selected episode's notes, Resume via `PlayerModel.play(_:startingAt:)`), episode release time in core; earlier: `LibraryKind::Shows`, `SHOW_V4` metadata, Web API resume points, SpotCoreKit `PodcastModel`, episode speed (ADR-007) and Web API token refresh merged to develop.
 
-- [ ] Followed shows list, show page with episode list, episode detail with description. (core and Kit done; UI waits on PBI-401; episode list in `SHOW_V4` not yet checked live)
-- [ ] Resume position syncs with Spotify; played state is shown. (read path and token refresh done; needs re-sign-in for sign-ins before this change; writing back relies on Spotify recording playback, unverified)
-- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer). (engine and setting done, ADR-007; picker UI pending, not yet listened to)
+**UI tests:** `PodcastUITests` (followed show opens its page, episode date, length, played and resume state, selected episode's notes, Resume and Play from the start).
+
+- [ ] Followed shows list, show page with episode list, episode detail with description. (Podcasts list, `ShowPage` and `PodcastUITests` written; Swift not compiled or run: written in a Linux container; episode list in `SHOW_V4` not yet checked live)
+- [ ] Resume position syncs with Spotify; played state is shown. (played and resume state shown on the show page and Resume starts at the resume point, Swift not compiled or run: written in a Linux container; needs re-sign-in for sign-ins before this change; writing back relies on Spotify recording playback, unverified)
+- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer). (engine, setting and Settings › Playback › Podcast speed picker done, ADR-007; not yet listened to)
 
 #### PBI-307 · Home and discovery
 
