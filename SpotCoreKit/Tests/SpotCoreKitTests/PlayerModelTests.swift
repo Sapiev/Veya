@@ -35,8 +35,8 @@ final class FakePlayer: SpotPlayerProtocol {
     func removeFromQueue(index: UInt32) throws { record("remove \(index)") }
     func seek(positionMs: UInt32) { record("seek \(positionMs)") }
     func setAutoplay(on: Bool) { record("autoplay \(on)") }
-    func setBitrate(bitrate _: Bitrate) async {}
-    func setNormalisation(normalisation _: LoudnessPreset?) async {}
+    func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
+    func setNormalisation(normalisation: LoudnessPreset?) async { record("normalisation \(normalisation.map { "\($0)" } ?? "off")") }
     func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
     func setShuffle(on: Bool) { record("shuffle \(on)") }
     func setVolume(volume: UInt16) { record("volume \(volume)") }
@@ -63,10 +63,11 @@ struct PlayerModelTests {
     private func model(
         _ player: FakePlayer = FakePlayer(),
         metadata: any MetadataServiceProtocol = StubMetadata([trackItem]),
-        clock: Clock = Clock()
+        clock: Clock = Clock(),
+        settings: PlaybackSettings? = nil
     ) -> PlayerModel {
         PlayerModel(
-            player: player, engine: nil, metadata: metadata, settings: PlaybackSettings(defaults: defaults),
+            player: player, engine: nil, metadata: metadata, settings: settings ?? PlaybackSettings(defaults: defaults),
             clock: { clock.now }, log: { _, _ in }
         )
     }
@@ -162,6 +163,42 @@ struct PlayerModelTests {
         player.volume = 0
         #expect(fake.recorded == ["volume 0"])
         #expect(PlaybackSettings(defaults: defaults).volume == 0)
+    }
+
+    @Test func settingsChangesReachTheLivePlayerOnce() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+
+        settings.bitrate = .kbps96
+        settings.normalises = false
+        settings.volume = 0
+        while fake.recorded.count < 3 {
+            await Task.yield()
+        }
+        await player.settingsApply?.value
+        #expect(fake.recorded == ["volume 0", "bitrate kbps96", "normalisation off"])
+
+        settings.loudness = .loud
+        settings.normalises = true
+        while fake.recorded.count < 4 {
+            await Task.yield()
+        }
+        await player.settingsApply?.value
+        #expect(fake.recorded.last == "normalisation loud")
+        #expect(fake.recorded.count == 4)
+    }
+
+    @Test func unchangedSettingsSendNothing() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+        settings.bitrate = settings.bitrate
+        settings.audioCacheLimitBytes = 1
+        await Task.yield()
+        await Task.yield()
+        #expect(player.settingsApply == nil)
+        #expect(fake.recorded == [])
     }
 
     @Test func stopClearsWhatIsPlaying() {
