@@ -118,6 +118,66 @@ struct SessionSignOutTests {
         #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("metadata cache") })
     }
 
+    private func startPlayer(on session: FakeSession) async throws -> PlayerModel {
+        let suite = "SessionSignOutTests.\(UUID().uuidString)"
+        let settings = PlaybackSettings(defaults: UserDefaults(suiteName: suite)!)
+        return try await PlayerModel.start(session: session, metadata: StubMetadata([]), settings: settings)
+    }
+
+    @Test func signOutStopsPlaybackAndClearsAudioCacheOnce() async throws {
+        let session = FakeSession()
+        let model = try await ready(session, store: FakeStore(blob: storedBlob))
+        let player = try await startPlayer(on: session)
+        #expect(model.attach(player, startedOn: session))
+
+        try model.signOut()
+        try model.signOut()
+
+        withExtendedLifetime(player) {
+            #expect(session.player.recorded.filter { $0 == "stop" }.count == 1)
+        }
+        #expect(connector.audioClears == 2)
+        #expect(connector.metadataClears == 2)
+    }
+
+    @Test func playerStartedOnAnEndedSessionIsStopped() async throws {
+        let session = FakeSession()
+        let model = try await ready(session, store: FakeStore(blob: storedBlob))
+        let player = try await startPlayer(on: session)
+        try model.signOut()
+
+        #expect(!model.attach(player, startedOn: session))
+        withExtendedLifetime(player) {
+            #expect(session.player.recorded.contains("stop"))
+        }
+    }
+
+    @Test func audioClearFailureStillCompletesSignOutAndRetrySucceeds() async throws {
+        let store = FakeStore(blob: storedBlob)
+        let session = FakeSession()
+        let model = try await ready(session, store: store)
+        connector.failAudioClear(with: DiskFull())
+
+        #expect(throws: DiskFull()) { try model.signOut() }
+        #expect(model.state == .signedOut)
+        #expect(session.shutdownCount == 1)
+        #expect(store.blob == nil)
+        #expect(connector.metadataClears == 1)
+        #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("audio cache") })
+
+        connector.failAudioClear(with: nil)
+        try model.signOut()
+        #expect(connector.audioClears == 2)
+    }
+
+    @Test func clearAudioCacheClearsThroughConnector() throws {
+        let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
+
+        try model.clearAudioCache()
+
+        #expect(connector.audioClears == 1)
+    }
+
     @Test func resetMetadataCacheClearsThroughConnector() {
         let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 

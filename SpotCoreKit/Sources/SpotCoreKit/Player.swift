@@ -272,6 +272,12 @@ public final class PlayerModel {
         }
     }
 
+    /// Safe to repeat.
+    public func stop() {
+        player.stop()
+        apply(.stopped)
+    }
+
     public func togglePlayPause() {
         isPlaying ? player.pause() : player.play()
     }
