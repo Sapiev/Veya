@@ -430,9 +430,11 @@ veya/
 
 **Priority:** Could · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-- [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account.
-- [ ] Artist and track radio via librespot's `get_radio_for_track`.
-- [ ] Sections that cannot be fetched are hidden, not shown empty.
+**Status:** In progress - core `home.rs` (Web API recently played with `user-read-recently-played`, spclient radio) and SpotCoreKit `HomeModel` on `feat/pbi-307-home`; Home screen waits on the app shell (PBI-401). Accounts signed in before this change lack `user-read-recently-played` and hide Recently Played and Jump Back In until they sign in again; the re-auth prompt for `MissingScope` is still open (shared with PBI-306).
+
+- [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account. (`HomeModel` sections done; "Made for you" is the Spotify-owned playlists in the root list because the Web API closed its browse endpoints to new apps; screen waits on PBI-401)
+- [x] Artist and track radio via librespot's `get_radio_for_track`.
+- [ ] Sections that cannot be fetched are hidden, not shown empty. (`HomeModel` leaves a failed section empty; the view that hides it waits on PBI-401)
 
 #### PBI-308 · Persistent metadata cache
 
