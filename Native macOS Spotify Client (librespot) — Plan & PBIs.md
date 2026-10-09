@@ -301,7 +301,7 @@ veya/
 - [x] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
 - [x] Play Next, Add to Queue, remove, reorder and clear are supported.
 - [x] Shuffle and repeat (off / context / track) work together; previous within 3 s restarts the track.
-- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`; no Settings screen exists yet and the app does not drive the player.)
+- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`, and the app drives the player and shows its queue (PBI-402, PBI-406); the Settings window has no autoplay switch yet.)
 
 #### PBI-204 · Gapless playback and preloading
 
@@ -491,7 +491,7 @@ veya/
 - [ ] 10,000 rows scroll at 60 fps; rows load metadata lazily as they appear. (Metadata resolves in batches of 50 as rows appear, and a 10,000-song library opens in a UI test. Frame rate not measured: XCUITest's accessibility snapshot of a table this size takes about 27 s per query, so it needs an Instruments run on an M1 MacBook Air.)
 - [ ] Double-click or Return plays; multi-select; context menu (Play Next, Add to Queue, Add to Playlist, Go to Album/Artist, Copy Link, Like). (All done except Add to Playlist, which is shown disabled: `spotcore` has no playlist write API yet. Since PBI-404, Return plays the selection only in the list's own window and never while a text field is editing or a one-column list has focus.)
 - [x] Currently playing row is highlighted; unavailable rows dimmed.
-- [ ] Drag rows to sidebar playlists and to the queue. (Rows are drag sources carrying their URI; the queue drop target comes with the queue panel (PBI-406), the sidebar drop with a playlist write API.)
+- [ ] Drag rows to sidebar playlists and to the queue. (Rows are drag sources carrying their URI and the queue panel (PBI-406) accepts them; the sidebar drop waits on a playlist write API.)
 
 #### PBI-404 · Album, artist and playlist pages
 
@@ -524,8 +524,10 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-203, PBI-403
 
-- [ ] Inspector panel showing Now Playing, Next in Queue, Next From (context).
-- [ ] Drag to reorder, swipe/Delete to remove, Clear Queue.
+**Status:** In review (`feat/pbi-406-queue-panel`); drag to reorder is not yet checked by hand.
+
+- [x] Inspector panel showing Now Playing, Next in Queue, Next From (context). (The bar's Queue button and View > Show Queue (⌥⌘I) toggle it; SpotCoreKit `PlayerModel` exposes `upNext`, `nextFromContext` and the `context` Veya last played from, refreshed on track changes and after every queue edit. "Next From" names the playlist, album, artist or show, else reads "Next Up". Track list rows dropped on the panel are added to the queue.)
+- [ ] Drag to reorder, swipe/Delete to remove, Clear Queue. (Remove from the context menu, a swipe, or the Delete key, and Clear Queue are covered by `QueueUITests`. Reordering uses `List.onMove`, whose mapping onto the player's one-row moves is unit-tested (`PlayerModelTests`), but XCUITest could not drive the drag, so it needs a check by hand. Only Up Next can be edited: the player's remove and move act on the user queue, not the context.)
 
 #### PBI-407 · Settings window
 
