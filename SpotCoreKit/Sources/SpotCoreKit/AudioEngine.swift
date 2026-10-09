@@ -16,6 +16,7 @@ public final class AudioEngine {
     // nonisolated(unsafe) only so deinit, which has sole access, can stop and free them.
     private nonisolated(unsafe) let engine = AVAudioEngine()
     private nonisolated(unsafe) let renderHandle: OpaquePointer
+    private let timePitch = AVAudioUnitTimePitch()
     private var configurationObserver: (any NSObjectProtocol)?
     private var deviceListener: SystemAudioListener?
     private var wantsToRun = false
@@ -23,6 +24,19 @@ public final class AudioEngine {
     /// UID of the chosen output device; `nil` follows the system default.
     public var outputDeviceUID: String? {
         didSet { route() }
+    }
+
+    public static let rateRange: ClosedRange<Float> = 0.8 ... 2.0
+
+    /// Playback speed with pitch preserved, clamped to `rateRange`; NaN means 1x.
+    /// librespot keeps decoding at 1x and the ring drains faster (ADR-007).
+    public var rate: Float {
+        get { timePitch.rate }
+        set { timePitch.rate = Self.clamped(rate: newValue) }
+    }
+
+    static func clamped(rate: Float) -> Float {
+        rate.isNaN ? 1 : min(max(rate, rateRange.lowerBound), rateRange.upperBound)
     }
 
     var outputDevice: AudioDeviceID {
@@ -35,8 +49,11 @@ public final class AudioEngine {
         }
         renderHandle = handle
         let source = Self.sourceNode(rendering: handle)
+        let format = source.outputFormat(forBus: 0)
         engine.attach(source)
-        engine.connect(source, to: engine.mainMixerNode, format: source.outputFormat(forBus: 0))
+        engine.attach(timePitch)
+        engine.connect(source, to: timePitch, format: format)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         // The engine stops when its device changes or goes away; restart it on the target.
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
