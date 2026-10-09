@@ -9,9 +9,20 @@ public protocol SessionHandle: AnyObject, Sendable {
     func systemDidWake()
     func networkChanged(available: Bool)
     func reconnect()
+    /// Without `cacheDirectory` the library is fetched again on every launch.
+    func makeLibrary(cacheDirectory: URL?) -> any LibraryServiceProtocol
+    func makeMetadata() -> any MetadataServiceProtocol
 }
 
-extension SpotSession: SessionHandle {}
+extension SpotSession: SessionHandle {
+    public func makeLibrary(cacheDirectory: URL?) -> any LibraryServiceProtocol {
+        LibraryService(session: self, cacheDir: cacheDirectory?.path(percentEncoded: false))
+    }
+
+    public func makeMetadata() -> any MetadataServiceProtocol {
+        MetadataService(session: self)
+    }
+}
 
 public protocol SessionConnector: Sendable {
     func isPremium(accessToken: String) async throws -> Bool
@@ -106,7 +117,8 @@ public final class SessionModel {
     @ObservationIgnored private let connector: any SessionConnector
     @ObservationIgnored private let log: SessionLog
     @ObservationIgnored private var attempt = 0
-    @ObservationIgnored private var session: (any SessionHandle)?
+    /// Set exactly while `state` is `.ready`.
+    public private(set) var session: (any SessionHandle)?
     @ObservationIgnored private var events: Task<Void, Never>?
     /// The blob the current attempt loaded from or saved to the store.
     @ObservationIgnored private var knownBlob: Data?

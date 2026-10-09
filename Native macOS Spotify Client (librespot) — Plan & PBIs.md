@@ -381,10 +381,10 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `LibraryService` in `spotcore` (collection v2 paging, delta, write, disk cache, dealer push wait) merged to develop; SpotCoreKit model and sidebar UI pending.
+**Status:** In progress - `LibraryService` in `spotcore` (collection v2 paging, delta, write, disk cache, dealer push wait) and SpotCoreKit `LibraryModel` (optimistic saves with rollback, metadata lookup, change watch) merged to develop; sidebar UI pending.
 
 - [ ] Collection is loaded through the spclient collection endpoints, paginated, and kept fresh via dealer push updates. (Done in `spotcore` `library.rs`; no app UI yet, and not yet checked against a live account.)
-- [ ] Liking/unliking a track or saving an album updates the server and the UI optimistically, rolling back on error. (Server write in `LibraryService::set_saved`; optimistic UI and rollback pending in SpotCoreKit.)
+- [ ] Liking/unliking a track or saving an album updates the server and the UI optimistically, rolling back on error. (Server write in `LibraryService::set_saved`, optimistic update and rollback in `LibraryModel`; no app UI uses them yet.)
 - [ ] Liked Songs with 10,000 tracks loads its first screen in under 1 s from cache. (The cached 10,000-item list decodes in under 250 ms; track titles still need the network until PBI-308.)
 
 #### PBI-304 · Playlists (root list and contents)

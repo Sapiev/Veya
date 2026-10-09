@@ -131,6 +131,39 @@
         func networkChanged(available _: Bool) {}
 
         func reconnect() {}
+
+        func makeLibrary(cacheDirectory _: URL?) -> any LibraryServiceProtocol {
+            ScenarioLibrary()
+        }
+
+        func makeMetadata() -> any MetadataServiceProtocol {
+            ScenarioMetadata()
+        }
+    }
+
+    /// An empty library that never changes.
+    private final nonisolated class ScenarioLibrary: LibraryServiceProtocol {
+        func cached(kind _: LibraryKind) -> [LibraryItem] {
+            []
+        }
+
+        func refresh(kind _: LibraryKind) async throws -> [LibraryItem] {
+            []
+        }
+
+        func setSaved(uri _: String, saved _: Bool) async throws {}
+
+        func waitForChange() async {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3600))
+            }
+        }
+    }
+
+    private final nonisolated class ScenarioMetadata: MetadataServiceProtocol {
+        func items(uris: [String]) async throws -> [MetadataItem] {
+            uris.map { .unavailable(uri: $0, error: .notFound) }
+        }
     }
 
     private final class ScenarioBrowser: SignInBrowser {
