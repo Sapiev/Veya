@@ -369,7 +369,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M1 · **Depends on:** PBI-301
 
-**Status:** In progress - SpotCoreKit `ArtworkLoader` and app `ArtworkView` on `feat/pbi-302-artwork`; the frame-rate check waits on the first grid (PBI-303, PBI-304).
+**Status:** In progress - SpotCoreKit `ArtworkLoader` and app `ArtworkView` merged to develop; the frame-rate check waits on the first grid (PBI-303, PBI-304).
 
 - [x] Swift image pipeline picks the smallest size that fits the view at the screen's backing scale.
 - [x] Memory cache plus disk cache (default 300 MB, LRU) in Caches; downscaled thumbnails decoded off the main thread.
