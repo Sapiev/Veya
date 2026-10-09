@@ -510,7 +510,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-305, PBI-401
 
-**Status:** In review (`feat/pbi-405-search-ui`)
+**Status:** Done (merged to `develop`).
 
 - [x] ⌘F / ⌘L focuses the search field from anywhere. (Go > Search is ⌘F; ⌘L is a window shortcut; both open the Search route and focus its field.)
 - [x] Top result plus sections per type; keyboard navigation through results; Return plays. (Up/Down move the selection while the field keeps focus, Return or double-click plays tracks and episodes; albums, playlists, artists and shows open their page, which offers play once PBI-404 lands.)
