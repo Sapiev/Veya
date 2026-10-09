@@ -418,7 +418,7 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303
 
-**Status:** In progress - merged to develop: `LibraryKind::Shows`, show metadata (`SHOW_V4`), Web API resume points (`podcast.rs`, `user-read-playback-position`), SpotCoreKit `PodcastModel` and episode speed via `AVAudioUnitTimePitch` (ADR-007); Web API token refresh (`refresh_tokens`, Keychain refresh token, `WebAPITokenProvider`) in review (`feat/pbi-306-web-api-token`); UI and live checks pending.
+**Status:** In progress - merged to develop: `LibraryKind::Shows`, show metadata (`SHOW_V4`), Web API resume points (`podcast.rs`, `user-read-playback-position`), SpotCoreKit `PodcastModel` and episode speed via `AVAudioUnitTimePitch` (ADR-007); Web API token refresh (`refresh_tokens`, Keychain refresh token, `WebAPITokenProvider`) merged to develop; UI and live checks pending.
 
 - [ ] Followed shows list, show page with episode list, episode detail with description. (core and Kit done; UI waits on PBI-401; episode list in `SHOW_V4` not yet checked live)
 - [ ] Resume position syncs with Spotify; played state is shown. (read path and token refresh done; needs re-sign-in for sign-ins before this change; writing back relies on Spotify recording playback, unverified)
