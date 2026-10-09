@@ -283,7 +283,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-201
 
-**Status:** In progress - `SpotPlayer` merged to develop; latency not yet measured with a real account (`examples/live_player.rs`).
+**Status:** In progress - `SpotPlayer` merged to develop and driven from the app through SpotCoreKit `PlayerModel` (PBI-402); latency not yet measured with a real account (`examples/live_player.rs`).
 
 - [x] `spotcore` exposes `load(uri, start_ms, autoplay)`, `play`, `pause`, `seek`, `next`, `previous`, `stop`.
 - [x] Accepts track, episode, album, playlist and artist URIs via librespot 0.8's `SpotifyUri`.
@@ -471,9 +471,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M1 · **Depends on:** PBI-202, PBI-401
 
-- [ ] Shows artwork, title, artists (each clickable), like button, play/pause, prev/next, shuffle, repeat, scrubber with elapsed/remaining, volume, queue and device buttons.
-- [ ] Scrubber updates smoothly (interpolated between 1 s position events) and seeks on release.
-- [ ] Expanded "Now Playing" view with large artwork and lyrics tab (lyrics via PBI-701).
+**Status:** In review (feat/pbi-402-now-playing) - SpotCoreKit `PlayerModel` (events from `SpotPlayer`, interpolated position, shuffle, repeat, persisted volume and output device) and `SessionHandle.makePlayer` (starts `AudioEngine` and `SpotPlayer`); app `NowPlayingBar` and expanded view. Nothing in the app calls `load` yet, so the bar shows "Not Playing" until a track list can start playback (PBI-403).
+
+**UI tests:** `NowPlayingUITests` (bar controls, play/pause, artist link opens the artist route, expanded view with lyrics tab).
+
+- [x] Shows artwork, title, artists (each clickable), like button, play/pause, prev/next, shuffle, repeat, scrubber with elapsed/remaining, volume, queue and device buttons. (The queue button toggles a per-window flag that the PBI-406 inspector reads.)
+- [ ] Scrubber updates smoothly (interpolated between 1 s position events) and seeks on release. (Interpolation is unit-tested in `PlayerModelTests` and the slider seeks only on release; not yet watched against live playback.)
+- [x] Expanded "Now Playing" view with large artwork and lyrics tab (lyrics via PBI-701). (The tab shows an empty state until PBI-701.)
 
 #### PBI-403 · High-performance track list
 
