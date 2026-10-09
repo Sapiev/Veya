@@ -44,6 +44,12 @@ struct AppShell: View {
                 SearchView(search: search, recent: recentSearches, player: player, history: history, focusRequest: searchFocusRequest)
             case .likedSongs:
                 LikedSongs(library: library, player: player, playlists: playlists, history: history)
+            case .albums:
+                SavedItems(kind: .albums, library: library, history: history)
+            case .artists:
+                SavedItems(kind: .artists, library: library, history: history)
+            case .podcasts:
+                SavedItems(kind: .shows, library: library, history: history)
             default:
                 RouteView(route: history.current, playlists: playlists)
             }
@@ -125,6 +131,20 @@ private struct Sidebar: View {
                         Label(name, systemImage: "music.note.list").tag(Route.playlist(uri: uri))
                     }
                 }
+                if playlists.rootlist.isEmpty {
+                    switch playlists.state {
+                    case .loaded:
+                        Text("No Playlists")
+                            .foregroundStyle(.secondary)
+                    case .failed:
+                        Text("Couldn't Load Playlists")
+                            .foregroundStyle(.secondary)
+                        Button("Try Again") { playlists.load() }
+                            .buttonStyle(.borderless)
+                    case .loading, nil:
+                        EmptyView()
+                    }
+                }
             }
         }
         .listStyle(.sidebar)
@@ -140,20 +160,14 @@ private struct LikedSongs: View {
     var body: some View {
         let items = library.items[.tracks] ?? []
         VStack(alignment: .leading, spacing: 0) {
-            Text("Liked Songs")
-                .font(.largeTitle.bold())
-                .accessibilityIdentifier("routeTitle")
-                .padding([.horizontal, .top], 20)
-                .padding(.bottom, 12)
-            switch library.loadState[.tracks] {
-            case .loading where items.isEmpty:
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failed where items.isEmpty:
-                Text("Couldn't load Liked Songs.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            default:
+            PageTitle(title: LibraryKind.tracks.title)
+            LoadStateView(
+                state: library.loadState[.tracks],
+                isEmpty: items.isEmpty,
+                empty: LibraryKind.tracks.empty,
+                failureTitle: LibraryKind.tracks.failureTitle,
+                retry: { library.load(.tracks) }
+            ) {
                 TrackList(
                     entries: items.map { TrackEntry(uri: $0.uri, addedAt: Date(timeIntervalSince1970: TimeInterval($0.addedAt))) },
                     context: nil,
@@ -164,7 +178,95 @@ private struct LikedSongs: View {
                 )
             }
         }
-        .navigationTitle("Liked Songs")
+        .navigationTitle(LibraryKind.tracks.title)
+    }
+}
+
+/// Saved albums, followed artists or followed shows by name; each opens its page.
+private struct SavedItems: View {
+    let kind: LibraryKind
+    let library: LibraryModel
+    let history: NavigationHistory
+
+    var body: some View {
+        let items = library.items[kind] ?? []
+        VStack(alignment: .leading, spacing: 0) {
+            PageTitle(title: kind.title)
+            LoadStateView(
+                state: library.loadState[kind],
+                isEmpty: items.isEmpty,
+                empty: kind.empty,
+                failureTitle: kind.failureTitle,
+                retry: { library.load(kind) }
+            ) {
+                List(items, id: \.uri) { item in
+                    Button(name(item.uri)) { history.navigate(to: route(item.uri)) }
+                        .buttonStyle(.plain)
+                }
+                .task(id: items) { library.resolve(items.map(\.uri)) }
+            }
+        }
+        .navigationTitle(kind.title)
+        .task { library.load(kind) }
+    }
+
+    private func name(_ uri: String) -> String {
+        switch library.metadata[uri] {
+        case let .album(album): album.title
+        case let .artist(artist): artist.name
+        case let .show(show): show.name
+        case .unavailable: String(localized: "Unavailable")
+        default: String(localized: "Loading…")
+        }
+    }
+
+    private func route(_ uri: String) -> Route {
+        switch kind {
+        case .albums: .album(uri: uri)
+        case .artists: .artist(uri: uri)
+        default: .show(uri: uri)
+        }
+    }
+}
+
+private struct PageTitle: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.largeTitle.bold())
+            .accessibilityIdentifier("routeTitle")
+            .padding([.horizontal, .top], 20)
+            .padding(.bottom, 12)
+    }
+}
+
+private extension LibraryKind {
+    var title: String {
+        switch self {
+        case .tracks: String(localized: "Liked Songs")
+        case .albums: String(localized: "Albums")
+        case .artists: String(localized: "Artists")
+        case .shows: String(localized: "Podcasts")
+        }
+    }
+
+    var empty: EmptyState {
+        switch self {
+        case .tracks: EmptyState(title: "No Liked Songs", systemImage: "heart", message: "Songs you like appear here.")
+        case .albums: EmptyState(title: "No Saved Albums", systemImage: "square.stack", message: "Albums you save appear here.")
+        case .artists: EmptyState(title: "No Followed Artists", systemImage: "music.mic", message: "Artists you follow appear here.")
+        case .shows: EmptyState(title: "No Followed Podcasts", systemImage: "mic", message: "Podcasts you follow appear here.")
+        }
+    }
+
+    var failureTitle: LocalizedStringKey {
+        switch self {
+        case .tracks: "Couldn't Load Liked Songs"
+        case .albums: "Couldn't Load Albums"
+        case .artists: "Couldn't Load Artists"
+        case .shows: "Couldn't Load Podcasts"
+        }
     }
 }
 

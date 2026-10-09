@@ -20,6 +20,10 @@
         case notPremium
         /// Signed in with 10,000 liked songs.
         case largeLibrary
+        /// Signed in with nothing saved and no playlists.
+        case emptyLibrary
+        /// Signed in; the library and playlists can't be fetched and nothing is cached.
+        case libraryFails
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -39,6 +43,15 @@
             return scenario
         }
 
+        private var library: LibraryFill {
+            switch self {
+            case .largeLibrary: .liked(10000)
+            case .emptyLibrary: .empty
+            case .libraryFails: .failing
+            default: .liked(5)
+            }
+        }
+
         var dependencies: AppDependencies {
             let hasSavedSignIn = ![.signedOut, .signInCancelled, .notPremium].contains(self)
             let signInCompletes = self != .signInCancelled
@@ -49,7 +62,7 @@
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
-                    likedSongs: self == .largeLibrary ? 10000 : 5
+                    library: library
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
@@ -81,17 +94,25 @@
 
     private struct ScenarioConnectError: Error {}
 
+    /// What the signed-in library and playlists hold.
+    private enum LibraryFill {
+        /// Liked songs "Song 1"... plus one album, one artist and one playlist.
+        case liked(Int)
+        case empty
+        case failing
+    }
+
     private final nonisolated class ScenarioConnector: SessionConnector {
         private let failuresLeft: OSAllocatedUnfairLock<Int>
         private let premium: Bool
         private let initial: ConnectionState?
-        private let likedSongs: Int
+        private let library: LibraryFill
 
-        init(failures: Int, premium: Bool, initial: ConnectionState?, likedSongs: Int) {
+        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill) {
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
             self.premium = premium
             self.initial = initial
-            self.likedSongs = likedSongs
+            self.library = library
         }
 
         func isPremium(accessToken _: String) async throws -> Bool {
@@ -118,18 +139,18 @@
             if fails {
                 throw ScenarioConnectError()
             }
-            return ScenarioSession(initial: initial, likedSongs: likedSongs)
+            return ScenarioSession(initial: initial, library: library)
         }
     }
 
     private final nonisolated class ScenarioSession: SessionHandle {
         static let blob = Data("ui-test-credentials".utf8)
         private let initial: ConnectionState?
-        private let likedSongs: Int
+        private let library: LibraryFill
 
-        init(initial: ConnectionState?, likedSongs: Int) {
+        init(initial: ConnectionState?, library: LibraryFill) {
             self.initial = initial
-            self.likedSongs = likedSongs
+            self.library = library
         }
 
         func storedCredentials() throws -> Data {
@@ -151,7 +172,7 @@
         func reconnect() {}
 
         func makeLibrary(store _: MetadataStore?) -> any LibraryServiceProtocol {
-            ScenarioLibrary(likedSongs: likedSongs)
+            ScenarioLibrary(fill: library)
         }
 
         func makeMetadata(store _: MetadataStore?) -> any MetadataServiceProtocol {
@@ -159,7 +180,7 @@
         }
 
         func makePlaylists(store _: MetadataStore?) -> any PlaylistServiceProtocol {
-            ScenarioPlaylists()
+            ScenarioPlaylists(fill: library)
         }
 
         func makeSearch() -> any SearchServiceProtocol {
@@ -194,6 +215,12 @@
             explicit: false, playability: n == 3 ? .regionLocked : .playable, artwork: []
         )
     }
+
+    private nonisolated let scenarioArtist = ArtistMetadata(uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [])
+    private nonisolated let scenarioAlbum = AlbumMetadata(
+        uri: "spotify:album:ui-test", title: "Test Album", artists: [ItemRef(uri: scenarioArtist.uri, name: scenarioArtist.name)],
+        tracks: [], playability: .playable, artwork: []
+    )
 
     /// A paused "Test Track" that answers play and pause with the matching events.
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
@@ -236,22 +263,32 @@
 
     /// Liked songs newest first, nothing else saved; never changes.
     private final nonisolated class ScenarioLibrary: LibraryServiceProtocol {
-        private let likedSongs: Int
+        private let fill: LibraryFill
 
-        init(likedSongs: Int) {
-            self.likedSongs = likedSongs
+        init(fill: LibraryFill) {
+            self.fill = fill
         }
 
         func cached(kind: LibraryKind) -> [LibraryItem] {
-            guard kind == .tracks else { return [] }
+            guard case let .liked(likedSongs) = fill else { return [] }
             let newest: Int64 = 1_760_000_000
-            return (1 ..< likedSongs + 1).map {
-                LibraryItem(uri: likedSongURI($0), addedAt: newest - Int64($0) * 86400)
+            switch kind {
+            case .tracks:
+                return (1 ..< likedSongs + 1).map {
+                    LibraryItem(uri: likedSongURI($0), addedAt: newest - Int64($0) * 86400)
+                }
+            case .albums:
+                return [LibraryItem(uri: scenarioAlbum.uri, addedAt: newest)]
+            case .artists:
+                return [LibraryItem(uri: scenarioArtist.uri, addedAt: newest)]
+            case .shows:
+                return []
             }
         }
 
         func refresh(kind: LibraryKind) async throws -> [LibraryItem] {
-            cached(kind: kind)
+            if case .failing = fill { throw LibraryError.Request(message: "ui-test") }
+            return cached(kind: kind)
         }
 
         func setSaved(uri _: String, saved _: Bool) async throws {}
@@ -263,18 +300,22 @@
         }
     }
 
-    /// One playlist that never changes; contents are empty.
+    /// "Road Trip" when the library is filled; it never changes and its contents are empty.
     private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
-        private static let rootlist: [RootlistEntry] = [
-            .playlist(uri: "spotify:playlist:ui-test", name: "Road Trip", owner: "ui-test", trackCount: 0, parent: nil),
-        ]
+        private let fill: LibraryFill
+
+        init(fill: LibraryFill) {
+            self.fill = fill
+        }
 
         func cachedRootlist() -> [RootlistEntry] {
-            Self.rootlist
+            guard case .liked = fill else { return [] }
+            return [.playlist(uri: "spotify:playlist:ui-test", name: "Road Trip", owner: "ui-test", trackCount: 0, parent: nil)]
         }
 
         func rootlist() async throws -> [RootlistEntry] {
-            Self.rootlist
+            if case .failing = fill { throw PlaylistError.Request(message: "ui-test") }
+            return cachedRootlist()
         }
 
         func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? {
@@ -326,8 +367,10 @@
 
     private final nonisolated class ScenarioMetadata: MetadataServiceProtocol {
         func items(uris: [String]) async throws -> [MetadataItem] {
-            uris.map { uri in
-                scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
+            uris.map { uri -> MetadataItem in
+                if uri == scenarioAlbum.uri { return .album(album: scenarioAlbum) }
+                if uri == scenarioArtist.uri { return .artist(artist: scenarioArtist) }
+                return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }
     }
