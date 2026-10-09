@@ -217,6 +217,10 @@ struct PlaylistPageView: View {
                 }
                 Text("By \(page.owner) · \(page.total) songs")
                     .foregroundStyle(.secondary)
+                if let followers = playlists.followers[page.uri], followers > 0 {
+                    Text("\(followers.formatted()) followers")
+                        .foregroundStyle(.secondary)
+                }
                 HStack {
                     PlayButtons(uris: page.tracks.map(\.uri), context: page.uri, player: player)
                     Spacer()

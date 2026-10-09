@@ -336,7 +336,12 @@
 
         func cachedRootlist() -> [RootlistEntry] {
             guard case .liked = fill else { return [] }
-            return [.playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil)]
+            let folder = "spotify:user:ui-test:folder:mixes"
+            return [
+                .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil),
+                .folder(uri: folder, name: "Mixes", parent: nil),
+                .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder),
+            ]
         }
 
         func rootlist() async throws -> [RootlistEntry] {
@@ -361,7 +366,7 @@
         }
 
         func followerCount(uri _: String) async throws -> UInt64 {
-            0
+            1234
         }
 
         func waitForChange() async -> PlaylistChange {
