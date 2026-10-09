@@ -485,7 +485,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301, PBI-401
 
-**Status:** In review (`feat/pbi-403-track-list`) - app `TrackList` (SwiftUI `Table`) on Liked Songs; `SpotPlayer::load_tracks` in `spotcore` plays a list the app holds from a chosen row; SpotCoreKit `PlayerModel.play(_:from:context:)`, `playNext(_:)`, `addToQueue(_:)`.
+**Status:** In progress - merged to develop: app `TrackList` (SwiftUI `Table`) on Liked Songs; `SpotPlayer::load_tracks` in `spotcore` plays a list the app holds from a chosen row; SpotCoreKit `PlayerModel.play(_:from:context:)`, `playNext(_:)`, `addToQueue(_:)`.
 
 - [x] Reusable list (SwiftUI `Table` or `NSTableView` wrapper) with columns #, Title/Artist, Album, Date added, Duration; sortable and resizable.
 - [ ] 10,000 rows scroll at 60 fps; rows load metadata lazily as they appear. (Metadata resolves in batches of 50 as rows appear, and a 10,000-song library opens in a UI test. Frame rate not measured: XCUITest's accessibility snapshot of a table this size takes about 27 s per query, so it needs an Instruments run on an M1 MacBook Air.)
