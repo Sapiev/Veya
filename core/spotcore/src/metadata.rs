@@ -637,6 +637,7 @@ impl Lru {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use librespot_metadata::restriction::Restriction;
     use librespot_protocol::entity_extension_data::EntityExtensionData;
     use librespot_protocol::extended_metadata::EntityExtensionDataArray;
     use librespot_protocol::metadata as proto;
@@ -931,6 +932,36 @@ mod tests {
 
         assert_eq!(locked.playability, Playability::RegionLocked);
         assert_eq!(open.playability, Playability::Playable);
+    }
+
+    #[test]
+    fn playability_honours_forbidden_countries_for_the_account_catalogue_only() {
+        let forbidden = |catalogue: &str, countries: &str| {
+            let mut message = proto::Restriction {
+                catalogue_str: vec![catalogue.to_owned()],
+                ..Default::default()
+            };
+            message.set_countries_forbidden(countries.to_owned());
+            Restriction::from(&message)
+        };
+        let playability = |country, restriction| {
+            context(country)
+                .playability(&Availabilities::default(), &Restrictions(vec![restriction]))
+        };
+
+        assert_eq!(
+            playability("PL", forbidden("premium", "DEPL")),
+            Playability::RegionLocked
+        );
+        assert_eq!(
+            playability("GB", forbidden("premium", "DEPL")),
+            Playability::Playable
+        );
+        assert_eq!(
+            playability("PL", forbidden("free", "PL")),
+            Playability::Playable,
+            "another catalogue's restriction does not apply"
+        );
     }
 
     #[test]
