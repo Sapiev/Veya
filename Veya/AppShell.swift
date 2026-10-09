@@ -9,12 +9,23 @@ extension FocusedValues {
 
 /// The signed-in main window: sidebar of destinations, detail for the current route.
 struct AppShell: View {
+    private let session: any SessionHandle
+    private let metadata: any MetadataServiceProtocol
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
+    @State private var library: LibraryModel
+    @State private var settings = PlaybackSettings()
+    @State private var player: PlayerModel?
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
+    /// Read by the queue inspector (PBI-406).
+    @SceneStorage("queueVisible") private var queueVisible = false
 
     init(session: any SessionHandle, metadataStore: MetadataStore?) {
+        self.session = session
+        let metadata = session.makeMetadata(store: metadataStore)
+        self.metadata = metadata
         _playlists = State(initialValue: PlaylistModel(playlists: session.makePlaylists(store: metadataStore)))
+        _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
     }
 
     var body: some View {
@@ -36,9 +47,26 @@ struct AppShell: View {
         }
         .focusedSceneValue(\.navigationHistory, history)
         .background(SwipeNavigation(history: history))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let player {
+                NowPlayingBar(player: player, library: library, history: history, queueVisible: $queueVisible)
+            }
+        }
         .task {
             playlists.load()
             await playlists.watch()
+        }
+        .task {
+            library.load(.tracks)
+            await library.watch()
+        }
+        .task {
+            do {
+                player = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+            } catch {
+                // Type name only: messages may carry server text.
+                logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
+            }
         }
     }
 
