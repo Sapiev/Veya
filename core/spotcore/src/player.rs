@@ -231,6 +231,8 @@ impl SpotPlayer {
             current: Arc::default(),
             mine: 0,
         };
+        // Subscribe first so a reconnect between the two calls is not missed.
+        let links = session.link_changes();
         let link = session.current_session();
         let state = Arc::new(Mutex::new(State {
             queue: Queue::default(),
@@ -246,7 +248,6 @@ impl SpotPlayer {
             epoch: epoch.clone(),
         };
         let player = spawn_player(&session, link, shared, &mixer, &state, &observer, tuning);
-        let links = session.link_changes();
         let this = Arc::new(Self {
             session,
             player: Mutex::new(player),
@@ -513,12 +514,12 @@ impl SpotPlayer {
     fn restore_after_reconnect(&self) {
         let link = self.session.current_session();
         let mut state = lock(&self.state);
-        if !adopt_session(&mut state, link.session_id()) {
+        let Some(resume) = prepare_restore(&mut state, link.session_id()) else {
             return;
-        }
+        };
         let player = self.player();
         player.set_session(link);
-        if let Some((track, play, position_ms)) = resume_point(&state) {
+        if let Some((track, play, position_ms)) = resume {
             info!("restoring playback after reconnect at {position_ms} ms");
             player.load(track, play, position_ms);
         }
@@ -667,6 +668,20 @@ fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Se
 }
 
 /// Records `session_id` as the player's session; false if it already was.
+/// None when `session_id` is already held; otherwise where to resume, if
+/// anything was playing. Bumps the generation so a radio fetch started on
+/// the old session cannot replace the restored track.
+fn prepare_restore(
+    state: &mut State,
+    session_id: String,
+) -> Option<Option<(SpotifyUri, bool, u32)>> {
+    if !adopt_session(state, session_id) {
+        return None;
+    }
+    state.generation += 1;
+    Some(resume_point(state))
+}
+
 fn adopt_session(state: &mut State, session_id: String) -> bool {
     if state.session_id == session_id {
         return false;
@@ -1026,39 +1041,39 @@ mod tests {
     }
 
     #[test]
-    fn reconnect_restores_once_per_new_session_and_keeps_the_queue() {
+    fn reconnect_restores_once_per_new_session_and_retires_radio_fetches() {
         let mut state = state_playing(track(0));
-        state.queue.add(track(1));
         state.session_id = "first".to_owned();
         state.clock.note(&PlaybackEvent::Paused {
             uri: canonical(&track(0)),
             position_ms: 42_000,
         });
-        let queue = |state: &State| {
-            let q = &state.queue;
-            (
-                q.current().cloned(),
-                q.up_next().cloned().collect::<Vec<_>>(),
-            )
-        };
-        let before = queue(&state);
+        let generation = state.generation;
 
-        assert!(
-            !adopt_session(&mut state, "first".to_owned()),
+        assert_eq!(
+            prepare_restore(&mut state, "first".to_owned()),
+            None,
             "no reconnect yet"
         );
-        assert!(adopt_session(&mut state, "second".to_owned()));
-        assert_eq!(resume_point(&state), Some((track(0), false, 42_000)));
+        assert_eq!(state.generation, generation);
+        assert_eq!(
+            prepare_restore(&mut state, "second".to_owned()),
+            Some(Some((track(0), false, 42_000)))
+        );
         assert!(
-            !adopt_session(&mut state, "second".to_owned()),
+            state.generation > generation,
+            "a radio fetch from the old session could replace the restored track"
+        );
+        assert_eq!(
+            prepare_restore(&mut state, "second".to_owned()),
+            None,
             "a repeated notice for the same session restores nothing"
         );
-        assert!(
-            adopt_session(&mut state, "third".to_owned()),
+        assert_eq!(
+            prepare_restore(&mut state, "third".to_owned()),
+            Some(Some((track(0), false, 42_000))),
             "a reconnect during a restore restores again"
         );
-        assert_eq!(resume_point(&state), Some((track(0), false, 42_000)));
-        assert_eq!(queue(&state), before);
     }
 
     #[test]
