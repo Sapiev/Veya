@@ -87,7 +87,7 @@ final class DetailPagesUITests: XCTestCase {
         let app = open("Road Trip", title: "Road Trip")
         XCTAssertTrue(app.staticTexts["Songs for the road"].exists)
         XCTAssertTrue(app.staticTexts["By ui-test · 3 songs"].exists)
-        XCTAssertTrue(app.staticTexts["1,234 followers"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["\(1234.formatted()) followers"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.trackList.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
 
         let filter = app.textFields["Filter"]

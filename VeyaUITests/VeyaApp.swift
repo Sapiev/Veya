@@ -23,6 +23,8 @@ extension XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["VEYA_UI_TEST_SCENARIO"] = scenario.rawValue
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        // Tests share the app's defaults, so pin the main window over any frame a user saved; AppKit fits it to the screen.
+        app.launchArguments += ["-NSWindow Frame main", "0 0 1200 2000"]
         app.launch()
         return app
     }

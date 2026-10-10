@@ -21,7 +21,7 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(sidebar.staticTexts["Mixes"].exists)
         XCTAssertFalse(sidebar.staticTexts["Morning Mix"].exists)
 
-        sidebar.outlineRows.containing(NSPredicate(format: "value == 'Mixes'")).disclosureTriangles.firstMatch.click()
+        sidebar.outlineRows.containing(NSPredicate(format: "label == 'Mixes' OR value == 'Mixes'")).disclosureTriangles.firstMatch.click()
 
         XCTAssertTrue(sidebar.staticTexts["Morning Mix"].waitForExistence(timeout: XCUIApplication.timeout))
     }
