@@ -43,6 +43,14 @@ exist yet, so there is no track or position to restore.
    a rejected restore at launch (ADR-003).
 6. After each `Connected`, Swift saves `stored_credentials()` again, because
    the AP can issue new reusable credentials on reconnect.
+7. `SpotPlayer` restores playback itself (amended 2026-10-10, PBI-103). The
+   supervisor announces each installed session on an internal watch channel,
+   not through `ConnectionObserver`, which has one slot that Swift owns. On
+   each announcement the player moves to the new session and reloads the
+   current track at its last position, playing or paused as before. The
+   queue and context live in the player, so they carry over. The player
+   records the session it holds, so a repeated announcement does nothing and
+   a reconnect during a restore restores again.
 
 ## Consequences
 
@@ -52,6 +60,9 @@ exist yet, so there is no track or position to restore.
   detection. One second is small next to the keepalive deadlines.
 - A future dealer-close signal (PBI-501) only needs to invalidate the
   session or wake the supervisor.
-- Restoring the track and position, and pausing when another device takes
-  over playback, are left for PBI-202 and PBI-501. Those features subscribe
-  to `ConnectionState` and do not add a second reconnect path.
+- Pausing when another device takes over playback is left for PBI-501.
+  It must not add a second reconnect path.
+- The restored position is the last one librespot reported, plus at most
+  one second. If the stream stalled, the track restarts where audio
+  stopped. If librespot already skipped a failed track, the next track
+  restarts from its beginning.
