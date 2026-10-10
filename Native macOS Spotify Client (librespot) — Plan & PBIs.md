@@ -242,11 +242,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-102
 
-**Status:** In progress - sign-out merged to develop (session end and Keychain delete); playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
+**Status:** In review (claude/magical-meitner-12y709) - sign out also stops playback (`SessionModel.attach` ties the player to its session) and clears the audio cache; every step is attempted and repeats are safe.
 
-**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account has a Sign Out button again (PBI-407, `SettingsUITests`).
+**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account has a Sign Out button again (PBI-407, `SettingsUITests`). Stopping playback has nothing new to see in the UI-test fakes (a new sign-in gets a new player), so it is covered by `SessionSignOutTests`.
 
-- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end, Keychain delete and metadata cache clear done; playback stop and audio cache clear not wired into sign-out yet: PBI-202, PBI-207.)
+- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (All four wired, unit-tested in `SessionSignOutTests`; Swift not compiled or run: written in a Linux container.)
 - [x] App returns to the sign-in screen without a relaunch.
 
 #### PBI-105 · Premium and region checks
@@ -296,12 +296,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-202
 
-**Status:** In progress - queue, shuffle, repeat and autoplay radio merged to develop (`queue.rs`, `SpotPlayer`); Settings toggle pending.
+**Status:** In review (claude/magical-meitner-12y709) - Settings › Playback has an Autoplay switch, persisted in `PlaybackSettings.autoplay` and applied to the player at creation and live.
 
 - [x] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
 - [x] Play Next, Add to Queue, remove, reorder and clear are supported.
 - [x] Shuffle and repeat (off / context / track) work together; previous within 3 s restarts the track.
-- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`, and the app drives the player and shows its queue (PBI-402, PBI-406); the Settings window has no autoplay switch yet.)
+- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`; the Settings switch is wired and tested in `PlayerModelTests` and `SettingsUITests`; Swift not compiled or run: written in a Linux container.)
 
 #### PBI-204 · Gapless playback and preloading
 
@@ -320,10 +320,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-201
 
-**Status:** In progress - merged to develop: `SpotPlayer.set_volume` (librespot soft mixer, 60 dB log curve) and `set_normalisation` (rebuilds the player live) plus SpotCoreKit `PlaybackSettings` persisted in UserDefaults; slider and toggle UI land with PBI-402 and PBI-407.
+**Status:** In review (claude/magical-meitner-12y709) - volume slider (PBI-402) and Normalize toggle with Loudness presets (PBI-407) already merged to develop; adds a UI test for the toggle and a VoiceOver name for the Loudness picker.
 
-- [ ] App volume slider (logarithmic curve) independent from system volume; persisted across launches. (Core volume and persistence done; no slider until the now-playing bar, PBI-402.)
-- [ ] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings. (Preset mapping and persistence done; no toggle until the Settings window, PBI-407.)
+- [x] App volume slider (logarithmic curve) independent from system volume; persisted across launches.
+- [x] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings.
 
 #### PBI-206 · Output device selection
 
@@ -331,10 +331,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 3 · **Milestone:** M3 · **Depends on:** PBI-201
 
-**Status:** In progress - merged to develop: SpotCoreKit `OutputDevices` (live CoreAudio list), `AudioEngine.outputDeviceUID` (routes to the chosen device, falls back to the default and returns when it reappears) and `PlaybackSettings.outputDeviceUID` (UserDefaults); the picker UI lands with the Settings window, PBI-407.
+**Status:** In review (claude/magical-meitner-12y709) - the Output device picker (PBI-407) and the saved device applied when the player starts (`SpotSession.makePlayer`) were already merged to develop; adds a UI test and a VoiceOver name for the picker.
 
-- [ ] Settings lists CoreAudio output devices and updates live as devices appear/disappear. (Live list done in `OutputDevices`; no picker until the Settings window, PBI-407.)
-- [ ] Selected device is remembered; falls back to system default if missing. (Persistence and fallback done in SpotCoreKit; the app does not create an `AudioEngine` yet, so nothing applies the saved choice at launch.)
+- [x] Settings lists CoreAudio output devices and updates live as devices appear/disappear.
+- [x] Selected device is remembered; falls back to system default if missing.
 
 #### PBI-207 · Streaming quality and audio cache
 
@@ -342,10 +342,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-202
 
-**Status:** In progress - merged to develop: `SpotPlayer` takes a `Bitrate` and `set_bitrate` rebuilds it live; `AudioCache` wraps librespot's cache, is shared by every session and reconnect, and `clear` empties it; SpotCoreKit `PlaybackSettings` persists quality and cache cap, and `SessionModel.setAudioCacheLimit` applies a new cap live (evicts at once, then reconnects the session, which stops the current track). Picker and Clear Cache button land with the Settings window, PBI-407.
+**Status:** In review (claude/magical-meitner-12y709) - quality and cache size pickers already merged with PBI-407; Settings › Storage gains a confirmed Clear Audio Cache button (`SessionModel.clearAudioCache`).
 
 - [x] Quality options 96 / 160 / 320 kbps map to librespot bitrate settings; default 320.
-- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache in `Caches/<bundle id>/Audio` with librespot's LRU limiter and `AudioCache.clear`; no button until the Settings window, PBI-407.)
+- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache, cap and size picker done; the Clear Audio Cache button is wired and has a `SettingsUITests` test; Swift not compiled or run: written in a Linux container.)
 - [x] Cached audio is encrypted as librespot stores it and is not exportable.
 
 ### E3 · Catalog and library
@@ -393,11 +393,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit `PlaylistModel` (cached rootlist first, then sync and change watch) and the sidebar list (PBI-401) merged to develop; playlist page (PBI-404) merged to develop: contents load 200 tracks per request after a fully cached copy is shown, and an open playlist refreshes on its dealer push.
+**Status:** In review (claude/magical-meitner-12y709) - sidebar shows folders as a collapsible tree (`PlaylistModel.tree`, expansion kept per window) and the playlist page shows the follower count; root list and open playlist refresh on dealer push now have a unit test.
 
-- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Fetch and folder nesting done in `spotcore` `playlist.rs`; no tree UI yet.)
-- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (Incremental loading, owner, description and artwork done on the PBI-404 playlist page; the follower count is not shown yet; not checked against a live account.)
-- [ ] Changes made on other devices appear within 10 s via dealer notifications. (`wait_for_change` reports root list and playlist pushes; nothing refreshes on it yet.)
+- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Tree wired, `NavigationUITests` covers expanding a folder; Swift not compiled or run: written in a Linux container.)
+- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (Follower count wired and covered in `DetailPagesUITests`; Swift not compiled or run: written in a Linux container; not checked against a live account.)
+- [ ] Changes made on other devices appear within 10 s via dealer notifications. (`PlaylistModel.watch` refreshes the root list and open playlists on push, tested in `PlaylistPageTests`; Swift not compiled or run: written in a Linux container; delay not measured against a live account.)
 
 #### PBI-305 · Search
 
