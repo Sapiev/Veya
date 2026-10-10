@@ -6,12 +6,12 @@ struct NowPlayingView: View {
     let player: PlayerModel
     let library: LibraryModel
     let history: NavigationHistory
+    @State var tab: Tab
     let close: () -> Void
-    @State private var tab = Tab.queue
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private enum Tab {
+    enum Tab {
         case queue, lyrics
     }
 

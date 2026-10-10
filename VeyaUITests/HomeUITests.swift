@@ -2,14 +2,20 @@ import XCTest
 
 /// PBI-307: the Home screen. PBI-105: the scenario's Song 3 is region locked, so it never plays.
 final class HomeUITests: XCTestCase {
-    private static let sections = ["Recently Played", "Jump Back In", "Made for You"]
+    private static let sections = ["Made for you", "Artists you follow", "Recently Played"]
     private static let signInAgain = "Sign out and sign in again to see Recently Played and Jump Back In."
 
     @MainActor private func home(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.showsRoute("Home"))
         return app
+    }
+
+    /// Recently Played is the last shelf, below the fold of the test window.
+    @MainActor private func scrollToRecentlyPlayed(_ app: XCUIApplication) {
+        let page = app.scrollViews["home"]
+        XCTAssertTrue(page.waitForExistence(timeout: XCUIApplication.timeout))
+        page.scroll(byDeltaX: 0, deltaY: -2000)
     }
 
     @MainActor func testShowsEverySectionWithItsItems() {
@@ -19,7 +25,7 @@ final class HomeUITests: XCTestCase {
         for section in Self.sections {
             XCTAssertTrue(app.staticTexts[section].exists, section)
         }
-        for card in ["Song 1, Test Artist", "Test Album, Test Artist", "Road Trip", "Test Artist, Artist", "Daily Mix 1"] {
+        for card in ["Song 1, Test Artist", "Test Album, Test Artist", "Road Trip, Songs for the road", "Test Artist, Artist", "Daily Mix 1, Made for you"] {
             XCTAssertTrue(app.buttons[card].exists, card)
         }
         XCTAssertFalse(app.staticTexts[Self.signInAgain].exists)
@@ -34,11 +40,12 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(greetings.contains(greeting.value as? String ?? ""))
     }
 
-    @MainActor func testJumpBackInIsQuickTilesThatOpenTheirPage() {
+    /// The design's untitled quick grid sits directly under the greeting.
+    @MainActor func testJumpBackInIsUntitledQuickTilesThatOpenTheirPage() {
         let app = home()
-        let tile = app.buttons["Road Trip"]
+        let tile = app.buttons["Road Trip, Songs for the road"]
         XCTAssertTrue(tile.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.staticTexts["Jump Back In"].exists)
+        XCTAssertFalse(app.staticTexts["Jump Back In"].exists)
 
         tile.click()
 
@@ -49,10 +56,10 @@ final class HomeUITests: XCTestCase {
         let app = home(.recentlyPlayedNeedsSignIn)
 
         XCTAssertTrue(app.staticTexts[Self.signInAgain].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.buttons["Daily Mix 1"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.staticTexts["Made for You"].exists)
+        XCTAssertTrue(app.buttons["Daily Mix 1, Made for you"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["Made for you"].exists)
         XCTAssertFalse(app.staticTexts["Recently Played"].exists)
-        XCTAssertFalse(app.staticTexts["Jump Back In"].exists)
+        XCTAssertFalse(app.buttons["Road Trip, Songs for the road"].exists)
         XCTAssertFalse(app.buttons["Song 2, Test Artist"].exists)
     }
 
@@ -84,7 +91,7 @@ final class HomeUITests: XCTestCase {
 
     @MainActor func testClickingAMadeForYouPlaylistOpensItsPage() {
         let app = home()
-        let mix = app.buttons["Daily Mix 1"]
+        let mix = app.buttons["Daily Mix 1, Made for you"]
         XCTAssertTrue(mix.waitForExistence(timeout: XCUIApplication.timeout))
 
         mix.click()
@@ -92,10 +99,22 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Daily Mix 1"))
     }
 
+    @MainActor func testFollowedArtistOpensTheArtistPage() {
+        let app = home()
+        // The quick grid shows the same artist first; the card is the second match.
+        let artist = app.buttons.matching(NSPredicate(format: "label == %@", "Test Artist, Artist")).element(boundBy: 1)
+        XCTAssertTrue(artist.waitForExistence(timeout: XCUIApplication.timeout))
+
+        artist.click()
+
+        XCTAssertTrue(app.showsRoute("Test Artist"))
+    }
+
     @MainActor func testClickingARecentTrackPlaysIt() {
         let app = home()
         let song = app.buttons["Song 2, Test Artist"]
         XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
+        scrollToRecentlyPlayed(app)
 
         song.click()
 
@@ -107,6 +126,7 @@ final class HomeUITests: XCTestCase {
         let app = home()
         let locked = app.buttons["Song 3, Test Artist"]
         XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+        scrollToRecentlyPlayed(app)
 
         locked.click()
 
@@ -118,6 +138,7 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Song 2, Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
         app.menuItem("View", "Show Queue").click()
         let queue = app.outlines["queue"]
+        scrollToRecentlyPlayed(app)
 
         app.buttons["Song 2, Test Artist"].click()
 

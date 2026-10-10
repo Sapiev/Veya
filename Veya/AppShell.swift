@@ -6,6 +6,7 @@ extension FocusedValues {
     /// The key window's history, so ⌘[ and ⌘] act on the window in front.
     @Entry var navigationHistory: NavigationHistory?
     @Entry var queueVisible: Binding<Bool>?
+    @Entry var sidebarVisible: Binding<Bool>?
 }
 
 /// The signed-in main window: sidebar of destinations, detail for the current route.
@@ -27,7 +28,8 @@ struct AppShell: View {
     private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
-    @State private var nowPlayingVisible = false
+    /// The full Now Playing view's open tab; nil while it is closed.
+    @State private var nowPlayingTab: NowPlayingView.Tab?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -58,58 +60,63 @@ struct AppShell: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: columnVisibility) {
-            Sidebar(selection: selection, playlists: playlists, library: library, player: player)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
-        } detail: {
-            page
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background { AmbientBackground() }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if let player {
-                        NowPlayingBar(
-                            player: player,
-                            library: library,
-                            history: history,
-                            queueVisible: $queueVisible,
-                            expanded: $nowPlayingVisible
-                        )
-                        .padding(Theme.s3)
-                    }
+        HStack(spacing: 0) {
+            if sidebarVisible {
+                Sidebar(selection: selection, playlists: playlists, library: library, player: player)
+                    .frame(width: Theme.sidebarWidth)
+                    .glassPanel(cornerRadius: Theme.panelRadius)
+                    .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
+                    .padding([.leading, .vertical], Theme.s2)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            // Pages scroll under the floating top bar and player; the insets keep their ends reachable.
+            // The bar is a sibling, not an overlay on `page`, so the search field survives route changes.
+            ZStack(alignment: .top) {
+                page
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .safeAreaPadding(.top, 64)
+                    .safeAreaPadding(.bottom, player == nil ? Theme.s8 : Theme.playerHeight + Theme.s8)
+                TopBar(history: history, queueVisible: $queueVisible) {
+                    SearchField(
+                        search: search,
+                        recent: recentSearches,
+                        player: player,
+                        history: history,
+                        selection: $searchSelection,
+                        focusRequest: searchFocusRequest
+                    )
                 }
+            }
+            .overlay(alignment: .bottom) {
+                if let player {
+                    NowPlayingBar(
+                        player: player,
+                        library: library,
+                        history: history,
+                        queueVisible: $queueVisible,
+                        expanded: $nowPlayingTab
+                    )
+                    .padding(Theme.s3)
+                }
+            }
         }
+        .background { AmbientBackground() }
+        .background(TrafficLightInset())
+        .ignoresSafeArea()
+        .animation(reduceMotion ? nil : Theme.standard, value: sidebarVisible)
         .inspector(isPresented: $queueVisible) {
             QueuePanel(player: player, library: library, playlists: playlists)
         }
         .overlay {
-            if nowPlayingVisible, let player {
-                NowPlayingView(player: player, library: library, history: history) { nowPlayingVisible = false }
+            if let nowPlayingTab, let player {
+                NowPlayingView(player: player, library: library, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : Theme.standard, value: nowPlayingVisible)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
-                Button("Back", systemImage: "chevron.left", action: history.back)
-                    .disabled(!history.canGoBack)
-                    .help("Back")
-                Button("Forward", systemImage: "chevron.right", action: history.forward)
-                    .disabled(!history.canGoForward)
-                    .help("Forward")
-            }
-            ToolbarItem(placement: .navigation) {
-                SearchField(
-                    search: search,
-                    recent: recentSearches,
-                    player: player,
-                    history: history,
-                    selection: $searchSelection,
-                    focusRequest: searchFocusRequest
-                )
-            }
-        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : Theme.standard, value: nowPlayingTab)
         .focusedSceneValue(\.navigationHistory, history)
         .focusedSceneValue(\.queueVisible, $queueVisible)
+        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
         .focusedSceneValue(\.focusSearch, focusSearch)
         .background {
             // ⌘F is in the Go menu; ⌘L is the browser habit, ⌘K the design's hint.
@@ -144,7 +151,7 @@ struct AppShell: View {
     @ViewBuilder private var page: some View {
         switch history.current {
         case .home:
-            HomeView(home: home, player: player, history: history)
+            HomeView(home: home, library: library, player: player, history: history)
         case .search:
             SearchView(search: search, recent: recentSearches, player: player, history: history, selection: $searchSelection)
         case .likedSongs:
@@ -173,10 +180,6 @@ struct AppShell: View {
 
     private var selection: Binding<Route?> {
         Binding(get: { history.current }, set: { if let route = $0 { history.navigate(to: route) } })
-    }
-
-    private var columnVisibility: Binding<NavigationSplitViewVisibility> {
-        Binding(get: { sidebarVisible ? .all : .detailOnly }, set: { sidebarVisible = $0 != .detailOnly })
     }
 }
 
@@ -345,14 +348,140 @@ private struct SwipeNavigation: View {
     }
 }
 
+/// The floating capsules over the page (`.toolbar`): history, search and the queue toggle.
+private struct TopBar<Search: View>: View {
+    let history: NavigationHistory
+    @Binding var queueVisible: Bool
+    @ViewBuilder let search: () -> Search
+
+    var body: some View {
+        HStack(spacing: Theme.s2) {
+            HStack(spacing: 0) {
+                Button("Back", systemImage: "chevron.left", action: history.back)
+                    .disabled(!history.canGoBack)
+                    .help("Back")
+                Button("Forward", systemImage: "chevron.right", action: history.forward)
+                    .disabled(!history.canGoForward)
+                    .help("Forward")
+            }
+            .padding(.horizontal, Theme.s1)
+            .frame(height: 36)
+            .glassPanel(cornerRadius: 18)
+            search()
+            Spacer(minLength: 0)
+            Toggle(isOn: $queueVisible) {
+                Label("Queue", systemImage: "sidebar.right")
+            }
+            .toggleStyle(.button)
+            .buttonStyle(CapsuleIconButtonStyle(on: queueVisible))
+            .help(queueVisible ? "Hide Queue" : "Show Queue")
+            .padding(.horizontal, Theme.s1)
+            .frame(height: 36)
+            .glassPanel(cornerRadius: 18)
+        }
+        .buttonStyle(CapsuleIconButtonStyle())
+        .labelStyle(.iconOnly)
+        .padding(.horizontal, Theme.s4)
+        .frame(height: 40)
+        .padding(.top, 10)
+    }
+}
+
+/// Moves the window buttons inside the sidebar panel, where the design draws them (`.traffic`: 20 pt in, 18 pt down).
+/// AppKit lays the titlebar out again on resize and full screen, so the position is reapplied after each.
+private struct TrafficLightInset: NSViewRepresentable {
+    func makeNSView(context _: Context) -> NSView { Anchor() }
+    func updateNSView(_: NSView, context _: Context) {}
+
+    private final class Anchor: NSView {
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let names: [Notification.Name] = [
+                NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
+            ]
+            observers = names.map {
+                NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.place() }
+                }
+            }
+            place()
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            place()
+        }
+
+        private func place() {
+            DispatchQueue.main.async { [weak self] in
+                guard let window = self?.window, !window.styleMask.contains(.fullScreen),
+                      let close = window.standardWindowButton(.closeButton),
+                      let container = close.superview?.superview else { return }
+                let top: CGFloat = 18, left: CGFloat = 20, gap: CGFloat = 8
+                // The titlebar container clips its buttons, so it grows to reach them.
+                let height = close.frame.height + 2 * top
+                container.frame = NSRect(
+                    x: container.frame.minX, y: window.frame.height - height,
+                    width: container.frame.width, height: height
+                )
+                for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+                    guard let button = window.standardWindowButton(kind) else { continue }
+                    let y = (button.superview?.frame.height ?? height) - top - button.frame.height
+                    button.setFrameOrigin(NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y))
+                }
+            }
+        }
+    }
+}
+
+/// A 32 pt round toolbar button (`.tb-btn`): fills on hover, tinted while toggled on.
+private struct CapsuleIconButtonStyle: ButtonStyle {
+    var on = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleIconButton(configuration: configuration, on: on)
+    }
+}
+
+private struct CapsuleIconButton: View {
+    let configuration: ButtonStyleConfiguration
+    let on: Bool
+    @Environment(\.palette) private var palette
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(isEnabled ? AnyShapeStyle(on ? Color(palette.tintText) : .primary) : AnyShapeStyle(.tertiary))
+            .frame(width: 32, height: 32)
+            .background((hovering && isEnabled) || on ? Color.fillStrong : .clear, in: .circle)
+            .contentShape(.circle)
+            .onHover { hovering = $0 }
+    }
+}
+
 /// Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
 struct NavigationCommands: Commands {
     @FocusedValue(\.navigationHistory) private var history
     @FocusedValue(\.focusSearch) private var focusSearch
     @FocusedValue(\.queueVisible) private var queueVisible
+    @FocusedValue(\.sidebarVisible) private var sidebarVisible
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
+            // The sidebar is a custom panel, so the system's Toggle Sidebar item never appears.
+            Button(sidebarVisible?.wrappedValue == false ? "Show Sidebar" : "Hide Sidebar") {
+                sidebarVisible?.wrappedValue.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+            .disabled(sidebarVisible == nil)
             // ⌥⌘I is the system's Show Inspector shortcut.
             Button(queueVisible?.wrappedValue == true ? "Hide Queue" : "Show Queue") {
                 queueVisible?.wrappedValue.toggle()

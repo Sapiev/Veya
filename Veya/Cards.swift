@@ -9,6 +9,7 @@ struct MediaCard: View {
 
     let title: String
     var subtitle: String?
+    var subtitleLines = 1
     let artwork: [Artwork]
     var round = false
     var playable = false
@@ -56,7 +57,7 @@ struct MediaCard: View {
                 Text(subtitle)
                     .font(Theme.cardSubtitle)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(subtitleLines)
             }
         }
         .frame(width: Self.art, alignment: .leading)

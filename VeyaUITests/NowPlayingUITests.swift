@@ -7,11 +7,35 @@ final class NowPlayingUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Test Track"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
-        for control in ["Shuffle", "Previous", "Next", "Repeat", "Queue", "Output Device", "Save to Liked Songs"] {
+        for control in ["Shuffle", "Previous", "Next", "Repeat", "Queue", "Lyrics", "Mute", "Full-Window Now Playing", "Save to Liked Songs"] {
             XCTAssertTrue(app.descendants(matching: .any)[control].exists, control)
         }
         XCTAssertTrue(app.sliders["Playback Position"].exists)
         XCTAssertTrue(app.sliders["Volume"].exists)
+        XCTAssertFalse(app.buttons["Output Device"].exists)
+    }
+
+    @MainActor func testLyricsButtonOpensTheLyricsTab() {
+        let app = XCUIApplication.launch(.signedIn)
+        let lyrics = app.buttons["Lyrics"]
+        XCTAssertTrue(lyrics.waitForExistence(timeout: XCUIApplication.timeout))
+
+        lyrics.click()
+
+        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testMuteSilencesAndRestoresTheVolume() {
+        let app = XCUIApplication.launch(.signedIn)
+        let mute = app.buttons["Mute"]
+        XCTAssertTrue(mute.waitForExistence(timeout: XCUIApplication.timeout))
+
+        mute.click()
+        let unmute = app.buttons["Unmute"]
+        XCTAssertTrue(unmute.waitForExistence(timeout: XCUIApplication.timeout))
+        unmute.click()
+
+        XCTAssertTrue(app.buttons["Mute"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testPlayAndPauseFollowThePlayer() {

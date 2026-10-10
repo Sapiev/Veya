@@ -72,12 +72,8 @@ struct SearchField: View {
     }
 
     /// macOS 26 draws toolbar items on glass already.
-    @ViewBuilder private func capsule(_ content: () -> some View) -> some View {
-        if #available(macOS 26, *) {
-            content()
-        } else {
-            content().glassPanel(cornerRadius: 18)
-        }
+    private func capsule(_ content: () -> some View) -> some View {
+        content().glassPanel(cornerRadius: 18)
     }
 
     private var query: Binding<String> {

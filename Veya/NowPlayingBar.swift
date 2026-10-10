@@ -7,8 +7,10 @@ struct NowPlayingBar: View {
     let library: LibraryModel
     let history: NavigationHistory
     @Binding var queueVisible: Bool
-    @Binding var expanded: Bool
-    @State private var showsDevices = false
+    /// The full Now Playing view's tab; nil while it is closed.
+    @Binding var expanded: NowPlayingView.Tab?
+    /// The level to restore when unmuting.
+    @State private var unmutedVolume: Double?
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,7 +43,7 @@ struct NowPlayingBar: View {
     @ViewBuilder private var track: some View {
         if let nowPlaying = player.nowPlaying {
             HStack(spacing: Theme.s3) {
-                Button { expanded = true } label: {
+                Button { expanded = .queue } label: {
                     ExpandableArtwork(artwork: nowPlaying.artwork)
                 }
                 .buttonStyle(.plain)
@@ -79,30 +81,40 @@ struct NowPlayingBar: View {
         }
     }
 
+    /// Lyrics, queue, mute, volume and full-window Now Playing (`.p-right`); the output device is in Settings.
     private var accessories: some View {
         HStack(spacing: 2) {
+            Button("Lyrics", systemImage: "text.bubble") { expanded = .lyrics }
+                .buttonStyle(TransportButtonStyle())
+                .disabled(player.nowPlaying == nil)
+                .help("Lyrics")
             Toggle(isOn: $queueVisible) {
                 Label("Queue", systemImage: "list.bullet")
             }
             .toggleStyle(.button)
             .buttonStyle(TransportButtonStyle(on: queueVisible))
             .help("Queue")
-            Button("Output Device", systemImage: "hifispeaker") { showsDevices.toggle() }
-                .buttonStyle(TransportButtonStyle())
-                .help("Output Device")
-                .popover(isPresented: $showsDevices, arrowEdge: .top) {
-                    DevicePicker(player: player)
+            let muted = player.volume == 0
+            Button(muted ? "Unmute" : "Mute", systemImage: muted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+                if muted {
+                    player.volume = unmutedVolume ?? 0.5
+                } else {
+                    unmutedVolume = player.volume
+                    player.volume = 0
                 }
-            Image(systemName: "speaker.fill")
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Theme.s1)
-                .accessibilityHidden(true)
-            Slider(value: Binding(get: { player.volume }, set: { player.volume = $0 }), in: 0 ... 1) {
-                Text("Volume")
             }
-            .labelsHidden()
-            .controlSize(.mini)
+            .buttonStyle(TransportButtonStyle())
+            .help(muted ? "Unmute" : "Mute")
+            ThinSlider(
+                value: Binding(get: { player.volume }, set: { player.volume = $0 }),
+                in: 0 ... 1,
+                label: Text("Volume")
+            )
             .frame(width: 96)
+            Button("Full-Window Now Playing", systemImage: "arrow.up.left.and.arrow.down.right") { expanded = .queue }
+                .buttonStyle(TransportButtonStyle())
+                .disabled(player.nowPlaying == nil)
+                .help("Full-Window Now Playing")
         }
     }
 }
@@ -118,7 +130,7 @@ struct TransportControls: View {
             .buttonStyle(TransportButtonStyle(on: player.shuffle, side: side, onArtwork: large))
             .accessibilityValue(player.shuffle ? "On" : "Off")
             .help("Shuffle")
-        Button("Previous", systemImage: "backward.fill", action: player.previous)
+        Button("Previous", systemImage: "backward.end.fill", action: player.previous)
             .buttonStyle(TransportButtonStyle(side: side, onArtwork: large))
             .font(large ? .title2 : nil)
             .help("Previous")
@@ -132,7 +144,7 @@ struct TransportControls: View {
         .buttonStyle(PressScaleButtonStyle())
         .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
         .help(player.isPlaying ? "Pause" : "Play")
-        Button("Next", systemImage: "forward.fill", action: player.next)
+        Button("Next", systemImage: "forward.end.fill", action: player.next)
             .buttonStyle(TransportButtonStyle(side: side, onArtwork: large))
             .font(large ? .title2 : nil)
             .help("Next")
@@ -250,22 +262,20 @@ struct Scrubber: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !player.isPlaying || dragged != nil)) { context in
             let position = min(dragged ?? Double(player.position(at: context.date)), duration)
             let elapsed = Text(Self.format(position)).accessibilityIdentifier("elapsed")
-            let slider = Slider(
+            let slider = ThinSlider(
                 value: Binding(get: { position }, set: { dragged = $0 }),
-                in: 0 ... max(duration, 1)
-            ) {
-                Text("Playback Position")
-            } onEditingChanged: { editing in
+                in: 0 ... max(duration, 1),
+                label: Text("Playback Position"),
+                onArtwork: large
+            ) { editing in
                 if !editing, let dragged {
                     player.seek(to: UInt32(dragged))
                     self.dragged = nil
                 }
             }
-            .labelsHidden()
-            .controlSize(.mini)
             if large {
                 VStack(spacing: 2) {
-                    slider.tint(.white)
+                    slider
                     HStack {
                         elapsed
                         Spacer()
@@ -313,18 +323,76 @@ struct ArtistLinks: View {
     }
 }
 
-private struct DevicePicker: View {
-    let player: PlayerModel
-    @State private var devices = OutputDevices()
+/// The design's slider (`.slider`): a 3 pt capsule filled to the value, which turns tinted
+/// and shows its thumb only on hover or drag; accessibility sees a standard slider.
+struct ThinSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let label: Text
+    var onArtwork = false
+    var onEditingChanged: (Bool) -> Void = { _ in }
+    @State private var hovering = false
+    @State private var dragging = false
+    @Environment(\.palette) private var palette
+    @Environment(\.isEnabled) private var isEnabled
+
+    init(
+        value: Binding<Double>,
+        in range: ClosedRange<Double>,
+        label: Text,
+        onArtwork: Bool = false,
+        onEditingChanged: @escaping (Bool) -> Void = { _ in }
+    ) {
+        _value = value
+        self.range = range
+        self.label = label
+        self.onArtwork = onArtwork
+        self.onEditingChanged = onEditingChanged
+    }
 
     var body: some View {
-        Picker("Output Device", selection: Binding(get: { player.outputDeviceUID }, set: { player.outputDeviceUID = $0 })) {
-            Text("System Default").tag(String?.none)
-            ForEach(devices.list) { device in
-                Text(device.name).tag(String?.some(device.uid))
+        GeometryReader { proxy in
+            let span = range.upperBound - range.lowerBound
+            let fraction = span > 0 ? min(max((value - range.lowerBound) / span, 0), 1) : 0
+            let filled = proxy.size.width * fraction
+            let active = isEnabled && (hovering || dragging)
+            ZStack(alignment: .leading) {
+                // Each capsule takes its own height: a stack frame doesn't bind the taller thumb's siblings.
+                Capsule().fill(onArtwork ? Color.white.opacity(0.22) : .fillStrong)
+                    .frame(height: 3)
+                Capsule()
+                    .fill(onArtwork ? Color.white : active ? Color(palette.tintText) : .primary)
+                    .frame(width: filled, height: 3)
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                    .frame(width: 10, height: 10)
+                    .offset(x: filled - 5)
+                    .opacity(active ? 1 : 0)
             }
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        if !dragging {
+                            dragging = true
+                            onEditingChanged(true)
+                        }
+                        let x = min(max(drag.location.x / max(proxy.size.width, 1), 0), 1)
+                        value = range.lowerBound + span * x
+                    }
+                    .onEnded { _ in
+                        dragging = false
+                        onEditingChanged(false)
+                    }
+            )
         }
-        .pickerStyle(.radioGroup)
-        .padding()
+        .frame(height: 20)
+        .onHover { hovering = $0 }
+        .animation(Theme.fast, value: hovering || dragging)
+        .accessibilityRepresentation {
+            Slider(value: $value, in: range, label: { label }, onEditingChanged: onEditingChanged)
+        }
     }
 }

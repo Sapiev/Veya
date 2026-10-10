@@ -67,6 +67,8 @@ import SwiftUI
                 Text("The saved sign-in is still in the Keychain, so Veya may sign in again at launch.")
             }
         }
+        // The ambient wash runs under the traffic lights; the sidebar panel and floating capsules are the chrome.
+        .windowStyle(.hiddenTitleBar)
         .commands {
             AccountCommands(session: session, signOutFailed: $signOutFailed)
             NavigationCommands()

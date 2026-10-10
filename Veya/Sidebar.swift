@@ -15,6 +15,26 @@ struct Sidebar: View {
     private static let sectionLimit = 8
 
     var body: some View {
+        VStack(spacing: 0) {
+            list
+                // Clears the traffic lights, which sit inside the panel.
+                .padding(.top, 40)
+            Divider()
+            // shortcut: spotcore has no create-playlist API yet, so New Playlist stays disabled until it does.
+            Button {} label: {
+                Label("New Playlist", systemImage: "plus")
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .disabled(true)
+            .help("Creating playlists isn't available yet.")
+            .padding(.horizontal, Theme.s4)
+            .padding(.vertical, Theme.s2)
+        }
+    }
+
+    private var list: some View {
         List(selection: $selection) {
             row(Text("Home"), .home) { symbol("house") }
             row(Text("Search"), .search) { symbol("magnifyingglass") }
@@ -38,13 +58,22 @@ struct Sidebar: View {
                     }
                 }
             } header: {
-                SidebarHeader(title: Text("Playlists"))
+                HStack {
+                    SidebarHeader(title: Text("Playlists"))
+                    Spacer()
+                    Button("New Playlist", systemImage: "plus") {}
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .disabled(true)
+                        .help("Creating playlists isn't available yet.")
+                }
             }
             librarySection(.artists, title: Text("Artists"), route: .artists)
             librarySection(.albums, title: Text("Albums"), route: .albums)
             librarySection(.shows, title: Text("Podcasts"), route: .podcasts)
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         .task {
             for kind in [LibraryKind.albums, .artists, .shows] {
                 library.load(kind)
@@ -170,7 +199,7 @@ private struct SidebarHeader: View {
     var body: some View {
         title
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(selected ? .secondary : .tertiary)
+            .foregroundStyle(selected ? .primary : .secondary)
     }
 }
 

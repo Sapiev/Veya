@@ -1,9 +1,11 @@
 import SpotCoreKit
 import SwiftUI
 
-/// A greeting, Jump Back In as quick tiles, then Recently Played and Made for You; a section that is empty or failed is hidden.
+/// A greeting over Jump Back In as quick tiles, then Made for You, followed artists and Recently Played;
+/// a section that is empty or failed is hidden.
 struct HomeView: View {
     let home: HomeModel
+    let library: LibraryModel
     let player: PlayerModel?
     let history: NavigationHistory
 
@@ -11,8 +13,8 @@ struct HomeView: View {
         let recent = home.recentlyPlayed.compactMap { Tile($0) }
         let jumpBackIn = home.jumpBackIn.compactMap { Tile($0) }
         let madeForYou = home.madeForYou.map { Tile($0) }
+        let artists = (library.items[.artists] ?? []).compactMap { library.metadata[$0.uri].flatMap(Tile.init) }
         VStack(alignment: .leading, spacing: 0) {
-            PageTitle(title: String(localized: "Home"))
             LoadStateView(
                 state: home.state,
                 isEmpty: recent.isEmpty && jumpBackIn.isEmpty && madeForYou.isEmpty && !home.recentlyPlayedNeedsSignIn,
@@ -24,8 +26,10 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(Self.greeting(at: .now))
                             .font(Theme.greeting)
+                            .foregroundStyle(.primary)
                             .accessibilityIdentifier("greeting")
                             .padding(.horizontal, Theme.s8)
+                            .padding(.top, Theme.s2)
                         if home.recentlyPlayedNeedsSignIn {
                             Label(
                                 "Sign out and sign in again to see Recently Played and Jump Back In.",
@@ -35,22 +39,25 @@ struct HomeView: View {
                             .padding(.horizontal, Theme.s8)
                             .padding(.top, Theme.s4)
                         }
-                        QuickAccess(title: "Jump Back In", tiles: jumpBackIn) { open($0) }
+                        QuickAccess(tiles: jumpBackIn) { open($0) }
+                        Shelf(title: "Made for you", tiles: madeForYou, subtitleLines: 2) { _, tile in open(tile) }
+                        Shelf(title: "Artists you follow", tiles: artists) { _, tile in open(tile) }
                         Shelf(title: "Recently Played", tiles: recent) { index, _ in
                             let queue = recent.enumerated().filter { $0.element.playable }
                             if let start = queue.firstIndex(where: { $0.offset == index }) {
                                 player?.play(queue.map(\.element.uri), from: start)
                             }
                         }
-                        Shelf(title: "Made for You", tiles: madeForYou) { _, tile in open(tile) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, Theme.s8)
                 }
+                .accessibilityIdentifier("home")
             }
         }
         .navigationTitle("Home")
         .task { home.load() }
+        .task(id: library.items[.artists]) { library.resolve((library.items[.artists] ?? []).map(\.uri)) }
     }
 
     static func greeting(at date: Date) -> LocalizedStringKey {
@@ -76,6 +83,7 @@ struct HomeView: View {
 private struct Shelf: View {
     let title: LocalizedStringKey
     let tiles: [Tile]
+    var subtitleLines = 1
     let activate: (Int, Tile) -> Void
 
     var body: some View {
@@ -86,8 +94,8 @@ private struct Shelf: View {
                 // Offsets as ids: a track played twice appears twice.
                 ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
                     MediaCard(
-                        title: tile.title, subtitle: tile.subtitle, artwork: tile.artwork, round: tile.round,
-                        playable: tile.route == nil && tile.playable
+                        title: tile.title, subtitle: tile.subtitle, subtitleLines: subtitleLines, artwork: tile.artwork,
+                        round: tile.round, playable: tile.route == nil && tile.playable
                     ) {
                         activate(index, tile)
                     }
@@ -98,23 +106,20 @@ private struct Shelf: View {
     }
 }
 
-/// The top shelf as a grid of short tiles (`.quick`); hidden when it has none.
+/// The top shelf as an untitled grid of short tiles under the greeting (`.quick`); hidden when it has none.
 private struct QuickAccess: View {
-    let title: LocalizedStringKey
     let tiles: [Tile]
     let activate: (Tile) -> Void
 
     var body: some View {
         if !tiles.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                SectionHeader(title: title)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: Theme.s2)], spacing: Theme.s2) {
-                    ForEach(Array(tiles.prefix(6).enumerated()), id: \.offset) { _, tile in
-                        QuickTile(tile: tile) { activate(tile) }
-                    }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.s2), count: 3), spacing: Theme.s2) {
+                ForEach(Array(tiles.prefix(6).enumerated()), id: \.offset) { _, tile in
+                    QuickTile(tile: tile) { activate(tile) }
                 }
             }
             .padding(.horizontal, Theme.s8)
+            .padding(.top, Theme.s4)
         }
     }
 }
@@ -192,7 +197,10 @@ private extension Tile {
     }
 
     init(_ page: PlaylistPage) {
-        self.init(uri: page.uri, title: page.name, artwork: page.artwork, route: .playlist(uri: page.uri))
+        self.init(
+            uri: page.uri, title: page.name, subtitle: page.description.isEmpty ? nil : page.description,
+            artwork: page.artwork, route: .playlist(uri: page.uri)
+        )
     }
 
     init?(_ tile: HomeTile) {

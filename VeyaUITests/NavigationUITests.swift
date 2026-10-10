@@ -10,7 +10,33 @@ final class NavigationUITests: XCTestCase {
         for item in ["Home", "Search", "Liked Songs", "Albums", "Artists", "Podcasts", "Road Trip"] {
             XCTAssertTrue(app.sidebarItem(item).exists, item)
         }
-        XCTAssertEqual(app.routeTitle.value as? String, "Home")
+        XCTAssertTrue(app.staticTexts["greeting"].exists)
+        for button in app.buttons.matching(identifier: "New Playlist").allElementsBoundByIndex {
+            XCTAssertFalse(button.isEnabled)
+        }
+    }
+
+    /// The window buttons sit inside the floating sidebar panel, 20 pt in and 18 pt down as in the design.
+    @MainActor func testWindowButtonsSitInsideTheSidebarPanel() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        let window = app.windows.firstMatch.frame
+        let close = app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow].frame
+
+        XCTAssertEqual(close.minX - window.minX, 20, accuracy: 1)
+        XCTAssertEqual(close.minY - window.minY, 18, accuracy: 1)
+    }
+
+    /// The sidebar is a custom panel, so the View menu carries its toggle.
+    @MainActor func testViewMenuHidesAndShowsTheSidebar() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.menuItem("View", "Hide Sidebar").click()
+        XCTAssertTrue(app.signedInScreen.waitForNonExistence(timeout: XCUIApplication.timeout))
+
+        app.menuItem("View", "Show Sidebar").click()
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     /// Saved artists, albums and podcasts list in the sidebar and open their page.
@@ -87,16 +113,16 @@ final class NavigationUITests: XCTestCase {
         XCTAssertEqual(app.routeTitle.value as? String, "Albums")
     }
 
-    @MainActor func testToolbarBackAndForward() {
+    @MainActor func testTopBarBackAndForward() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        let back = app.toolbars.buttons["Back"]
-        let forward = app.toolbars.buttons["Forward"]
+        let back = app.buttons["Back"]
+        let forward = app.buttons["Forward"]
         XCTAssertFalse(back.isEnabled)
 
         app.sidebarItem("Artists").click()
         back.click()
-        XCTAssertEqual(app.routeTitle.value as? String, "Home")
+        XCTAssertTrue(app.staticTexts["greeting"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(back.isEnabled)
 
         forward.click()

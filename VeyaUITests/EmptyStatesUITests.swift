@@ -59,7 +59,11 @@ final class EmptyStatesUITests: XCTestCase {
 
         for item in ["Home", "Search", "Liked Songs", "Albums", "Artists", "Podcasts", "Road Trip"] {
             app.sidebarItem(item).click()
-            XCTAssertTrue(app.showsRoute(item), item)
+            // Home's only heading is the greeting.
+            let shown = item == "Home"
+                ? app.staticTexts["greeting"].waitForExistence(timeout: XCUIApplication.timeout)
+                : app.showsRoute(item)
+            XCTAssertTrue(shown, item)
         }
     }
 }
