@@ -207,7 +207,7 @@ struct TrackList: View {
 
 extension Playability {
     /// Tooltip for a track the account cannot play now; nil when playable.
-    var unavailableHelp: String? {
+    nonisolated var unavailableHelp: String? {
         switch self {
         case .playable: nil
         case .regionLocked: String(localized: "Not available in your country")

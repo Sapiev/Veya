@@ -197,7 +197,8 @@
             ScenarioSearch()
         }
 
-        func makeRecentlyPlayed(accessToken _: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
+        // @concurrent: the app target defaults async closures to nonisolated(nonsending), SpotCoreKit does not.
+        func makeRecentlyPlayed(accessToken _: @escaping @concurrent @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
             ScenarioRecentlyPlayed(fill: library, scope: recentlyPlayedScope)
         }
 
