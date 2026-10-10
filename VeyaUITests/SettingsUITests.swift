@@ -1,7 +1,7 @@
 import XCTest
 
 /// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
-/// PBI-103: the cache size footer says playback survives the reconnect.
+/// PBI-103: the cache size footer says playback survives the reconnect. PBI-309: the Spotify Web API section.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -124,6 +124,51 @@ final class SettingsUITests: XCTestCase {
 
         let footer = "Changing the size reconnects to Spotify; the current track picks up where it was."
         XCTAssertTrue(app.staticTexts[footer].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// The Web API section's status line reads `value`.
+    @MainActor private func showsWebAPIStatus(_ app: XCUIApplication, _ value: String) -> Bool {
+        app.staticTexts.matching(NSPredicate(format: "identifier == 'webAPIStatus' AND value == %@", value)).firstMatch
+            .waitForExistence(timeout: XCUIApplication.timeout)
+    }
+
+    /// PBI-309: the Client ID is checked before connecting. The "Connect" tab shares the button's name.
+    @MainActor func testWebAPIConnectNeedsAValidClientID() {
+        let app = openSettings(.webAPINotConnected)
+        tab(app, "Account").click()
+        let field = app.textFields["Client ID"]
+        XCTAssertTrue(field.waitForExistence(timeout: XCUIApplication.timeout))
+        let connect = app.scrollViews.buttons["Connect"]
+        XCTAssertFalse(connect.isEnabled)
+
+        field.click()
+        field.typeText("not-a-client-id")
+        XCTAssertFalse(connect.isEnabled)
+        XCTAssertTrue(app.staticTexts["A Client ID is 32 letters and digits (0-9, a-f)."].exists)
+
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText("0123456789abcdef0123456789abcdef")
+        XCTAssertTrue(connect.isEnabled)
+        connect.click()
+
+        XCTAssertTrue(showsWebAPIStatus(app, "Connected"))
+        XCTAssertTrue(app.buttons["Disconnect"].exists)
+    }
+
+    /// PBI-309: a connected Web API can be disconnected.
+    @MainActor func testWebAPIConnectedShowsDisconnect() {
+        let app = openSettings()
+        tab(app, "Account").click()
+        let disconnect = app.buttons["Disconnect"]
+        XCTAssertTrue(disconnect.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(app.textFields["Client ID"].value as? String, "0123456789abcdef0123456789abcdef")
+        XCTAssertTrue(showsWebAPIStatus(app, "Connected"))
+
+        disconnect.click()
+
+        XCTAssertTrue(showsWebAPIStatus(app, "Not connected"))
+        XCTAssertFalse(disconnect.exists)
+        XCTAssertTrue(app.scrollViews.buttons["Connect"].isEnabled)
     }
 
     @MainActor func testAdvancedOffersLogLevels() {

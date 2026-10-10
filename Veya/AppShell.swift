@@ -24,6 +24,7 @@ struct AppShell: View {
     @State private var searchFocusRequest = 0
     @State private var searchSelection: SearchResultID?
     private let recentSearches: RecentSearches
+    private let webAPI: WebAPIConnection
     /// Hands the started player to the session owner, which stops it on sign out; false drops it.
     private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
@@ -34,7 +35,7 @@ struct AppShell: View {
 
     init(
         session: any SessionHandle,
-        webAPITokens: WebAPITokenProvider,
+        webAPI: WebAPIConnection,
         metadataStore: MetadataStore?,
         recentSearches: RecentSearches,
         settings: PlaybackSettings,
@@ -45,7 +46,9 @@ struct AppShell: View {
         self.attachPlayer = attachPlayer
         self.settings = settings
         self.recentSearches = recentSearches
-        _search = State(initialValue: SearchModel(service: session.makeSearch()))
+        self.webAPI = webAPI
+        let tokens = webAPI.tokens
+        _search = State(initialValue: SearchModel(service: session.makeSearch { try await tokens.accessToken() }))
         let metadata = session.makeMetadata(store: metadataStore)
         self.metadata = metadata
         let playlistService = session.makePlaylists(store: metadataStore)
@@ -53,7 +56,7 @@ struct AppShell: View {
         _home = State(initialValue: HomeModel(
             metadata: metadata,
             playlists: playlistService,
-            recentlyPlayed: session.makeRecentlyPlayed { try await webAPITokens.accessToken() }
+            recentlyPlayed: session.makeRecentlyPlayed { try await tokens.accessToken() }
         ))
         _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
         _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
@@ -153,7 +156,7 @@ struct AppShell: View {
         case .home:
             HomeView(home: home, library: library, player: player, history: history)
         case .search:
-            SearchView(search: search, recent: recentSearches, player: player, history: history, selection: $searchSelection)
+            SearchView(search: search, webAPI: webAPI, recent: recentSearches, player: player, history: history, selection: $searchSelection)
         case .likedSongs:
             LikedSongs(library: library, player: player, playlists: playlists, history: history)
         case .albums:

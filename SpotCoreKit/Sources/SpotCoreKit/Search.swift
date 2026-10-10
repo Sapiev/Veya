@@ -5,8 +5,27 @@ public enum SearchState: Equatable, Sendable {
     case idle
     case searching
     case loaded
-    /// Both the internal endpoint and the fallback, if any, failed.
+    /// Both the service and the fallback, if any, failed.
     case failed
+    /// No Web API token: the user's own client ID is not connected.
+    case notConnected
+}
+
+/// Fetches a fresh access token for every request, since the provider caches it.
+public final class WebAPISearch: SearchServiceProtocol {
+    private let accessToken: @Sendable () async throws -> String
+
+    public init(accessToken: @escaping @Sendable () async throws -> String) {
+        self.accessToken = accessToken
+    }
+
+    public func search(query: String, limit: UInt32) async throws -> [SearchGroup] {
+        try await SearchService(accessToken: accessToken()).search(query: query, limit: limit)
+    }
+
+    public func page(query: String, kind: SearchKind, offset: UInt32, limit: UInt32) async throws -> SearchGroup {
+        try await SearchService(accessToken: accessToken()).page(query: query, kind: kind, offset: offset, limit: limit)
+    }
 }
 
 public typealias SearchLog = @MainActor (LogLevel, String) -> Void
@@ -21,8 +40,8 @@ public final class SearchModel {
     public private(set) var query = ""
     public private(set) var groups: [SearchGroup] = []
     public private(set) var state = SearchState.idle
-    /// Why the internal endpoint failed for the current query; set even when
-    /// the fallback provider answered instead.
+    /// Why the service failed for the current query; set even when the
+    /// fallback provider answered instead.
     public private(set) var failure: SearchError?
 
     @ObservationIgnored private let primary: any SearchServiceProtocol
@@ -35,8 +54,7 @@ public final class SearchModel {
     /// Bumped by every `search`; a response from an older one is dropped.
     @ObservationIgnored private var generation = 0
 
-    /// `fallback` is the optional Web API provider, used only when the
-    /// internal endpoint fails.
+    /// `fallback`, if any, is used only when `service` fails.
     public init(
         service: any SearchServiceProtocol,
         fallback: (any SearchServiceProtocol)? = nil,
@@ -76,13 +94,13 @@ public final class SearchModel {
             }
             let (result, failure) = await fetch { try await $0.search(query: query, limit: limit) }
             guard mine == generation else { return }
-            self.failure = failure
+            self.failure = failure.flatMap { $0 as? SearchError }
             if let result {
                 groups = result
                 state = .loaded
             } else {
                 groups = []
-                state = .failed
+                state = failure is WebAPITokenError ? .notConnected : .failed
             }
         }
         running = task
@@ -126,14 +144,17 @@ public final class SearchModel {
         return task
     }
 
-    /// Asks the internal endpoint, then the fallback; returns the result and
-    /// the internal endpoint's error, if it failed.
+    /// Asks the service, then the fallback; returns the result and the
+    /// service's error, if it failed. A missing token is not worth a fallback.
     private func fetch<T: Sendable>(
         _ request: @Sendable (any SearchServiceProtocol) async throws -> T
-    ) async -> (T?, SearchError?) {
+    ) async -> (T?, (any Error)?) {
         let primaryError: SearchError
         do {
             return try await (request(primary), nil)
+        } catch let error as WebAPITokenError {
+            log(.info, "Search needs a Web API connection: \(error)")
+            return (nil, error)
         } catch let error as SearchError {
             primaryError = error
         } catch {
@@ -152,6 +173,9 @@ public final class SearchModel {
     /// Error case names only: messages may carry server text.
     private static func summary(_ error: SearchError) -> String {
         switch error {
+        case .Unauthorized: "Unauthorized"
+        case .Forbidden: "Forbidden"
+        case .RateLimited: "RateLimited"
         case .Request: "Request"
         case .Malformed: "Malformed"
         }

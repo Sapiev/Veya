@@ -1,26 +1,27 @@
 import Foundation
 
 public protocol TokenRefresher: Sendable {
-    func refresh(refreshToken: String) async throws -> OAuthTokens
+    func refresh(clientID: String, refreshToken: String) async throws -> OAuthTokens
 }
 
 public struct SpotTokenRefresher: TokenRefresher {
     public init() {}
 
-    public func refresh(refreshToken: String) async throws -> OAuthTokens {
-        try await refreshTokens(config: defaultOauthConfig(), refreshToken: refreshToken)
+    public func refresh(clientID: String, refreshToken: String) async throws -> OAuthTokens {
+        try await refreshTokens(config: WebAPIConnection.config(clientID: clientID), refreshToken: refreshToken)
     }
 }
 
 public enum WebAPITokenError: Error, Equatable, Sendable {
-    /// No refresh token is stored: signed out, or signed in before Veya kept one.
+    /// No valid client ID is set or no refresh token is stored: the Web API
+    /// was never connected, was disconnected, or the account signed out.
     case notAvailable
     /// Spotify rejected the stored refresh token, which is now deleted.
     case rejected
 }
 
-/// Hands out Web API access tokens. The refresh token in `store` is the source
-/// of truth: the cache only answers for the token currently stored, so a
+/// Hands out Web API access tokens for the user's own client ID. The refresh
+/// token in `store` is the source of truth: the cache only answers for the token currently stored, so a
 /// sign-out or a new sign-in invalidates it without telling the actor.
 public actor WebAPITokenProvider {
     /// Refresh this long before expiry so a token never lapses mid-request.
@@ -33,6 +34,7 @@ public actor WebAPITokenProvider {
     }
 
     private let store: any CredentialStore
+    private let clientID: @Sendable () -> String?
     private let refresher: any TokenRefresher
     private let now: @Sendable () -> Date
     private var cached: Cached?
@@ -40,10 +42,12 @@ public actor WebAPITokenProvider {
 
     public init(
         store: any CredentialStore,
+        clientID: @escaping @Sendable () -> String?,
         refresher: any TokenRefresher = SpotTokenRefresher(),
         now: @escaping @Sendable () -> Date = { .now }
     ) {
         self.store = store
+        self.clientID = clientID
         self.refresher = refresher
         self.now = now
     }
@@ -58,7 +62,9 @@ public actor WebAPITokenProvider {
     }
 
     public func accessToken() async throws -> String {
-        guard let data = try store.load(), let refreshToken = String(data: data, encoding: .utf8) else {
+        guard let clientID = clientID(), WebAPIConnection.isValid(clientID: clientID),
+              let data = try store.load(), let refreshToken = String(data: data, encoding: .utf8)
+        else {
             throw WebAPITokenError.notAvailable
         }
         if let cached, cached.refreshToken == refreshToken,
@@ -69,12 +75,12 @@ public actor WebAPITokenProvider {
         if let inFlight, inFlight.refreshToken == refreshToken {
             return try await inFlight.task.value
         }
-        let task = Task { try await self.refresh(refreshToken) }
+        let task = Task { try await self.refresh(refreshToken, clientID: clientID) }
         inFlight = (refreshToken, task)
         return try await task.value
     }
 
-    private func refresh(_ refreshToken: String) async throws -> String {
+    private func refresh(_ refreshToken: String, clientID: String) async throws -> String {
         defer {
             if inFlight?.refreshToken == refreshToken {
                 inFlight = nil
@@ -82,7 +88,7 @@ public actor WebAPITokenProvider {
         }
         let tokens: OAuthTokens
         do {
-            tokens = try await refresher.refresh(refreshToken: refreshToken)
+            tokens = try await refresher.refresh(clientID: clientID, refreshToken: refreshToken)
         } catch AuthError.RefreshRejected {
             try replace(refreshToken, with: nil)
             throw WebAPITokenError.rejected

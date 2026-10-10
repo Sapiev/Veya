@@ -5,10 +5,13 @@ import SpotCoreKit
 /// Everything the app talks to outside its own process.
 struct AppDependencies {
     var store: any CredentialStore
+    /// The Web API refresh token of the user's own client ID.
     var refreshTokenStore: any CredentialStore
     var connector: any SessionConnector
     var browser: any SignInBrowser
     var startFlow: SignInFlowStarter
+    var webAPIStartFlow: WebAPIFlowStarter = { try await LoginFlow.start(config: $0) }
+    var tokenRefresher: any TokenRefresher = SpotTokenRefresher()
     var artworkLoader: ArtworkLoader?
     var metadataStore: MetadataStore?
     var defaults: UserDefaults = .standard
@@ -22,6 +25,7 @@ struct AppDependencies {
             }
         #endif
         let metadataStore = openMetadataStore()
+        deleteSharedClientRefreshToken()
         return AppDependencies(
             store: KeychainCredentialStore(
                 service: Bundle.main.bundleIdentifier ?? "Veya",
@@ -29,7 +33,7 @@ struct AppDependencies {
             ),
             refreshTokenStore: KeychainCredentialStore(
                 service: Bundle.main.bundleIdentifier ?? "Veya",
-                account: "spotify-refresh-token"
+                account: "web-api-refresh-token"
             ),
             connector: SpotSessionConnector(audioCache: openAudioCache(), metadataStore: metadataStore),
             browser: WebAuthenticationBrowser(),
@@ -37,6 +41,18 @@ struct AppDependencies {
             artworkLoader: ArtworkLoader(directory: cachesDirectory.appending(path: "Artwork")),
             metadataStore: metadataStore
         )
+    }
+
+    /// Builds before PBI-309 kept the shared client ID's refresh token for the
+    /// Web API, which is rate limited there. Deleting a missing item succeeds,
+    /// so this runs at every launch until it once gets through.
+    private static func deleteSharedClientRefreshToken() {
+        let legacy = KeychainCredentialStore(service: Bundle.main.bundleIdentifier ?? "Veya", account: "spotify-refresh-token")
+        do {
+            try legacy.delete()
+        } catch {
+            Logger(subsystem: "veya", category: "session").error("stale refresh token not deleted: \(error)")
+        }
     }
 
     /// Playback works without a cache, so a failure to open one is only logged.

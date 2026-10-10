@@ -168,25 +168,61 @@ struct ToolbarTextField: NSViewRepresentable {
 /// the top result beside the songs and a rail per kind.
 struct SearchView: View {
     let search: SearchModel
+    let webAPI: WebAPIConnection
     let recent: RecentSearches
     let player: PlayerModel?
     let history: NavigationHistory
     @Binding var selection: SearchResultID?
+    @AppStorage(SettingsView.tabKey) private var settingsTab = SettingsView.Tab.general
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("Search")
+            .onAppear { webAPI.reload() }
+            // A rejected refresh token is deleted by the provider.
+            .onChange(of: search.state) { _, state in
+                if state == .notConnected { webAPI.reload() }
+            }
+            .onChange(of: webAPI.isConnected) { _, connected in
+                if connected, !search.query.isEmpty { search.search(search.query) }
+            }
     }
 
     @ViewBuilder private var content: some View {
-        if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+        if !webAPI.isConnected {
+            EmptyStateView(
+                title: "Connect Spotify Web API to Search",
+                systemImage: "key",
+                message: "Search uses your own Spotify developer app. Add its Client ID in Settings."
+            ) {
+                Button("Open Settings") {
+                    settingsTab = .account
+                    openSettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+            }
+        } else if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 PageTitle(title: String(localized: "Search"))
                 RecentSearchesView(recent: recent) { query in
                     search.search(query)
                     recent.add(query)
                 }
+            }
+        } else if search.state == .failed, search.failure == .RateLimited {
+            EmptyStateView(
+                title: "Search Is Rate Limited",
+                systemImage: "hourglass",
+                message: "Spotify is limiting requests from your Web API app. Try again in a minute."
+            ) {
+                Button("Try Again") { search.search(search.query) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
             }
         } else if search.state == .failed {
             FailedState(title: "Couldn't Search") { search.search(search.query) }
