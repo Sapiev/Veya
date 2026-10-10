@@ -17,14 +17,21 @@ final class NavigationUITests: XCTestCase {
     }
 
     /// The window buttons sit inside the floating sidebar panel, 20 pt in and 18 pt down as in the design.
+    /// A click re-lays out the titlebar, so they must stay there afterwards too.
     @MainActor func testWindowButtonsSitInsideTheSidebarPanel() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+
+        assertWindowButtonsInset(app)
+        app.staticTexts["greeting"].click()
+        assertWindowButtonsInset(app)
+    }
+
+    @MainActor private func assertWindowButtonsInset(_ app: XCUIApplication, line: UInt = #line) {
         let window = app.windows.firstMatch.frame
         let close = app.windows.firstMatch.buttons[XCUIIdentifierCloseWindow].frame
-
-        XCTAssertEqual(close.minX - window.minX, 20, accuracy: 1)
-        XCTAssertEqual(close.minY - window.minY, 18, accuracy: 1)
+        XCTAssertEqual(close.minX - window.minX, 20, accuracy: 1, line: line)
+        XCTAssertEqual(close.minY - window.minY, 18, accuracy: 1, line: line)
     }
 
     /// The sidebar is a custom panel, so the View menu carries its toggle.
