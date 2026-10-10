@@ -20,3 +20,5 @@ xcuserdata/
 
 # Pinned linters from scripts/install-linters.sh
 /.tools/
+
+/ai-input/
