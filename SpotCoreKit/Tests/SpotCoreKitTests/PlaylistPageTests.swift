@@ -141,6 +141,23 @@ struct PlaylistPageTests {
         #expect(model.pages[mix]?.tracks == tracks(3))
     }
 
+    @Test func loadArtworkPrefersTheCacheAndRequestsEachPlaylistOnce() async {
+        var cached = playlistPage(mix, tracks: [], total: 0)
+        cached.artwork = [Artwork(url: "https://i.scdn.co/image/a64", size: .small, width: 64, height: 64)]
+        let fromCache = PagedPlaylists(uri: mix, tracks: [], cached: cached)
+        let model = PlaylistModel(playlists: fromCache)
+        await model.loadArtwork([mix])
+        #expect(model.artwork[mix] == cached.artwork)
+        #expect(fromCache.requested.isEmpty)
+
+        let fetched = PagedPlaylists(uri: other, tracks: [], fails: true)
+        let failing = PlaylistModel(playlists: fetched)
+        await failing.loadArtwork([other])
+        await failing.loadArtwork([other])
+        #expect(failing.artwork[other] == [])
+        #expect(fetched.requested == [0])
+    }
+
     @Test func loadsEveryPageOfALongPlaylist() async {
         let count = Int(PlaylistModel.pageLength) * 2 + 5
         let service = PagedPlaylists(uri: mix, tracks: tracks(count))

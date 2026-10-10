@@ -62,6 +62,8 @@ public final class PlaylistModel {
     public private(set) var pageState: [String: LibraryLoadState] = [:]
     /// Follower count of each opened playlist, once fetched.
     public private(set) var followers: [String: UInt64] = [:]
+    /// Each requested playlist's picture; empty while fetching, on failure, or when it has none.
+    public private(set) var artwork: [String: [Artwork]] = [:]
 
     /// Tracks fetched per request while a playlist's contents load.
     static let pageLength: UInt32 = 200
@@ -118,6 +120,30 @@ public final class PlaylistModel {
             async let count: Void = refreshFollowers(uri)
             await refreshPage(uri)
             await count
+        }
+    }
+
+    /// Fetches the picture of each playlist not requested before, cache first; a failed
+    /// fetch stays empty for the session so repeated calls never re-request it.
+    public func loadArtwork(_ uris: [String]) async {
+        var fetch: [String] = []
+        for uri in uris where artwork[uri] == nil {
+            if let cached = playlists.cachedPage(uri: uri, from: 0, length: 0) {
+                artwork[uri] = cached.artwork
+            } else {
+                artwork[uri] = []
+                fetch.append(uri)
+            }
+        }
+        await withTaskGroup(of: (String, [Artwork]?).self) { group in
+            for uri in fetch {
+                group.addTask { [playlists] in
+                    (uri, try? await playlists.page(uri: uri, from: 0, length: 0).artwork)
+                }
+            }
+            for await (uri, found) in group {
+                if let found { artwork[uri] = found }
+            }
         }
     }
 
