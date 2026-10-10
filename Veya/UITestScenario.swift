@@ -232,7 +232,7 @@
 
     private nonisolated let scenarioArtist = ArtistMetadata(
         uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [],
-        topTracks: [likedSongURI(2), likedSongURI(1)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
+        topTracks: [likedSongURI(2), likedSongURI(1), likedSongURI(3)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
         compilations: [], related: [ItemRef(uri: scenarioRelated.uri, name: scenarioRelated.name)]
     )
     private nonisolated let scenarioRelated = ArtistMetadata(

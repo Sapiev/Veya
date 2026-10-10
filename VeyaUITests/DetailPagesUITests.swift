@@ -1,6 +1,7 @@
 import XCTest
 
-/// PBI-404: album, artist and playlist pages; PBI-304: playlist follower count.
+/// PBI-404: album, artist and playlist pages; PBI-304: playlist follower count;
+/// PBI-105: a region-locked top track does not play.
 final class DetailPagesUITests: XCTestCase {
     @MainActor private func open(_ sidebarItem: String, then item: String? = nil, title: String) -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -69,6 +70,17 @@ final class DetailPagesUITests: XCTestCase {
         app.artistPage.scroll(byDeltaX: 0, deltaY: -300)
         app.buttons["Test Album, 2024"].click()
         XCTAssertTrue(app.showsRoute("Test Album"))
+    }
+
+    @MainActor func testArtistRegionLockedTopTrackRefusesToPlay() {
+        let app = open("Artists", then: "Test Artist", title: "Test Artist")
+
+        let locked = app.buttons["3, Song 3, 2:03"]
+        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+        locked.click()
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Play"].exists)
     }
 
     @MainActor func testPlaylistShowsHeaderAndFilterNarrowsRows() {
