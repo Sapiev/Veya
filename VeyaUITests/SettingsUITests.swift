@@ -1,6 +1,7 @@
 import XCTest
 
 /// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
+/// PBI-103: the cache size footer says playback survives the reconnect.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -115,6 +116,14 @@ final class SettingsUITests: XCTestCase {
 
         let output = app.popUpButtons["Output device"]
         XCTAssertEqual(output.value as? String, "System Default")
+    }
+
+    @MainActor func testCacheSizeFooterSaysPlaybackResumesAfterReconnect() {
+        let app = openSettings()
+        tab(app, "Storage").click()
+
+        let footer = "Changing the size reconnects to Spotify; the current track picks up where it was."
+        XCTAssertTrue(app.staticTexts[footer].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testAdvancedOffersLogLevels() {

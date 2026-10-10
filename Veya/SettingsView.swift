@@ -119,7 +119,7 @@ private struct StorageSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Changing the size reconnects to Spotify, which stops the current track.")
+                Text("Changing the size reconnects to Spotify; the current track picks up where it was.")
             }
             Section {
                 LabeledContent("Library and metadata") {
