@@ -15,6 +15,7 @@ use librespot_protocol::keyexchange::{APLoginFailed, ErrorCode};
 use log::info;
 use protobuf::Enum;
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
 
 use crate::cache::AudioCache;
 use crate::reconnect::{ConnectionObserver, Connector, Link, Supervisor};
@@ -153,7 +154,7 @@ impl SpotSession {
     }
 
     /// Replaces a healthy session, for example so a new audio cache limit
-    /// applies. Playback of the current track stops.
+    /// applies. A player restarts the current track where it was.
     pub fn reconnect(&self) {
         self.supervisor.reconnect_now();
     }
@@ -175,6 +176,11 @@ impl SpotSession {
     /// The live session, which a reconnect may have replaced.
     pub(crate) fn current_session(&self) -> Session {
         (*self.supervisor.current_link()).clone()
+    }
+
+    /// Changes after each reconnect, once `current_session` returns the new session.
+    pub(crate) fn link_changes(&self) -> watch::Receiver<u64> {
+        self.supervisor.link_changes()
     }
 
     async fn start(

@@ -301,7 +301,7 @@ public final class SessionModel {
     }
 
     /// Evicts down to `bytes` at once; the live session reconnects to pick
-    /// up the limit, which stops the current track.
+    /// up the limit, and the player restarts the current track where it was.
     public func setAudioCacheLimit(bytes: UInt64) throws {
         try connector.setAudioCacheLimit(bytes: bytes)
         session?.reconnect()

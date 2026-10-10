@@ -94,6 +94,8 @@ struct Shared<L> {
     reporter: Mutex<Reporter>,
     nudge: Notify,
     stopped: watch::Sender<bool>,
+    /// Counts links installed by reconnects; the first link is 0.
+    links: watch::Sender<u64>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -148,6 +150,8 @@ impl<L: Link> Shared<L> {
             Err(_) => warn!("reconnected session has no reusable credentials"),
         }
         core.link = Arc::new(link);
+        drop(core);
+        self.links.send_modify(|count| *count += 1);
         true
     }
 
@@ -308,6 +312,7 @@ impl<L: Link> Supervisor<L> {
             }),
             nudge: Notify::new(),
             stopped: watch::Sender::new(false),
+            links: watch::Sender::new(0),
         });
         tokio::spawn(Arc::clone(&shared).run(connector));
         Self { shared }
@@ -315,6 +320,12 @@ impl<L: Link> Supervisor<L> {
 
     pub(crate) fn current_link(&self) -> Arc<L> {
         self.shared.current_link()
+    }
+
+    /// Changes once per link a reconnect installs, after `current_link`
+    /// returns it; closes once the supervisor is gone.
+    pub(crate) fn link_changes(&self) -> watch::Receiver<u64> {
+        self.shared.links.subscribe()
     }
 
     pub(crate) fn set_observer(&self, observer: Arc<dyn ConnectionObserver>) {
@@ -653,6 +664,51 @@ mod tests {
             &h.script.link(0)
         ));
         assert!(h.first.is_shut());
+    }
+
+    async fn announced(links: &mut watch::Receiver<u64>) {
+        tokio::time::timeout(Duration::from_secs(60), links.changed())
+            .await
+            .expect("no new link announced")
+            .unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_announces_each_new_link_after_installing_it() {
+        let h = start();
+        let mut links = h.supervisor.link_changes();
+        assert!(
+            !links.has_changed().unwrap(),
+            "the first link is no reconnect"
+        );
+
+        h.script.push(Step::Fail(network()));
+        h.script.push(Step::Succeed);
+        h.first.kill();
+        announced(&mut links).await;
+        assert!(Arc::ptr_eq(
+            &*h.supervisor.current_link(),
+            &h.script.link(0)
+        ));
+        assert_eq!(*links.borrow_and_update(), 1, "a failed attempt is no link");
+
+        h.script.push(Step::Succeed);
+        h.script.link(0).kill();
+        announced(&mut links).await;
+        assert!(Arc::ptr_eq(
+            &*h.supervisor.current_link(),
+            &h.script.link(1)
+        ));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn link_changes_close_once_the_supervisor_is_gone() {
+        let h = start();
+        let mut links = h.supervisor.link_changes();
+
+        drop(h);
+
+        assert!(links.changed().await.is_err());
     }
 
     #[tokio::test(start_paused = true)]
