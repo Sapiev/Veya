@@ -17,8 +17,11 @@ struct TrackList: View {
     let player: PlayerModel?
     let playlists: PlaylistModel
     let history: NavigationHistory
+    /// Album pages leave out the album column and the row artwork.
+    var showsAlbum = true
     @State private var selection: Set<Row.ID> = []
     @State private var sortOrder = [KeyPathComparator(\Row.number)]
+    @State private var hover = RowHover()
 
     /// Rows resolve metadata in batches of this size as they scroll in.
     private static let resolveAhead = 50
@@ -27,46 +30,76 @@ struct TrackList: View {
         let rows = sortedRows
         Table(of: Row.self, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("#", value: \.number) { row in
-                NumberCell(row: row, playing: isPlaying(row))
-                    .onAppear { resolve(from: row.number - 1) }
-            }
-            .width(min: 28, ideal: 36, max: 56)
-            TableColumn("Title", value: \.title) { row in
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
-                        .foregroundStyle(isPlaying(row) ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                    Text(row.artists.map(\.name).formatted(.list(type: .and)))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                NumberCell(row: row, playing: isPlaying(row), animating: player?.isPlaying == true, hover: hover) {
+                    play([row.id], in: sortedRows)
                 }
-                .lineLimit(1)
+                .onAppear { resolve(from: row.number - 1) }
+            }
+            .width(min: 28, ideal: 40, max: 56)
+            TableColumn("Title", value: \.title) { row in
+                HStack(spacing: Theme.s3) {
+                    if showsAlbum {
+                        ArtworkView(artwork: row.artwork, side: 40)
+                            .clipShape(.rect(cornerRadius: 4))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(isPlaying(row) ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.primary))
+                        Text(row.artists.map(\.name).formatted(.list(type: .and)))
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .lineLimit(1)
+                }
+                .frame(minHeight: 48)
                 .opacity(row.playable ? 1 : 0.45)
                 .help(row.unavailableHelp ?? "")
+                .hoverTracked(row, hover)
             }
             .width(min: 160, ideal: 280)
             TableColumn("Album", value: \.albumName) { row in
                 Text(row.albumName)
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .opacity(row.playable ? 1 : 0.45)
                     .help(row.unavailableHelp ?? "")
+                    .hoverTracked(row, hover)
             }
             .width(min: 100, ideal: 200)
+            .defaultVisibility(showsAlbum ? .visible : .hidden)
             TableColumn("Date Added", value: \.addedSort) { row in
                 Text(row.addedAt?.formatted(date: .abbreviated, time: .omitted) ?? "")
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
+                    .hoverTracked(row, hover)
             }
             .width(min: 80, ideal: 110)
+            TableColumn(Text(verbatim: "")) { row in
+                LikeCell(row: row, library: library, revealed: selection.contains(row.id), hover: hover)
+            }
+            .width(36)
             TableColumn("Duration", value: \.durationMs) { row in
                 Text(row.durationMs == 0 ? "" : Duration.milliseconds(Int(row.durationMs)).formatted(.time(pattern: .minuteSecond)))
+                    .font(.system(size: 13))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .hoverTracked(row, hover)
             }
             .width(min: 56, ideal: 64, max: 90)
+            TableColumn(Text(verbatim: "")) { row in
+                MoreCell(row: row, revealed: selection.contains(row.id), hover: hover) {
+                    menu(for: [row])
+                }
+            }
+            .width(36)
         } rows: {
             ForEach(rows) { row in
                 TableRow(row).draggable(row.uri)
             }
         }
+        .alternatingRowBackgrounds(.disabled)
+        .scrollContentBackground(.hidden)
         .accessibilityIdentifier("trackList")
         .contextMenu(forSelectionType: Row.ID.self) { ids in
             menu(for: rows.filter { ids.contains($0.id) })
@@ -85,6 +118,8 @@ struct TrackList: View {
             }
         }
     }
+
+    @Environment(\.palette) private var palette
 
     @ViewBuilder private func menu(for rows: [Row]) -> some View {
         let uris = rows.map(\.uri)
@@ -162,6 +197,7 @@ struct TrackList: View {
         let durationMs: UInt32
         let playable: Bool
         let unavailableHelp: String?
+        let artwork: [Artwork]
 
         var id: Int { number }
         var albumName: String { album?.name ?? "" }
@@ -179,6 +215,7 @@ struct TrackList: View {
                 durationMs = track.durationMs
                 playable = track.playability == .playable
                 unavailableHelp = track.playability.unavailableHelp
+                artwork = track.artwork
             case let .episode(episode):
                 title = episode.title
                 artists = [ItemRef(uri: "", name: episode.showName)]
@@ -186,6 +223,7 @@ struct TrackList: View {
                 durationMs = episode.durationMs
                 playable = true
                 unavailableHelp = nil
+                artwork = episode.artwork
             case .unavailable:
                 title = String(localized: "Unavailable")
                 artists = []
@@ -193,6 +231,7 @@ struct TrackList: View {
                 durationMs = 0
                 playable = false
                 unavailableHelp = nil
+                artwork = []
             default:
                 title = ""
                 artists = []
@@ -200,6 +239,7 @@ struct TrackList: View {
                 durationMs = 0
                 playable = true
                 unavailableHelp = nil
+                artwork = []
             }
         }
     }
@@ -262,20 +302,135 @@ private struct ReturnKeyMonitor: NSViewRepresentable {
     }
 }
 
+/// The row under the pointer, kept out of `TrackList` so a hover redraws only the visible cells.
+@Observable private final class RowHover {
+    var row: TrackList.Row.ID?
+}
+
+private extension View {
+    /// Table cells have gaps between them, so each cell reports the pointer for its row.
+    func hoverTracked(_ row: TrackList.Row, _ hover: RowHover) -> some View {
+        onHover { inside in
+            if inside {
+                hover.row = row.id
+            } else if hover.row == row.id {
+                hover.row = nil
+            }
+        }
+    }
+}
+
+/// The row number; a play button under the pointer, the equalizer on the playing row.
 private struct NumberCell: View {
     let row: TrackList.Row
     let playing: Bool
+    let animating: Bool
+    let hover: RowHover
+    let play: () -> Void
 
     var body: some View {
-        if playing {
-            Image(systemName: "speaker.wave.2.fill")
-                .foregroundStyle(.tint)
-                .accessibilityLabel("Now Playing")
-        } else {
-            Text(row.number, format: .number)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+        Group {
+            if playing {
+                Equalizer(animating: animating)
+            } else if hover.row == row.id, row.playable {
+                // Return and double-click play the selection too, so this stays a pointer shortcut.
+                Button(action: play) {
+                    Image(systemName: "play.fill")
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Play \(row.title)"))
+            } else {
+                Text(row.number, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .hoverTracked(row, hover)
+    }
+}
+
+/// Three bars that bounce while playing; still when paused or under Reduce Motion.
+struct Equalizer: View {
+    let animating: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        TimelineView(.animation(paused: !animating || reduceMotion)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: 2) {
+                ForEach(0 ..< 3, id: \.self) { bar in
+                    RoundedRectangle(cornerRadius: 1)
+                        .frame(width: 3, height: reduceMotion ? [8, 14, 10][bar] : Self.height(time, bar))
+                }
+            }
+            .frame(height: 14, alignment: .bottom)
+        }
+        .foregroundStyle(Color(palette.tintText))
+        .accessibilityRepresentation {
+            Image(systemName: "speaker.wave.2.fill")
+                .accessibilityLabel("Now Playing")
+        }
+    }
+
+    /// 4 to 14 pt over a 0.9 s cycle, each bar a third of a cycle behind the last.
+    private static func height(_ time: TimeInterval, _ bar: Int) -> CGFloat {
+        let phase = time / 0.9 + Double(bar) / 3
+        return 4 + 10 * (0.5 - 0.5 * cos(2 * .pi * phase))
+    }
+}
+
+/// Saved songs keep a tinted heart; others show it under the pointer or when selected.
+private struct LikeCell: View {
+    let row: TrackList.Row
+    let library: LibraryModel
+    let revealed: Bool
+    let hover: RowHover
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        let saved = library.isSaved(row.uri)
+        Button {
+            library.setSaved(row.uri, !saved)
+        } label: {
+            Image(systemName: saved ? "heart.fill" : "heart")
+                .foregroundStyle(saved ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.secondary))
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(saved ? Text("Remove from Liked Songs") : Text("Save to Liked Songs"))
+        .help(saved ? Text("Remove from Liked Songs") : Text("Save to Liked Songs"))
+        .opacity(saved || revealed || hover.row == row.id ? 1 : 0)
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .hoverTracked(row, hover)
+    }
+}
+
+/// The row's context menu behind a "•••" button, shown under the pointer or when selected.
+private struct MoreCell<Items: View>: View {
+    let row: TrackList.Row
+    let revealed: Bool
+    let hover: RowHover
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        Menu(content: items) {
+            Image(systemName: "ellipsis")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(.secondary)
+        .accessibilityLabel(Text("More Options"))
+        .help(Text("More Options"))
+        .opacity(revealed || hover.row == row.id ? 1 : 0)
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .hoverTracked(row, hover)
     }
 }
 

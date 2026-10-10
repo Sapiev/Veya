@@ -36,10 +36,12 @@ struct QueuePanel: View {
     private func queue(_ player: PlayerModel) -> some View {
         List(selection: $selection) {
             if let current = player.nowPlaying {
-                Section("Now Playing") {
-                    QueueRow(uri: current.uri, library: library)
+                Section {
+                    QueueRow(uri: current.uri, library: library, current: true)
                         .task(id: current.uri) { library.resolve([current.uri]) }
                         .selectionDisabled()
+                } header: {
+                    QueueLabel(title: Text("Now Playing"))
                 }
             }
             Section {
@@ -49,7 +51,7 @@ struct QueuePanel: View {
                 }
                 ForEach(Array(player.upNext.enumerated()), id: \.offset) { offset, uri in
                     QueueRow(uri: uri, library: library)
-                        .task(id: uri) { resolve(player.upNext, from: offset) }
+                        .task(id: uri) { Self.resolve(player.upNext, from: offset, in: library) }
                         .contextMenu {
                             Button("Remove from Queue") { player.removeFromUpNext(at: removal(offset)) }
                         }
@@ -61,7 +63,7 @@ struct QueuePanel: View {
                 .onMove { player.moveInUpNext(fromOffsets: $0, toOffset: $1) }
             } header: {
                 HStack {
-                    Text("Next in Queue")
+                    QueueLabel(title: Text("Next in Queue"))
                     Spacer()
                     Button("Clear Queue") { player.clearUpNext() }
                         .buttonStyle(.borderless)
@@ -69,17 +71,22 @@ struct QueuePanel: View {
                 }
             }
             if !player.nextFromContext.isEmpty {
-                Section(nextFromTitle(player.context)) {
+                Section {
                     // Negative ids keep these rows apart from Up Next's, whose ids are their positions.
                     ForEach(player.nextFromContext.indices.map { -1 - $0 }, id: \.self) { id in
                         let offset = -1 - id
                         QueueRow(uri: player.nextFromContext[offset], library: library)
-                            .task(id: player.nextFromContext[offset]) { resolve(player.nextFromContext, from: offset) }
+                            .task(id: player.nextFromContext[offset]) {
+                                Self.resolve(player.nextFromContext, from: offset, in: library)
+                            }
                             .selectionDisabled()
                     }
+                } header: {
+                    QueueLabel(title: Text(nextFromTitle(player.context)))
                 }
             }
         }
+        .scrollContentBackground(.hidden)
         .accessibilityIdentifier("queue")
         // A row click selects without focusing the list, which Delete and the arrow keys need.
         .focused($listFocused)
@@ -99,8 +106,8 @@ struct QueuePanel: View {
         selection.contains(offset) ? IndexSet(selection) : [offset]
     }
 
-    private func resolve(_ uris: [String], from offset: Int) {
-        library.resolve(Array(uris[offset ..< min(offset + Self.resolveAhead, uris.count)]))
+    static func resolve(_ uris: [String], from offset: Int, in library: LibraryModel) {
+        library.resolve(Array(uris[offset ..< min(offset + resolveAhead, uris.count)]))
     }
 
     private func nextFromTitle(_ context: String?) -> String {
@@ -121,20 +128,60 @@ struct QueuePanel: View {
     }
 }
 
-private struct QueueRow: View {
-    let uri: String
-    let library: LibraryModel
+/// A queue section title (`.q-label`).
+struct QueueLabel: View {
+    let title: Text
 
     var body: some View {
-        let row = TrackList.Row(number: 0, entry: TrackEntry(uri: uri), item: library.metadata[uri])
-        VStack(alignment: .leading, spacing: 1) {
-            Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
-                .lineLimit(1)
-            Text(row.artists.map(\.name).formatted(.list(type: .and)))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        title
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.tertiary)
+    }
+}
+
+/// A queued song: artwork, title and artists; the playing one's title in the tint, white over artwork.
+struct QueueRow: View {
+    let uri: String
+    let library: LibraryModel
+    var current = false
+    var onArtwork = false
+    @Environment(\.palette) private var palette
+    @State private var hovering = false
+
+    var body: some View {
+        let item = library.metadata[uri]
+        let row = TrackList.Row(number: 0, entry: TrackEntry(uri: uri), item: item)
+        HStack(spacing: Theme.s3) {
+            ArtworkView(artwork: Self.artwork(item), side: 40)
+                .clipShape(.rect(cornerRadius: 4))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
+                    .font(.system(size: 13, weight: current && onArtwork ? .bold : .regular))
+                    .foregroundStyle(titleColor)
+                Text(row.artists.map(\.name).formatted(.list(type: .and)))
+                    .font(.system(size: 12))
+                    .foregroundStyle(onArtwork ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(.secondary))
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.s2)
+        .frame(minHeight: 52)
+        .background(hovering ? (onArtwork ? .white.opacity(0.1) : .fill) : .clear, in: .rect(cornerRadius: Theme.smallRadius))
+        .onHover { hovering = $0 }
         .opacity(row.playable ? 1 : 0.4)
+    }
+
+    private var titleColor: Color {
+        if onArtwork { .white } else if current { Color(palette.tintText) } else { .primary }
+    }
+
+    private static func artwork(_ item: MetadataItem?) -> [Artwork] {
+        switch item {
+        case let .track(track): track.artwork
+        case let .episode(episode): episode.artwork
+        default: []
+        }
     }
 }

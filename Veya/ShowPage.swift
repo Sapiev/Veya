@@ -44,6 +44,7 @@ struct ShowPage: View {
                         canPlay: player != nil && episode.playability == .playable
                     ) { play(episode.uri) }
                 }
+                .scrollContentBackground(.hidden)
                 .contextMenu(forSelectionType: String.self) { uris in
                     if let episode = uris.first {
                         Button("Play") { play(episode) }
@@ -62,21 +63,11 @@ struct ShowPage: View {
     }
 
     private func header(_ show: ShowMetadata) -> some View {
-        HStack(alignment: .bottom, spacing: 20) {
-            ArtworkView(artwork: show.artwork, side: 160)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            VStack(alignment: .leading, spacing: 6) {
-                PageHeading(title: show.name)
-                Text(show.publisher)
-                    .font(.title3)
-                if !show.description.isEmpty {
-                    Text(show.description)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(4)
-                }
-            }
+        PageHero(kind: "Podcast", title: show.name, artwork: show.artwork, description: show.description) {
+            Text(show.publisher)
+                .fontWeight(.semibold)
+                .foregroundStyle(.primary)
         }
-        .padding(20)
     }
 
     private func play(_ episode: String) {
@@ -96,6 +87,7 @@ private struct EpisodeRow: View {
     let isCurrent: Bool
     let canPlay: Bool
     let play: () -> Void
+    @Environment(\.palette) private var palette
 
     private var played: Bool { progress?.fullyPlayed == true }
 
@@ -114,7 +106,7 @@ private struct EpisodeRow: View {
             }
             Text(episode.title)
                 .font(.headline)
-                .foregroundStyle(isCurrent ? AnyShapeStyle(.tint) : played ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .foregroundStyle(isCurrent ? AnyShapeStyle(Color(palette.tintText)) : played ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .lineLimit(isSelected ? nil : 2)
             status
             if isSelected {

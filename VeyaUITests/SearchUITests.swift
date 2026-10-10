@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-405: the Search screen.
+/// PBI-405: the Search screen and its toolbar field.
 final class SearchUITests: XCTestCase {
     @MainActor private func signedIn() -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -36,6 +36,37 @@ final class SearchUITests: XCTestCase {
         XCTAssertEqual(app.searchField.value as? String, "abc")
     }
 
+    @MainActor func testCommandKFocusesTheToolbarFieldAndTypingShowsResults() {
+        let app = signedIn()
+
+        app.typeKey("k", modifierFlags: .command)
+        app.typeText("test")
+
+        XCTAssertEqual(app.searchField.value as? String, "test")
+        XCTAssertTrue(app.searchResults.staticTexts["Top Result"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testTypingInTheToolbarFieldFromAnotherScreenOpensSearch() {
+        let app = signedIn()
+        app.outlines.staticTexts["Liked Songs"].click()
+
+        app.searchField.click()
+        app.typeText("test")
+
+        XCTAssertTrue(app.searchResults.staticTexts["Top Result"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testEscapeClearsTheQueryBackToRecentSearches() {
+        let app = signedIn()
+        searchFor("test", in: app)
+        XCTAssertTrue(app.searchResults.staticTexts["Top Result"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.typeKey(.escape, modifierFlags: [])
+
+        XCTAssertTrue(app.showsRoute("Search"))
+        XCTAssertFalse(app.searchResults.exists)
+    }
+
     @MainActor func testTypingShowsTheTopResultAndASectionPerKind() {
         let app = signedIn()
 
@@ -44,6 +75,32 @@ final class SearchUITests: XCTestCase {
         for text in ["Top Result", "Songs", "Artists", "Albums", "Test Artist", "Test Album", "Song 3"] {
             XCTAssertTrue(app.searchResults.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
         }
+    }
+
+    @MainActor func testTopResultSongPlaysFromItsPlayButton() {
+        let app = signedIn()
+        searchFor("test", in: app)
+        let play = app.searchResults.buttons["Play"]
+        XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
+
+        play.click()
+
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 1")).count >= 2)
+    }
+
+    @MainActor func testClickingAnAlbumCardOpensItsPage() {
+        let app = signedIn()
+        searchFor("test", in: app)
+        let album = app.searchResults.staticTexts["Test Album"]
+        XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
+        for _ in 0 ..< 10 where !album.isHittable {
+            app.searchResults.scroll(byDeltaX: 0, deltaY: -200)
+        }
+
+        album.click()
+
+        XCTAssertTrue(app.showsRoute("Test Album"))
     }
 
     @MainActor func testShowMoreLoadsTheNextPage() {

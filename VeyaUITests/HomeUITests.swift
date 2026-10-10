@@ -25,6 +25,26 @@ final class HomeUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts[Self.signInAgain].exists)
     }
 
+    @MainActor func testGreetsByTimeOfDay() {
+        let app = home()
+        let greetings = ["Good morning", "Good afternoon", "Good evening", "Good night"]
+
+        let greeting = app.staticTexts["greeting"]
+        XCTAssertTrue(greeting.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(greetings.contains(greeting.value as? String ?? ""))
+    }
+
+    @MainActor func testJumpBackInIsQuickTilesThatOpenTheirPage() {
+        let app = home()
+        let tile = app.buttons["Road Trip"]
+        XCTAssertTrue(tile.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["Jump Back In"].exists)
+
+        tile.click()
+
+        XCTAssertTrue(app.showsRoute("Road Trip"))
+    }
+
     @MainActor func testMissingScopeHidesRecentSectionsAndAsksToSignInAgain() {
         let app = home(.recentlyPlayedNeedsSignIn)
 

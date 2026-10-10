@@ -65,8 +65,8 @@ final class QueueUITests: XCTestCase {
 
     @MainActor func testPlayingAnAlbumShowsWhatFollowsFromIt() {
         let app = openQueue()
-        app.outlines.staticTexts["Albums"].click()
-        let album = app.outlines.buttons["Test Album"]
+        app.sidebarItem("Albums").click()
+        let album = app.savedItems.buttons["Test Album"]
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
         album.click()
         XCTAssertTrue(app.showsRoute("Test Album"))

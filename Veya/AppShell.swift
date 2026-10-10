@@ -21,11 +21,14 @@ struct AppShell: View {
     @State private var search: SearchModel
     @State private var home: HomeModel
     @State private var searchFocusRequest = 0
+    @State private var searchSelection: SearchResultID?
     private let recentSearches: RecentSearches
     /// Hands the started player to the session owner, which stops it on sign out; false drops it.
     private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
+    @State private var nowPlayingVisible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         session: any SessionHandle,
@@ -56,35 +59,35 @@ struct AppShell: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: columnVisibility) {
-            Sidebar(selection: selection, playlists: playlists)
+            Sidebar(selection: selection, playlists: playlists, library: library, player: player)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
-            switch history.current {
-            case .home:
-                HomeView(home: home, player: player, history: history)
-            case .search:
-                SearchView(search: search, recent: recentSearches, player: player, history: history, focusRequest: searchFocusRequest)
-            case .likedSongs:
-                LikedSongs(library: library, player: player, playlists: playlists, history: history)
-            case .albums:
-                SavedItems(kind: .albums, library: library, history: history)
-            case .artists:
-                SavedItems(kind: .artists, library: library, history: history)
-            case .podcasts:
-                SavedItems(kind: .shows, library: library, history: history)
-            case let .album(uri):
-                AlbumPage(uri: uri, library: library, player: player, playlists: playlists, history: history)
-            case let .artist(uri):
-                ArtistPage(uri: uri, library: library, player: player, history: history)
-            case let .playlist(uri):
-                PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
-            case let .show(uri):
-                ShowPage(uri: uri, podcast: podcast, player: player)
-            }
+            page
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background { AmbientBackground() }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if let player {
+                        NowPlayingBar(
+                            player: player,
+                            library: library,
+                            history: history,
+                            queueVisible: $queueVisible,
+                            expanded: $nowPlayingVisible
+                        )
+                        .padding(Theme.s3)
+                    }
+                }
         }
         .inspector(isPresented: $queueVisible) {
             QueuePanel(player: player, library: library, playlists: playlists)
         }
+        .overlay {
+            if nowPlayingVisible, let player {
+                NowPlayingView(player: player, library: library, history: history) { nowPlayingVisible = false }
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : Theme.standard, value: nowPlayingVisible)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left", action: history.back)
@@ -94,22 +97,31 @@ struct AppShell: View {
                     .disabled(!history.canGoForward)
                     .help("Forward")
             }
+            ToolbarItem(placement: .navigation) {
+                SearchField(
+                    search: search,
+                    recent: recentSearches,
+                    player: player,
+                    history: history,
+                    selection: $searchSelection,
+                    focusRequest: searchFocusRequest
+                )
+            }
         }
         .focusedSceneValue(\.navigationHistory, history)
         .focusedSceneValue(\.queueVisible, $queueVisible)
         .focusedSceneValue(\.focusSearch, focusSearch)
         .background {
-            // ⌘F is in the Go menu; ⌘L is the browser habit for the same thing.
+            // ⌘F is in the Go menu; ⌘L is the browser habit, ⌘K the design's hint.
             Button("Search", action: focusSearch)
                 .keyboardShortcut("l")
                 .hidden()
+            Button("Search", action: focusSearch)
+                .keyboardShortcut("k")
+                .hidden()
         }
         .background(SwipeNavigation(history: history))
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let player {
-                NowPlayingBar(player: player, library: library, history: history, queueVisible: $queueVisible)
-            }
-        }
+        .modifier(AdaptiveColors(artwork: player?.nowPlaying?.artwork ?? []))
         .task {
             playlists.load()
             await playlists.watch()
@@ -129,6 +141,31 @@ struct AppShell: View {
         }
     }
 
+    @ViewBuilder private var page: some View {
+        switch history.current {
+        case .home:
+            HomeView(home: home, player: player, history: history)
+        case .search:
+            SearchView(search: search, recent: recentSearches, player: player, history: history, selection: $searchSelection)
+        case .likedSongs:
+            LikedSongs(library: library, player: player, playlists: playlists, history: history)
+        case .albums:
+            SavedItems(kind: .albums, library: library, history: history)
+        case .artists:
+            SavedItems(kind: .artists, library: library, history: history)
+        case .podcasts:
+            SavedItems(kind: .shows, library: library, history: history)
+        case let .album(uri):
+            AlbumPage(uri: uri, library: library, player: player, playlists: playlists, history: history)
+        case let .artist(uri):
+            ArtistPage(uri: uri, library: library, player: player, history: history)
+        case let .playlist(uri):
+            PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
+        case let .show(uri):
+            ShowPage(uri: uri, podcast: podcast, player: player)
+        }
+    }
+
     private func focusSearch() {
         history.navigate(to: .search)
         searchFocusRequest += 1
@@ -140,78 +177,6 @@ struct AppShell: View {
 
     private var columnVisibility: Binding<NavigationSplitViewVisibility> {
         Binding(get: { sidebarVisible ? .all : .detailOnly }, set: { sidebarVisible = $0 != .detailOnly })
-    }
-}
-
-private struct Sidebar: View {
-    @Binding var selection: Route?
-    let playlists: PlaylistModel
-    /// Expanded folder URIs, one per line.
-    @SceneStorage("expandedFolders") private var expandedFolders = ""
-
-    var body: some View {
-        List(selection: $selection) {
-            Label("Home", systemImage: "house").tag(Route.home)
-            Label("Search", systemImage: "magnifyingglass").tag(Route.search)
-            Section("Library") {
-                Label("Liked Songs", systemImage: "heart").tag(Route.likedSongs)
-                Label("Albums", systemImage: "square.stack").tag(Route.albums)
-                Label("Artists", systemImage: "music.mic").tag(Route.artists)
-                Label("Podcasts", systemImage: "mic").tag(Route.podcasts)
-            }
-            Section("Playlists") {
-                PlaylistRows(nodes: playlists.tree, expanded: expanded)
-                if playlists.rootlist.isEmpty {
-                    switch playlists.state {
-                    case .loaded:
-                        Text("No Playlists")
-                            .foregroundStyle(.secondary)
-                    case .failed:
-                        Text("Couldn't Load Playlists")
-                            .foregroundStyle(.secondary)
-                        Button("Try Again") { playlists.load() }
-                            .buttonStyle(.borderless)
-                    case .loading, nil:
-                        EmptyView()
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
-    }
-
-    private var expanded: Binding<Set<String>> {
-        Binding(
-            get: { Set(expandedFolders.split(separator: "\n").map(String.init)) },
-            set: { expandedFolders = $0.sorted().joined(separator: "\n") }
-        )
-    }
-}
-
-/// Folders as disclosure groups, collapsed until opened; playlists select their page.
-private struct PlaylistRows: View {
-    let nodes: [RootlistNode]
-    @Binding var expanded: Set<String>
-
-    var body: some View {
-        ForEach(nodes) { node in
-            if let children = node.children {
-                DisclosureGroup(isExpanded: isExpanded(node.id)) {
-                    PlaylistRows(nodes: children, expanded: $expanded)
-                } label: {
-                    Label(node.name, systemImage: "folder")
-                }
-            } else {
-                Label(node.name, systemImage: "music.note.list").tag(Route.playlist(uri: node.id))
-            }
-        }
-    }
-
-    private func isExpanded(_ folder: String) -> Binding<Bool> {
-        Binding(
-            get: { expanded.contains(folder) },
-            set: { expanded = $0 ? expanded.union([folder]) : expanded.subtracting([folder]) }
-        )
     }
 }
 
@@ -246,7 +211,7 @@ private struct LikedSongs: View {
     }
 }
 
-/// Saved albums, followed artists or followed shows by name; each opens its page.
+/// Saved albums, followed artists or followed shows as a grid of cards; each opens its page.
 private struct SavedItems: View {
     let kind: LibraryKind
     let library: LibraryModel
@@ -263,10 +228,22 @@ private struct SavedItems: View {
                 failureTitle: kind.failureTitle,
                 retry: { library.load(kind) }
             ) {
-                List(items, id: \.uri) { item in
-                    Button(name(item.uri)) { history.navigate(to: route(item.uri)) }
-                        .buttonStyle(.plain)
+                ScrollView {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: MediaCard.width), spacing: Theme.s4, alignment: .top)],
+                        alignment: .leading,
+                        spacing: Theme.s4
+                    ) {
+                        ForEach(items, id: \.uri) { item in
+                            MediaCard(title: name(item.uri), artwork: artwork(item.uri), round: kind == .artists) {
+                                history.navigate(to: route(item.uri))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, Theme.s8)
+                    .padding(.bottom, Theme.s8)
                 }
+                .accessibilityIdentifier("savedItems")
                 .task(id: items) { library.resolve(items.map(\.uri)) }
             }
         }
@@ -284,6 +261,15 @@ private struct SavedItems: View {
         }
     }
 
+    private func artwork(_ uri: String) -> [Artwork] {
+        switch library.metadata[uri] {
+        case let .album(album): album.artwork
+        case let .artist(artist): artist.artwork
+        case let .show(show): show.artwork
+        default: []
+        }
+    }
+
     private func route(_ uri: String) -> Route {
         switch kind {
         case .albums: .album(uri: uri)
@@ -298,10 +284,11 @@ struct PageTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.largeTitle.bold())
+            .font(Theme.greeting)
             .accessibilityIdentifier("routeTitle")
-            .padding([.horizontal, .top], 20)
-            .padding(.bottom, 12)
+            .padding(.horizontal, Theme.s8)
+            .padding(.top, Theme.s5)
+            .padding(.bottom, Theme.s3)
     }
 }
 

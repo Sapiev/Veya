@@ -1,7 +1,7 @@
 import SpotCoreKit
 import SwiftUI
 
-/// Recently Played, Jump Back In and Made for You; a section that is empty or failed is hidden.
+/// A greeting, Jump Back In as quick tiles, then Recently Played and Made for You; a section that is empty or failed is hidden.
 struct HomeView: View {
     let home: HomeModel
     let player: PlayerModel?
@@ -21,30 +21,45 @@ struct HomeView: View {
                 retry: { home.load() }
             ) {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 28) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(Self.greeting(at: .now))
+                            .font(Theme.greeting)
+                            .accessibilityIdentifier("greeting")
+                            .padding(.horizontal, Theme.s8)
                         if home.recentlyPlayedNeedsSignIn {
                             Label(
                                 "Sign out and sign in again to see Recently Played and Jump Back In.",
                                 systemImage: "info.circle"
                             )
                             .foregroundStyle(.secondary)
+                            .padding(.horizontal, Theme.s8)
+                            .padding(.top, Theme.s4)
                         }
+                        QuickAccess(title: "Jump Back In", tiles: jumpBackIn) { open($0) }
                         Shelf(title: "Recently Played", tiles: recent) { index, _ in
                             let queue = recent.enumerated().filter { $0.element.playable }
                             if let start = queue.firstIndex(where: { $0.offset == index }) {
                                 player?.play(queue.map(\.element.uri), from: start)
                             }
                         }
-                        Shelf(title: "Jump Back In", tiles: jumpBackIn) { _, tile in open(tile) }
                         Shelf(title: "Made for You", tiles: madeForYou) { _, tile in open(tile) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding([.horizontal, .bottom], 20)
+                    .padding(.bottom, Theme.s8)
                 }
             }
         }
         .navigationTitle("Home")
         .task { home.load() }
+    }
+
+    static func greeting(at date: Date) -> LocalizedStringKey {
+        switch Calendar.current.component(.hour, from: date) {
+        case ..<5: "Good night"
+        case ..<12: "Good morning"
+        case ..<18: "Good afternoon"
+        default: "Good evening"
+        }
     }
 
     /// Tracks and episodes have no page, so they play instead.
@@ -65,21 +80,75 @@ private struct Shelf: View {
 
     var body: some View {
         if !tiles.isEmpty {
-            PageSection(title: title) {
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        // Offsets as ids: a track played twice appears twice.
-                        ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
-                            Card(title: tile.title, subtitle: tile.subtitle, artwork: tile.artwork, round: tile.round) {
-                                activate(index, tile)
-                            }
-                            .opacity(tile.playable ? 1 : 0.45)
-                        }
+            SectionHeader(title: title)
+                .padding(.horizontal, Theme.s8)
+            CardRail {
+                // Offsets as ids: a track played twice appears twice.
+                ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
+                    MediaCard(
+                        title: tile.title, subtitle: tile.subtitle, artwork: tile.artwork, round: tile.round,
+                        playable: tile.route == nil && tile.playable
+                    ) {
+                        activate(index, tile)
                     }
+                    .opacity(tile.playable ? 1 : 0.45)
                 }
-                .scrollIndicators(.never)
             }
         }
+    }
+}
+
+/// The top shelf as a grid of short tiles (`.quick`); hidden when it has none.
+private struct QuickAccess: View {
+    let title: LocalizedStringKey
+    let tiles: [Tile]
+    let activate: (Tile) -> Void
+
+    var body: some View {
+        if !tiles.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionHeader(title: title)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: Theme.s2)], spacing: Theme.s2) {
+                    ForEach(Array(tiles.prefix(6).enumerated()), id: \.offset) { _, tile in
+                        QuickTile(tile: tile) { activate(tile) }
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.s8)
+        }
+    }
+}
+
+private struct QuickTile: View {
+    let tile: Tile
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: Theme.s3) {
+                ArtworkView(artwork: tile.artwork, side: 56)
+                    .clipShape(tile.round ? AnyShape(Circle()) : AnyShape(Rectangle()))
+                Text(tile.title)
+                    .font(Theme.cardTitle)
+                    .lineLimit(1)
+                Spacer(minLength: Theme.s2)
+            }
+            .frame(height: 56)
+            .background(hovering ? Color.fillStrong : Color.fill)
+            .clipShape(.rect(cornerRadius: Theme.smallRadius))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tile.subtitle.map { "\(tile.title), \($0)" } ?? tile.title)
+        .overlay(alignment: .trailing) {
+            if tile.route == nil, tile.playable, hovering {
+                HoverPlay(action: open).padding(.trailing, Theme.s2)
+            }
+        }
+        .opacity(tile.playable ? 1 : 0.45)
+        .onHover { hovering = $0 }
+        .animation(Theme.fast, value: hovering)
     }
 }
 

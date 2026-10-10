@@ -48,7 +48,25 @@ final class NowPlayingUITests: XCTestCase {
         lyrics.click()
 
         XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
-        app.buttons["Done"].click()
-        XCTAssertFalse(app.staticTexts["Lyrics aren't available yet."].exists)
+        app.buttons["Close Now Playing"].click()
+        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForNonExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testExpandedViewShowsTheQueueAndClosesWithEscape() {
+        let app = XCUIApplication.launch(.signedIn)
+        let expand = app.buttons["Show Now Playing"]
+        XCTAssertTrue(expand.waitForExistence(timeout: XCUIApplication.timeout))
+
+        expand.click()
+        XCTAssertTrue(app.radioButtons["Queue"].waitForExistence(timeout: XCUIApplication.timeout))
+        let queue = app.scrollViews["nowPlayingQueue"]
+        for text in ["Now Playing", "Next in Queue", "Song 5", "Next Up", "Song 7"] {
+            XCTAssertTrue(queue.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
+        }
+        XCTAssertTrue(app.buttons["Close Now Playing"].exists)
+
+        app.typeKey(.escape, modifierFlags: [])
+
+        XCTAssertTrue(queue.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 }

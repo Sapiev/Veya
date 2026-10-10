@@ -83,6 +83,28 @@ final class TrackListUITests: XCTestCase {
         XCTAssertFalse(app.menuItems["Add to Playlist"].isEnabled)
     }
 
+    @MainActor func testRowHeartRemovesTheSongFromLikedSongs() {
+        let app = likedSongs()
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
+
+        row.buttons["Remove from Liked Songs"].click()
+
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.trackList.staticTexts["Song 1"])
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: XCUIApplication.timeout), .completed)
+    }
+
+    @MainActor func testMoreButtonOffersTheTrackActions() {
+        let app = likedSongs()
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
+        row.staticTexts["Song 1"].hover()
+
+        row.descendants(matching: .any)["More Options"].firstMatch.click()
+
+        for item in ["Play Next", "Add to Queue", "Go to Album", "Copy Link"] {
+            XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
+        }
+    }
+
     @MainActor func testGoToAlbumOpensTheAlbumPage() {
         let app = likedSongs()
 

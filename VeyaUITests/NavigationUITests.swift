@@ -8,9 +8,47 @@ final class NavigationUITests: XCTestCase {
 
         let sidebar = app.outlines.firstMatch
         for item in ["Home", "Search", "Liked Songs", "Albums", "Artists", "Podcasts", "Road Trip"] {
-            XCTAssertTrue(sidebar.staticTexts[item].exists, item)
+            XCTAssertTrue(app.sidebarItem(item).exists, item)
         }
         XCTAssertEqual(app.routeTitle.value as? String, "Home")
+    }
+
+    /// Saved artists, albums and podcasts list in the sidebar and open their page.
+    @MainActor func testSidebarSectionsListSavedItemsThatOpenTheirPage() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        let sidebar = app.outlines.firstMatch
+
+        for item in ["Test Artist", "Test Album", "Test Podcast"] {
+            let row = sidebar.staticTexts[item]
+            XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout), item)
+            row.click()
+            XCTAssertTrue(app.showsRoute(item), item)
+        }
+    }
+
+    @MainActor func testSidebarMarksThePlayingAlbum() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        let sidebar = app.outlines.firstMatch
+        let row = sidebar.outlineRows.containing(NSPredicate(format: "label == 'Test Album' OR value == 'Test Album'"))
+        XCTAssertTrue(sidebar.staticTexts["Test Album"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(row.images["Now Playing"].exists)
+
+        sidebar.staticTexts["Test Album"].click()
+        app.buttons["pagePlay"].click()
+
+        XCTAssertTrue(row.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testSidebarSectionHeaderOpensTheFullGrid() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.sidebarItem("Albums").click()
+
+        XCTAssertTrue(app.showsRoute("Albums"))
+        XCTAssertTrue(app.savedItems.buttons["Test Album"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     /// PBI-304: folders start collapsed and open to show the playlists inside.
@@ -39,7 +77,7 @@ final class NavigationUITests: XCTestCase {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.outlines.staticTexts["Liked Songs"].click()
-        app.outlines.staticTexts["Albums"].click()
+        app.sidebarItem("Albums").click()
         XCTAssertEqual(app.routeTitle.value as? String, "Albums")
 
         app.typeKey("[", modifierFlags: .command)
@@ -56,7 +94,7 @@ final class NavigationUITests: XCTestCase {
         let forward = app.toolbars.buttons["Forward"]
         XCTAssertFalse(back.isEnabled)
 
-        app.outlines.staticTexts["Artists"].click()
+        app.sidebarItem("Artists").click()
         back.click()
         XCTAssertEqual(app.routeTitle.value as? String, "Home")
         XCTAssertFalse(back.isEnabled)

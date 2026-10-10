@@ -6,10 +6,9 @@ final class DetailPagesUITests: XCTestCase {
     @MainActor private func open(_ sidebarItem: String, then item: String? = nil, title: String) -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.outlines.staticTexts[sidebarItem].click()
+        app.sidebarItem(sidebarItem).click()
         if let item {
-            // The now-playing bar links "Test Artist" too; open the one in the saved list.
-            let button = app.outlines.buttons[item]
+            let button = app.savedItems.buttons[item]
             XCTAssertTrue(button.waitForExistence(timeout: XCUIApplication.timeout), item)
             button.click()
         }
@@ -26,6 +25,25 @@ final class DetailPagesUITests: XCTestCase {
         }
         XCTAssertFalse(app.trackList.staticTexts["Song 3"].exists)
         XCTAssertTrue(app.staticTexts["© 2024 Veya Test Records"].exists)
+    }
+
+    /// Album pages drop the album column: every row is on this album.
+    @MainActor func testAlbumTrackListHasNoAlbumColumn() {
+        let app = open("Albums", then: "Test Album", title: "Test Album")
+
+        XCTAssertTrue(app.trackList.staticTexts["Song 1"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Title"].exists)
+        XCTAssertFalse(app.buttons["Album"].exists)
+    }
+
+    @MainActor func testAlbumHeartRemovesAndSavesTheAlbum() {
+        let app = open("Albums", then: "Test Album", title: "Test Album")
+
+        let remove = app.buttons["Remove from Library"]
+        XCTAssertTrue(remove.waitForExistence(timeout: XCUIApplication.timeout))
+        remove.click()
+
+        XCTAssertTrue(app.buttons["Save to Library"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testAlbumPlayStartsTheFirstTrack() {

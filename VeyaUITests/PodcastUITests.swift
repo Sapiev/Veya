@@ -6,8 +6,8 @@ final class PodcastUITests: XCTestCase {
     @MainActor private func openShow() -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.outlines.staticTexts["Podcasts"].click()
-        let show = app.outlines.buttons["Test Podcast"]
+        app.sidebarItem("Podcasts").click()
+        let show = app.savedItems.buttons["Test Podcast"]
         XCTAssertTrue(show.waitForExistence(timeout: XCUIApplication.timeout))
         show.click()
         XCTAssertTrue(app.showsRoute("Test Podcast"))

@@ -24,7 +24,7 @@ final class EmptyStatesUITests: XCTestCase {
             "Podcasts": "No Followed Podcasts",
         ]
         for (item, state) in expected {
-            app.outlines.staticTexts[item].click()
+            app.sidebarItem(item).click()
             XCTAssertTrue(app.staticTexts[state].waitForExistence(timeout: XCUIApplication.timeout), state)
         }
     }
@@ -44,7 +44,7 @@ final class EmptyStatesUITests: XCTestCase {
     @MainActor func testSavedAlbumsListByNameAndOpenTheirPage() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.outlines.staticTexts["Albums"].click()
+        app.sidebarItem("Albums").click()
 
         let album = app.buttons["Test Album"]
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
@@ -58,7 +58,7 @@ final class EmptyStatesUITests: XCTestCase {
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
 
         for item in ["Home", "Search", "Liked Songs", "Albums", "Artists", "Podcasts", "Road Trip"] {
-            app.outlines.staticTexts[item].click()
+            app.sidebarItem(item).click()
             XCTAssertTrue(app.showsRoute(item), item)
         }
     }

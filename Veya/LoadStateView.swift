@@ -23,7 +23,7 @@ struct LoadStateView<Content: View>: View {
         } else {
             switch state {
             case .loaded:
-                ContentUnavailableView(empty.title, systemImage: empty.systemImage, description: Text(empty.message))
+                EmptyStateView(title: empty.title, systemImage: empty.systemImage, message: empty.message) {}
             case .failed:
                 FailedState(title: failureTitle, retry: retry)
             case .loading, nil:
@@ -40,12 +40,39 @@ struct FailedState: View {
     let retry: () -> Void
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: "exclamationmark.triangle")
-        } description: {
-            Text("Check your connection and try again.")
-        } actions: {
+        EmptyStateView(title: title, systemImage: "exclamationmark.triangle", message: "Check your connection and try again.") {
             Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
         }
+    }
+}
+
+/// The design's centered empty state (`.empty`): icon, title, message and an optional action.
+struct EmptyStateView<Actions: View>: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+    let message: LocalizedStringKey
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        VStack(spacing: Theme.s3) {
+            Image(systemName: systemImage)
+                .font(.system(size: 40))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .accessibilityAddTraits(.isHeader)
+            Text(message)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 420)
+            actions()
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Theme.s8)
+        .padding(.vertical, Theme.s12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -37,12 +37,20 @@ extension XCUIApplication {
         outlines.staticTexts["Liked Songs"]
     }
 
+    /// A sidebar row by name; "Albums", "Artists" and "Podcasts" are section headers that open the full page.
+    func sidebarItem(_ name: String) -> XCUIElement {
+        ["Albums", "Artists", "Podcasts"].contains(name) ? outlines.buttons[name] : outlines.staticTexts[name]
+    }
+
     /// The heading of the screen the main window shows.
     var routeTitle: XCUIElement {
         staticTexts["routeTitle"]
     }
 
     /// Waits for the main window to show the screen titled `title`.
+    /// The saved albums, artists or podcasts grid; the now-playing bar can link the same names.
+    var savedItems: XCUIElement { scrollViews["savedItems"] }
+
     func showsRoute(_ title: String) -> Bool {
         staticTexts.matching(NSPredicate(format: "identifier == 'routeTitle' AND value == %@", title)).firstMatch
             .waitForExistence(timeout: Self.timeout)

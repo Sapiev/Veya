@@ -1,77 +1,196 @@
+import AppKit
 import SpotCoreKit
 import SwiftUI
 
 extension FocusedValues {
-    /// Opens Search and focuses its field in the key window (⌘F, ⌘L).
+    /// Focuses the toolbar search field in the key window (⌘F, ⌘K, ⌘L).
     @Entry var focusSearch: (() -> Void)?
 }
 
-/// The Search route: a query field, recent searches while it is empty, then
-/// the top result and a section per kind.
-struct SearchView: View {
+/// The toolbar search field (`.search-field`). Typing opens the Search route;
+/// the field keeps focus while arrows move the selection, as in Spotlight.
+struct SearchField: View {
     let search: SearchModel
     let recent: RecentSearches
     let player: PlayerModel?
     let history: NavigationHistory
-    /// Bumped by ⌘F / ⌘L; each change focuses the field.
+    @Binding var selection: SearchResultID?
+    /// Bumped by ⌘F, ⌘K and ⌘L; each change focuses the field.
     let focusRequest: Int
 
-    @FocusState private var fieldFocused: Bool
-    @State private var selection: ResultID?
+    /// Bumped when the Search route opens, so picking it in the sidebar focuses the field.
+    @State private var routeFocus = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Search")
-                .font(.largeTitle.bold())
-                .accessibilityIdentifier("routeTitle")
-                .padding([.horizontal, .top], 20)
-                .padding(.bottom, 12)
-            field
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-            content
+        capsule {
+            HStack(spacing: Theme.s2) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                ToolbarTextField(
+                    text: query,
+                    prompt: String(localized: "Artists, songs, albums"),
+                    label: String(localized: "Search artists, songs and albums"),
+                    focusRequest: focusRequest + routeFocus,
+                    onKey: handle
+                )
+                Text(verbatim: "⌘K")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 4)
+                    .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(.separator, lineWidth: 0.5) }
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, Theme.s3)
+            .frame(width: 300, height: 36)
         }
-        .navigationTitle("Search")
-        .onAppear { fieldFocused = true }
-        .onChange(of: focusRequest) { fieldFocused = true }
+        .onChange(of: history.current) { _, route in
+            if route == .search { routeFocus += 1 }
+        }
     }
 
-    // The field keeps focus while arrows move the selection, as in Spotlight,
-    // because List swallows Return and its focus can't be tracked.
-    private var field: some View {
-        TextField("Search", text: query, prompt: Text("Artists, songs, albums or podcasts"))
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.large)
-            .focused($fieldFocused)
-            .accessibilityIdentifier("searchField")
-            .onKeyPress(.downArrow) {
-                move(by: 1)
-                return .handled
+    /// True when the key is handled; arrows and Return act only while the results are on screen.
+    private func handle(_ key: ToolbarTextField.Key) -> Bool {
+        let onResults = history.current == .search
+        switch key {
+        case .down where onResults:
+            move(by: 1)
+        case .up where onResults:
+            move(by: -1)
+        case .enter:
+            if onResults, let selection {
+                search.open(selection, recent: recent, player: player, history: history)
+            } else {
+                recent.add(search.query)
             }
-            .onKeyPress(.upArrow) {
-                move(by: -1)
-                return .handled
-            }
-            .onKeyPress(.return) {
-                guard let selection else { return .ignored }
-                activate(selection)
-                return .handled
-            }
-            .onSubmit { recent.add(search.query) }
+        case .escape where !search.query.isEmpty:
+            query.wrappedValue = ""
+        default:
+            return false
+        }
+        return true
+    }
+
+    /// macOS 26 draws toolbar items on glass already.
+    @ViewBuilder private func capsule(_ content: () -> some View) -> some View {
+        if #available(macOS 26, *) {
+            content()
+        } else {
+            content().glassPanel(cornerRadius: 18)
+        }
     }
 
     private var query: Binding<String> {
         Binding(get: { search.query }, set: {
             selection = nil
             search.search($0)
+            if !$0.trimmingCharacters(in: .whitespaces).isEmpty, history.current != .search {
+                history.navigate(to: .search)
+            }
         })
+    }
+
+    private func move(by delta: Int) {
+        let ids = search.ordered
+        guard !ids.isEmpty else { return }
+        let index = selection.flatMap { ids.firstIndex(of: $0) }.map { $0 + delta } ?? (delta > 0 ? 0 : ids.count - 1)
+        selection = ids[min(max(index, 0), ids.count - 1)]
+    }
+}
+
+/// An AppKit text field because SwiftUI focus doesn't reach toolbar items:
+/// ⌘F, ⌘K and ⌘L need to make it first responder.
+struct ToolbarTextField: NSViewRepresentable {
+    enum Key { case up, down, enter, escape }
+
+    @Binding var text: String
+    let prompt: String
+    let label: String
+    /// Each change makes the field first responder.
+    let focusRequest: Int
+    let onKey: (Key) -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.font = .systemFont(ofSize: 13)
+        field.placeholderString = prompt
+        field.setAccessibilityLabel(label)
+        field.setAccessibilityIdentifier("searchField")
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text { field.stringValue = text }
+        if context.coordinator.focusRequest != focusRequest {
+            context.coordinator.focusRequest = focusRequest
+            // Async: the window may not hold the field yet. Skipped while editing,
+            // since refocusing selects all and the next keystroke would replace the query.
+            DispatchQueue.main.async {
+                if field.currentEditor() == nil { field.window?.makeFirstResponder(field) }
+            }
+        }
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: ToolbarTextField
+        var focusRequest: Int
+
+        init(parent: ToolbarTextField) {
+            self.parent = parent
+            focusRequest = parent.focusRequest
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
+            switch selector {
+            case #selector(NSResponder.moveUp(_:)): parent.onKey(.up)
+            case #selector(NSResponder.moveDown(_:)): parent.onKey(.down)
+            case #selector(NSResponder.insertNewline(_:)): parent.onKey(.enter)
+            case #selector(NSResponder.cancelOperation(_:)): parent.onKey(.escape)
+            default: false
+            }
+        }
+    }
+}
+
+/// The Search route: recent searches while the toolbar query is empty, then
+/// the top result beside the songs and a rail per kind.
+struct SearchView: View {
+    let search: SearchModel
+    let recent: RecentSearches
+    let player: PlayerModel?
+    let history: NavigationHistory
+    @Binding var selection: SearchResultID?
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .navigationTitle("Search")
     }
 
     @ViewBuilder private var content: some View {
         if search.query.trimmingCharacters(in: .whitespaces).isEmpty {
-            RecentSearchesView(recent: recent) { query in
-                search.search(query)
-                recent.add(query)
+            VStack(alignment: .leading, spacing: 0) {
+                PageTitle(title: String(localized: "Search"))
+                RecentSearchesView(recent: recent) { query in
+                    search.search(query)
+                    recent.add(query)
+                }
             }
         } else if search.state == .failed {
             FailedState(title: "Couldn't Search") { search.search(search.query) }
@@ -89,71 +208,101 @@ struct SearchView: View {
 
     private var results: some View {
         ScrollViewReader { proxy in
-            List(selection: $selection) {
-                if let top {
-                    Section("Top Result") {
-                        HitRow(hit: top.hit, kind: top.id.kind, prominent: true).tag(top.id).id(top.id)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: Theme.s6) {
+                        if let top = search.top {
+                            VStack(alignment: .leading, spacing: 0) {
+                                SectionHeader(title: "Top Result")
+                                TopResultCard(hit: top.hit, kind: top.id.kind, selected: selection == top.id) {
+                                    activate(top.id)
+                                }
+                                .id(top.id)
+                            }
+                            .frame(minWidth: 220, maxWidth: 360)
+                        }
+                        if let songs = search.sections.first(where: { $0.kind == .track }) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                header(songs.kind)
+                                ForEach(songs.hits, id: \.uri) { hit in
+                                    let id = SearchResultID(top: false, kind: .track, uri: hit.uri)
+                                    SongRow(hit: hit, selected: selection == id) { activate(id) }.id(id)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.horizontal, Theme.s8)
+                    ForEach(search.sections.filter { $0.kind != .track }, id: \.kind) { group in
+                        header(group.kind).padding(.horizontal, Theme.s8)
+                        CardRail {
+                            ForEach(group.hits, id: \.uri) { hit in
+                                let id = SearchResultID(top: false, kind: group.kind, uri: hit.uri)
+                                MediaCard(
+                                    title: hit.name, subtitle: hit.subtitle, artwork: hit.artwork,
+                                    round: group.kind == .artist, playable: group.kind.plays,
+                                    grouped: true, selected: selection == id
+                                ) { activate(id) }
+                                .id(id)
+                            }
+                        }
                     }
                 }
-                ForEach(search.groups.filter { !$0.hits.isEmpty }, id: \.kind) { group in
-                    Section(group.kind.title) {
-                        ForEach(group.hits, id: \.uri) { hit in
-                            let id = ResultID(top: false, kind: group.kind, uri: hit.uri)
-                            HitRow(hit: hit, kind: group.kind, prominent: false).tag(id).id(id)
-                        }
-                        if search.hasMore(group.kind) {
-                            Button("Show More") { search.loadMore(group.kind) }
-                                .buttonStyle(.borderless)
-                                .selectionDisabled()
-                        }
-                    }
-                }
+                .padding(.top, Theme.s5)
+                .padding(.bottom, Theme.s8)
             }
             .accessibilityIdentifier("searchResults")
-            .contextMenu(forSelectionType: ResultID.self) { _ in
-            } primaryAction: { ids in
-                if let id = ids.first { activate(id) }
-            }
             .onChange(of: selection) { _, id in
-                if let id { proxy.scrollTo(id) }
-            }
-            .background {
-                // Return in the field is handled by onSubmit; this covers a clicked list.
-                if !fieldFocused, let selection {
-                    Button("Open") { activate(selection) }
-                        .keyboardShortcut(.return, modifiers: [])
-                        .hidden()
-                }
+                if let id { withAnimation(Theme.fast) { proxy.scrollTo(id) } }
             }
         }
     }
 
-    private var top: (id: ResultID, hit: SearchHit)? {
-        guard let group = search.groups.first(where: { !$0.hits.isEmpty }), let hit = group.hits.first else { return nil }
-        return (ResultID(top: true, kind: group.kind, uri: hit.uri), hit)
+    private func header(_ kind: SearchKind) -> some View {
+        HStack(alignment: .lastTextBaseline) {
+            SectionHeader(title: LocalizedStringKey(kind.title))
+            Spacer()
+            if search.hasMore(kind) {
+                Button("Show More") { search.loadMore(kind) }
+                    .buttonStyle(.borderless)
+                    .font(Theme.cardTitle)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, Theme.s3)
+            }
+        }
+    }
+
+    private func activate(_ id: SearchResultID) {
+        search.open(id, recent: recent, player: player, history: history)
+    }
+}
+
+private extension SearchModel {
+    /// Non-empty groups with songs first, beside the top result, as they are drawn.
+    var sections: [SearchGroup] {
+        let groups = self.groups.filter { !$0.hits.isEmpty }
+        return groups.filter { $0.kind == .track } + groups.filter { $0.kind != .track }
+    }
+
+    var top: (id: SearchResultID, hit: SearchHit)? {
+        guard let group = groups.first(where: { !$0.hits.isEmpty }), let hit = group.hits.first else { return nil }
+        return (SearchResultID(top: true, kind: group.kind, uri: hit.uri), hit)
     }
 
     /// Results in display order, for arrow keys.
-    private var ordered: [ResultID] {
-        let rest = search.groups.flatMap { group in
-            group.hits.map { ResultID(top: false, kind: group.kind, uri: $0.uri) }
+    var ordered: [SearchResultID] {
+        let rest = sections.flatMap { group in
+            group.hits.map { SearchResultID(top: false, kind: group.kind, uri: $0.uri) }
         }
         return (top.map { [$0.id] } ?? []) + rest
     }
 
-    private func move(by delta: Int) {
-        let ids = ordered
-        guard !ids.isEmpty else { return }
-        let index = selection.flatMap { ids.firstIndex(of: $0) }.map { $0 + delta } ?? (delta > 0 ? 0 : ids.count - 1)
-        selection = ids[min(max(index, 0), ids.count - 1)]
-    }
-
     /// Plays tracks and episodes; opens the page of anything else.
-    private func activate(_ id: ResultID) {
-        recent.add(search.query)
+    func open(_ id: SearchResultID, recent: RecentSearches, player: PlayerModel?, history: NavigationHistory) {
+        recent.add(query)
         switch id.kind {
         case .track:
-            let tracks = search.groups.first { $0.kind == .track }?.hits.map(\.uri) ?? []
+            let tracks = groups.first { $0.kind == .track }?.hits.map(\.uri) ?? []
             if !id.top, let index = tracks.firstIndex(of: id.uri) {
                 player?.play(tracks, from: index)
             } else {
@@ -174,32 +323,85 @@ struct SearchView: View {
 }
 
 /// The top result repeats its hit from the section below, so `top` keeps the ids apart.
-private struct ResultID: Hashable {
+struct SearchResultID: Hashable {
     let top: Bool
     let kind: SearchKind
     let uri: String
 }
 
-private struct HitRow: View {
+/// The top result (`.tr-card`): large art and name on a fill, with a play button for what plays.
+private struct TopResultCard: View {
     let hit: SearchHit
     let kind: SearchKind
-    let prominent: Bool
+    let selected: Bool
+    let open: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        let side: CGFloat = prominent ? 64 : 36
-        HStack(spacing: 12) {
-            ArtworkView(artwork: hit.artwork, side: side)
-                .clipShape(kind == .artist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 4)))
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            ArtworkView(artwork: hit.artwork, side: 96)
+                .clipShape(kind == .artist ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: Theme.smallRadius)))
+                .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.name)
-                    .font(prominent ? .title2.bold() : .body)
+                    .font(Theme.greeting)
                     .lineLimit(1)
-                Text(prominent ? kind.singular : hit.subtitle)
+                Text(kind.singular)
+                    .font(Theme.cardSubtitle)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(Theme.s5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selected || hovering ? Color.fillStrong : Color.fill, in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
+        .onTapGesture(perform: open)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }
+        .overlay(alignment: .bottomTrailing) {
+            if kind.plays {
+                PlayFab(label: "Play", action: open).padding(Theme.s5)
+            }
+        }
+        .onHover { hovering = $0 }
+        .animation(Theme.fast, value: hovering)
+    }
+}
+
+private struct SongRow: View {
+    let hit: SearchHit
+    let selected: Bool
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: Theme.s3) {
+            ArtworkView(artwork: hit.artwork, side: 40)
+                .clipShape(.rect(cornerRadius: 4))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hit.name)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                Text(hit.subtitle)
+                    .font(Theme.cardSubtitle)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, prominent ? 6 : 2)
+        .padding(.horizontal, Theme.s2)
+        .padding(.vertical, Theme.s1)
+        .background(
+            selected ? Color.fillStrong : hovering ? Color.fill : .clear,
+            in: .rect(cornerRadius: Theme.smallRadius)
+        )
+        .contentShape(.rect)
+        .onTapGesture(perform: open)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }
+        .onHover { hovering = $0 }
     }
 }
 
@@ -216,18 +418,22 @@ private struct RecentSearchesView: View {
             )
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Recent Searches")
-                        .font(.headline)
+                HStack(alignment: .lastTextBaseline) {
+                    SectionHeader(title: "Recent Searches")
                     Spacer()
                     Button("Clear", action: recent.clear)
                         .buttonStyle(.borderless)
+                        .font(Theme.cardTitle)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, Theme.s3)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, Theme.s8)
                 List(recent.queries, id: \.self) { query in
                     Button(query) { run(query) }
                         .buttonStyle(.plain)
                 }
+                .scrollContentBackground(.hidden)
+                .contentMargins(.horizontal, Theme.s6, for: .scrollContent)
                 .accessibilityIdentifier("recentSearches")
             }
         }
@@ -244,6 +450,10 @@ private extension SearchKind {
         case .show: String(localized: "Podcasts")
         case .episode: String(localized: "Episodes")
         }
+    }
+
+    var plays: Bool {
+        self == .track || self == .episode
     }
 
     var singular: String {
