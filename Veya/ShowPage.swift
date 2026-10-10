@@ -9,25 +9,33 @@ struct ShowPage: View {
     let player: PlayerModel?
     @State private var selection: String?
 
-    var body: some View {
-        // Another show's page is still published until this one's load starts.
-        let stale = podcast.show.map { $0.uri != uri } ?? false
-        let show = stale ? nil : podcast.show
-        let episodes = stale ? [] : podcast.episodes.compactMap { item -> EpisodeMetadata? in
+    /// Another show's page stays published until this one's load starts.
+    private var stale: Bool {
+        podcast.show.map { $0.uri != uri } ?? false
+    }
+
+    private var episodes: [EpisodeMetadata] {
+        guard !stale else { return [] }
+        return podcast.episodes.compactMap { item -> EpisodeMetadata? in
             if case let .episode(episode) = item { episode } else { nil }
         }
+    }
+
+    var body: some View {
+        let show = stale ? nil : podcast.show
+        let rows = episodes
         VStack(alignment: .leading, spacing: 0) {
             if let show {
                 header(show)
             }
             LoadStateView(
                 state: stale ? .loading : podcast.state,
-                isEmpty: episodes.isEmpty,
+                isEmpty: rows.isEmpty,
                 empty: EmptyState(title: "No Episodes", systemImage: "mic", message: "Episodes of this podcast appear here."),
                 failureTitle: "Couldn't Load Podcast",
                 retry: { podcast.load(uri) }
             ) {
-                List(episodes, id: \.uri, selection: $selection) { episode in
+                List(rows, id: \.uri, selection: $selection) { episode in
                     EpisodeRow(
                         episode: episode,
                         progress: podcast.progress[episode.uri],
