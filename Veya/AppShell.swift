@@ -22,6 +22,8 @@ struct AppShell: View {
     @State private var home: HomeModel
     @State private var searchFocusRequest = 0
     private let recentSearches: RecentSearches
+    /// Hands the started player to the session owner, which stops it on sign out; false drops it.
+    private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
 
@@ -31,9 +33,11 @@ struct AppShell: View {
         metadataStore: MetadataStore?,
         recentSearches: RecentSearches,
         settings: PlaybackSettings,
-        episodeProgress: any EpisodeProgressProvider
+        episodeProgress: any EpisodeProgressProvider,
+        attachPlayer: @escaping @MainActor (PlayerModel) -> Bool
     ) {
         self.session = session
+        self.attachPlayer = attachPlayer
         self.settings = settings
         self.recentSearches = recentSearches
         _search = State(initialValue: SearchModel(service: session.makeSearch()))
@@ -116,7 +120,8 @@ struct AppShell: View {
         }
         .task {
             do {
-                player = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                let started = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                if attachPlayer(started) { player = started }
             } catch {
                 // Type name only: messages may carry server text.
                 logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
@@ -141,6 +146,8 @@ struct AppShell: View {
 private struct Sidebar: View {
     @Binding var selection: Route?
     let playlists: PlaylistModel
+    /// Expanded folder URIs, one per line.
+    @SceneStorage("expandedFolders") private var expandedFolders = ""
 
     var body: some View {
         List(selection: $selection) {
@@ -153,12 +160,7 @@ private struct Sidebar: View {
                 Label("Podcasts", systemImage: "mic").tag(Route.podcasts)
             }
             Section("Playlists") {
-                // shortcut: folders are flattened, nest them with DisclosureGroup once folders matter in the UI.
-                ForEach(playlists.rootlist, id: \.self) { entry in
-                    if case let .playlist(uri, name, _, _, _) = entry {
-                        Label(name, systemImage: "music.note.list").tag(Route.playlist(uri: uri))
-                    }
-                }
+                PlaylistRows(nodes: playlists.tree, expanded: expanded)
                 if playlists.rootlist.isEmpty {
                     switch playlists.state {
                     case .loaded:
@@ -176,6 +178,40 @@ private struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private var expanded: Binding<Set<String>> {
+        Binding(
+            get: { Set(expandedFolders.split(separator: "\n").map(String.init)) },
+            set: { expandedFolders = $0.sorted().joined(separator: "\n") }
+        )
+    }
+}
+
+/// Folders as disclosure groups, collapsed until opened; playlists select their page.
+private struct PlaylistRows: View {
+    let nodes: [RootlistNode]
+    @Binding var expanded: Set<String>
+
+    var body: some View {
+        ForEach(nodes) { node in
+            if let children = node.children {
+                DisclosureGroup(isExpanded: isExpanded(node.id)) {
+                    PlaylistRows(nodes: children, expanded: $expanded)
+                } label: {
+                    Label(node.name, systemImage: "folder")
+                }
+            } else {
+                Label(node.name, systemImage: "music.note.list").tag(Route.playlist(uri: node.id))
+            }
+        }
+    }
+
+    private func isExpanded(_ folder: String) -> Binding<Bool> {
+        Binding(
+            get: { expanded.contains(folder) },
+            set: { expanded = $0 ? expanded.union([folder]) : expanded.subtracting([folder]) }
+        )
     }
 }
 

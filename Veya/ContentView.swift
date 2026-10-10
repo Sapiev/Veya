@@ -38,7 +38,8 @@ struct ContentView: View {
                     metadataStore: metadataStore,
                     recentSearches: recentSearches,
                     settings: settings,
-                    episodeProgress: episodeProgress
+                    episodeProgress: episodeProgress,
+                    attachPlayer: { session.attach($0, startedOn: handle) }
                 )
                 .id(ObjectIdentifier(handle))
                 .overlay(alignment: .top) {

@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-401: sidebar destinations and back/forward history.
+/// PBI-401: sidebar destinations and back/forward history; PBI-304: playlist folders.
 final class NavigationUITests: XCTestCase {
     @MainActor func testSidebarListsDestinationsAndPlaylists() {
         let app = XCUIApplication.launch(.signedIn)
@@ -11,6 +11,19 @@ final class NavigationUITests: XCTestCase {
             XCTAssertTrue(sidebar.staticTexts[item].exists, item)
         }
         XCTAssertEqual(app.routeTitle.value as? String, "Home")
+    }
+
+    /// PBI-304: folders start collapsed and open to show the playlists inside.
+    @MainActor func testPlaylistFolderExpandsToShowItsPlaylists() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        let sidebar = app.outlines.firstMatch
+        XCTAssertTrue(sidebar.staticTexts["Mixes"].exists)
+        XCTAssertFalse(sidebar.staticTexts["Morning Mix"].exists)
+
+        sidebar.outlineRows.containing(NSPredicate(format: "value == 'Mixes'")).disclosureTriangles.firstMatch.click()
+
+        XCTAssertTrue(sidebar.staticTexts["Morning Mix"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testSelectingAPlaylistShowsIt() {

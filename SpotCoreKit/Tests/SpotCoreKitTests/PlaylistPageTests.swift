@@ -15,13 +15,16 @@ final class PagedPlaylists: PlaylistServiceProtocol {
     private let tracks: [PlaylistTrack]
     private let cached: PlaylistPage?
     private let fails: Bool
+    /// Nil fails the follower count request.
+    private let followers: UInt64?
     private let box = OSAllocatedUnfairLock(initialState: Box())
 
-    init(uri: String, tracks: [PlaylistTrack], cached: PlaylistPage? = nil, fails: Bool = false) {
+    init(uri: String, tracks: [PlaylistTrack], cached: PlaylistPage? = nil, fails: Bool = false, followers: UInt64? = 0) {
         self.uri = uri
         self.tracks = tracks
         self.cached = cached
         self.fails = fails
+        self.followers = followers
     }
 
     var requested: [UInt32] { box.withLock { $0.requested } }
@@ -54,9 +57,51 @@ final class PagedPlaylists: PlaylistServiceProtocol {
     func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { cached }
     func cachedRootlist() -> [RootlistEntry] { [] }
     func rootlist() async throws -> [RootlistEntry] { [] }
-    func followerCount(uri _: String) async throws -> UInt64 { 0 }
+    func followerCount(uri _: String) async throws -> UInt64 {
+        guard let followers else { throw PlaylistError.Request(message: "down") }
+        return followers
+    }
+
     func waitForChange() async -> PlaylistChange {
         await withUnsafeContinuation { _ in }
+    }
+}
+
+/// Serves the root list set last and empty playlists; `push` delivers a dealer change.
+final class PushedPlaylists: PlaylistServiceProtocol {
+    private struct Box {
+        var rootlist: [RootlistEntry] = []
+        var pageRequests: [String] = []
+        var changeWaiters: [CheckedContinuation<PlaylistChange, Never>] = []
+    }
+
+    private let box = OSAllocatedUnfairLock(initialState: Box())
+
+    var pageRequests: [String] { box.withLock { $0.pageRequests } }
+    var changeWaiters: Int { box.withLock { $0.changeWaiters.count } }
+    func setRootlist(_ entries: [RootlistEntry]) { box.withLock { $0.rootlist = entries } }
+
+    func push(_ change: PlaylistChange) {
+        let waiters = box.withLock { box in
+            defer { box.changeWaiters = [] }
+            return box.changeWaiters
+        }
+        waiters.forEach { $0.resume(returning: change) }
+    }
+
+    func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
+        box.withLock { $0.pageRequests.append(uri) }
+        return playlistPage(uri, tracks: [], total: 0, offset: from)
+    }
+
+    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
+    func cachedRootlist() -> [RootlistEntry] { [] }
+    func rootlist() async throws -> [RootlistEntry] { box.withLock { $0.rootlist } }
+    func followerCount(uri _: String) async throws -> UInt64 { 0 }
+    func waitForChange() async -> PlaylistChange {
+        await withCheckedContinuation { continuation in
+            box.withLock { $0.changeWaiters.append(continuation) }
+        }
     }
 }
 
@@ -68,6 +113,11 @@ func playlistPage(_ uri: String, tracks: [PlaylistTrack], total: Int, offset: UI
 }
 
 private let mix = "spotify:playlist:37i9dQZF1E35AAAAAAAAAA"
+private let other = "spotify:playlist:2222222222222222222222"
+
+private func playlist(_ uri: String, _ name: String, in folder: String? = nil) -> RootlistEntry {
+    .playlist(uri: uri, name: name, owner: "me", trackCount: 1, parent: folder)
+}
 
 private func tracks(_ count: Int) -> [PlaylistTrack] {
     (0 ..< count).map { PlaylistTrack(uri: "spotify:track:\($0)", addedBy: "me", addedAt: Int64($0)) }
@@ -141,5 +191,75 @@ struct PlaylistPageTests {
         #expect(model.pageState[mix] == .loaded)
         #expect(model.pages[mix]?.tracks == [])
         #expect(service.requested == [0])
+    }
+
+    @Test func loadsTheFollowerCountAlongsideTheTracks() async {
+        let model = PlaylistModel(playlists: PagedPlaylists(uri: mix, tracks: tracks(1), followers: 1234))
+
+        await model.loadPage(mix).value
+
+        #expect(model.followers[mix] == 1234)
+        #expect(model.pages[mix]?.tracks == tracks(1))
+    }
+
+    @Test func followerCountFailureStillShowsThePage() async {
+        let model = PlaylistModel(playlists: PagedPlaylists(uri: mix, tracks: tracks(1), followers: nil), log: { _, _ in })
+
+        await model.loadPage(mix).value
+
+        #expect(model.followers[mix] == nil)
+        #expect(model.pageState[mix] == .loaded)
+    }
+
+    @Test func dealerPushesRefreshTheRootListAndOpenPlaylistsOnly() async throws {
+        let service = PushedPlaylists()
+        let model = PlaylistModel(playlists: service)
+        await model.load().value
+        await model.loadPage(mix).value
+        let watcher = Task { await model.watch() }
+
+        try await waitUntil { service.changeWaiters == 1 }
+        service.setRootlist([playlist(mix, "Mix")])
+        service.push(.rootlist)
+        try await waitUntil { model.rootlist == [playlist(mix, "Mix")] }
+
+        try await waitUntil { service.changeWaiters == 1 }
+        service.push(.playlist(uri: other))
+        try await waitUntil { service.changeWaiters == 1 }
+        service.push(.playlist(uri: mix))
+        try await waitUntil { service.pageRequests.count == 2 }
+        #expect(service.pageRequests == [mix, mix])
+
+        watcher.cancel()
+        try await waitUntil { service.changeWaiters == 1 }
+        service.push(.resync)
+        await watcher.value
+    }
+
+    @Test func treeNestsRowsUnderEarlierFoldersInOrder() {
+        let road = "spotify:user:me:folder:aa"
+        let inner = "spotify:user:me:folder:bb"
+        let loop = "spotify:user:me:folder:cc"
+        let entries: [RootlistEntry] = [
+            playlist("spotify:playlist:1", "Top"),
+            .folder(uri: road, name: "Road", parent: nil),
+            playlist("spotify:playlist:2", "Nested", in: road),
+            .folder(uri: inner, name: "Inner", parent: road),
+            playlist("spotify:playlist:3", "Deep", in: inner),
+            playlist("spotify:playlist:4", "Stray", in: "spotify:user:me:folder:gone"),
+            .folder(uri: loop, name: "Loop", parent: loop),
+        ]
+
+        #expect(RootlistNode.tree(entries) == [
+            RootlistNode(id: "spotify:playlist:1", name: "Top", children: nil),
+            RootlistNode(id: road, name: "Road", children: [
+                RootlistNode(id: "spotify:playlist:2", name: "Nested", children: nil),
+                RootlistNode(id: inner, name: "Inner", children: [
+                    RootlistNode(id: "spotify:playlist:3", name: "Deep", children: nil),
+                ]),
+            ]),
+            RootlistNode(id: "spotify:playlist:4", name: "Stray", children: nil),
+            RootlistNode(id: loop, name: "Loop", children: []),
+        ])
     }
 }

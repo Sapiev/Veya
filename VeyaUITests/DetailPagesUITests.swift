@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-404: album, artist and playlist pages.
+/// PBI-404: album, artist and playlist pages; PBI-304: playlist follower count.
 final class DetailPagesUITests: XCTestCase {
     @MainActor private func open(_ sidebarItem: String, then item: String? = nil, title: String) -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -75,6 +75,7 @@ final class DetailPagesUITests: XCTestCase {
         let app = open("Road Trip", title: "Road Trip")
         XCTAssertTrue(app.staticTexts["Songs for the road"].exists)
         XCTAssertTrue(app.staticTexts["By ui-test · 3 songs"].exists)
+        XCTAssertTrue(app.staticTexts["1,234 followers"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.trackList.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
 
         let filter = app.textFields["Filter"]

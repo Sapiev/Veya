@@ -91,6 +91,7 @@ public final class PlayerModel {
         var normalisation: LoudnessPreset?
         var outputDeviceUID: String?
         var rate: Float
+        var autoplay: Bool
     }
 
     init(
@@ -118,7 +119,8 @@ public final class PlayerModel {
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
             outputDeviceUID: settings.outputDeviceUID,
-            rate: 1
+            rate: 1,
+            autoplay: queue.autoplay
         )
         followSettings()
     }
@@ -188,6 +190,7 @@ public final class PlayerModel {
     public func play(_ uris: [String], from index: Int, context: String? = nil) {
         guard uris.indices.contains(index) else { return }
         perform("play") {
+            // `autoplay` here starts the track; radio after the list follows `PlaybackSettings.autoplay`.
             try player.loadTracks(uris: uris, startIndex: UInt32(index), contextUri: context, autoplay: true)
         }
         self.context = context
@@ -285,6 +288,12 @@ public final class PlayerModel {
         }
     }
 
+    /// Safe to repeat.
+    public func stop() {
+        player.stop()
+        apply(.stopped)
+    }
+
     public func togglePlayPause() {
         isPlaying ? player.pause() : player.play()
     }
@@ -352,7 +361,8 @@ public final class PlayerModel {
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
             outputDeviceUID: settings.outputDeviceUID,
-            rate: settings.rate(for: nowPlaying?.uri ?? "")
+            rate: settings.rate(for: nowPlaying?.uri ?? ""),
+            autoplay: settings.autoplay
         )
         let previous = applied
         guard target != previous else { return }
@@ -365,6 +375,9 @@ public final class PlayerModel {
         }
         if target.rate != previous.rate {
             engine?.rate = target.rate
+        }
+        if target.autoplay != previous.autoplay {
+            player.setAutoplay(on: target.autoplay)
         }
         guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation else { return }
         let player = player

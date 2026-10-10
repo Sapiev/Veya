@@ -137,6 +137,8 @@
 
         func clearMetadataCache() throws {}
 
+        func clearAudioCache() throws {}
+
         private func nextSession() throws -> any SessionHandle {
             let fails = failuresLeft.withLock { left in
                 defer { left = max(left - 1, 0) }
@@ -386,9 +388,12 @@
 
         func cachedRootlist() -> [RootlistEntry] {
             guard case .liked = fill else { return [] }
+            let folder = "spotify:user:ui-test:folder:mixes"
             return [
                 .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil),
                 .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil),
+                .folder(uri: folder, name: "Mixes", parent: nil),
+                .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder),
             ]
         }
 
@@ -419,7 +424,7 @@
         }
 
         func followerCount(uri _: String) async throws -> UInt64 {
-            0
+            1234
         }
 
         func waitForChange() async -> PlaylistChange {

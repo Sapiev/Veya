@@ -84,6 +84,8 @@ final class FakeSession: SessionHandle {
 
     private let box: OSAllocatedUnfairLock<Box>
     private let initial: ConnectionState?
+    /// What `makePlayer` hands out.
+    let player = FakePlayer()
 
     /// `initial` mimics spotcore delivering the current state on subscribe.
     init(blob: Data = refreshedBlob, initial: ConnectionState? = nil) {
@@ -165,7 +167,7 @@ final class FakeSession: SessionHandle {
 
     @MainActor
     func makePlayer(observer _: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
-        PlayerConnection(player: FakePlayer(), engine: nil)
+        PlayerConnection(player: player, engine: nil)
     }
 }
 
@@ -183,6 +185,8 @@ final class FakeConnector: SessionConnector {
         var cacheLimitError: (any Error)?
         var metadataClears = 0
         var metadataClearError: (any Error)?
+        var audioClears = 0
+        var audioClearError: (any Error)?
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
@@ -234,6 +238,23 @@ final class FakeConnector: SessionConnector {
         try box.withLock { box in
             box.metadataClears += 1
             if let error = box.metadataClearError {
+                throw error
+            }
+        }
+    }
+
+    var audioClears: Int {
+        box.withLock { $0.audioClears }
+    }
+
+    func failAudioClear(with error: (any Error)?) {
+        box.withLock { $0.audioClearError = error }
+    }
+
+    func clearAudioCache() throws {
+        try box.withLock { box in
+            box.audioClears += 1
+            if let error = box.audioClearError {
                 throw error
             }
         }

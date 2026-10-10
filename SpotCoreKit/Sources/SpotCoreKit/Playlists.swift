@@ -2,6 +2,44 @@ import Observation
 
 public typealias PlaylistLog = @MainActor (LogLevel, String) -> Void
 
+/// A root list row with the rows nested under it; `children` is nil for a playlist.
+public struct RootlistNode: Identifiable, Hashable, Sendable {
+    /// The folder or playlist URI.
+    public let id: String
+    public let name: String
+    public let children: [RootlistNode]?
+
+    /// Nests `entries` under their folders, keeping the user's order. A row
+    /// whose folder does not come before it shows at the top level, so
+    /// stray or cyclic parents cannot hide or loop.
+    static func tree(_ entries: [RootlistEntry]) -> [RootlistNode] {
+        var rows: [String?: [RootlistEntry]] = [:]
+        var folders: Set<String> = []
+        for entry in entries {
+            let parent: String?
+            switch entry {
+            case let .folder(uri, _, folder):
+                parent = folder.flatMap { folders.contains($0) ? $0 : nil }
+                folders.insert(uri)
+            case let .playlist(_, _, _, _, folder):
+                parent = folder.flatMap { folders.contains($0) ? $0 : nil }
+            }
+            rows[parent, default: []].append(entry)
+        }
+        func nodes(under parent: String?) -> [RootlistNode] {
+            (rows[parent] ?? []).map { entry in
+                switch entry {
+                case let .folder(uri, name, _):
+                    return RootlistNode(id: uri, name: name, children: nodes(under: uri))
+                case let .playlist(uri, name, _, _, _):
+                    return RootlistNode(id: uri, name: name, children: nil)
+                }
+            }
+        }
+        return nodes(under: nil)
+    }
+}
+
 /// The user's root playlist list, folders included, in the user's order.
 @MainActor
 @Observable
@@ -11,6 +49,8 @@ public final class PlaylistModel {
     /// Each opened playlist's attributes with every track loaded so far.
     public private(set) var pages: [String: PlaylistPage] = [:]
     public private(set) var pageState: [String: LibraryLoadState] = [:]
+    /// Follower count of each opened playlist, once fetched.
+    public private(set) var followers: [String: UInt64] = [:]
 
     /// Tracks fetched per request while a playlist's contents load.
     static let pageLength: UInt32 = 200
@@ -24,6 +64,11 @@ public final class PlaylistModel {
     ) {
         self.playlists = playlists
         self.log = log
+    }
+
+    /// `rootlist` nested by folder.
+    public var tree: [RootlistNode] {
+        RootlistNode.tree(rootlist)
     }
 
     /// Shows the cached list at once, then syncs with the server.
@@ -49,7 +94,8 @@ public final class PlaylistModel {
         }
     }
 
-    /// Shows a fully cached playlist at once, then fetches its tracks page by page.
+    /// Shows a fully cached playlist at once, then fetches its tracks page by
+    /// page and its follower count.
     @discardableResult
     public func loadPage(_ uri: String) -> Task<Void, Never> {
         if pageState[uri] == nil {
@@ -57,7 +103,20 @@ public final class PlaylistModel {
             pages[uri] = cached
             pageState[uri] = cached == nil ? .loading : .loaded
         }
-        return Task { await refreshPage(uri) }
+        return Task {
+            async let count: Void = refreshFollowers(uri)
+            await refreshPage(uri)
+            await count
+        }
+    }
+
+    /// A failure keeps the last count, or none; the page shows without it.
+    private func refreshFollowers(_ uri: String) async {
+        do {
+            followers[uri] = try await playlists.followerCount(uri: uri)
+        } catch {
+            log(.warn, "Couldn't load a playlist's followers: \(String(describing: type(of: error)))")
+        }
     }
 
     private func refreshPage(_ uri: String) async {

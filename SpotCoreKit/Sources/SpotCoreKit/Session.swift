@@ -51,6 +51,7 @@ public protocol SessionConnector: Sendable {
     /// Applies to sessions connected afterwards.
     func setAudioCacheLimit(bytes: UInt64) throws
     func clearMetadataCache() throws
+    func clearAudioCache() throws
 }
 
 public struct SpotSessionConnector: SessionConnector {
@@ -82,6 +83,10 @@ public struct SpotSessionConnector: SessionConnector {
 
     public func clearMetadataCache() throws {
         try metadataStore?.clear()
+    }
+
+    public func clearAudioCache() throws {
+        try audioCache?.clear()
     }
 }
 
@@ -154,6 +159,8 @@ public final class SessionModel {
     @ObservationIgnored private var events: Task<Void, Never>?
     /// The blob the current attempt loaded from or saved to the store.
     @ObservationIgnored private var knownBlob: Data?
+    /// Playing on `session`; stopped when it ends so buffered audio does not outlive it.
+    @ObservationIgnored private weak var player: PlayerModel?
 
     public static let readyBudget = Duration.seconds(2)
 
@@ -225,10 +232,10 @@ public final class SessionModel {
         _ = begin(.signedOut)
     }
 
-    /// Ends the session before deleting so no reconnect can save the blob back.
-    /// Safe to repeat; the session ends even if a Keychain delete or the
-    /// metadata cache clear throws, and every step is attempted before the
-    /// first error is rethrown.
+    /// Stops playback and ends the session before deleting, so no reconnect
+    /// can save the blob back. Safe to repeat; the session ends even if a
+    /// Keychain delete or a cache clear throws, and every step is attempted
+    /// before the first error is rethrown.
     public func signOut() throws {
         _ = begin(.signedOut)
         var failure: (any Error)?
@@ -240,11 +247,17 @@ public final class SessionModel {
                 failure = failure ?? error
             }
         }
-        do {
-            try connector.clearMetadataCache()
-        } catch {
-            log(.warn, "Couldn't clear the metadata cache on sign out: \(Self.summary(error))")
-            failure = failure ?? error
+        let caches: [(name: String, clear: () throws -> Void)] = [
+            ("metadata", connector.clearMetadataCache),
+            ("audio", connector.clearAudioCache),
+        ]
+        for (cache, clear) in caches {
+            do {
+                try clear()
+            } catch {
+                log(.warn, "Couldn't clear the \(cache) cache on sign out: \(Self.summary(error))")
+                failure = failure ?? error
+            }
         }
         if let failure {
             throw failure
@@ -255,6 +268,23 @@ public final class SessionModel {
     /// Drops cached library and metadata; the next fetch goes to the network.
     public func resetMetadataCache() throws {
         try connector.clearMetadataCache()
+    }
+
+    /// Deletes downloaded audio; tracks download again when played.
+    public func clearAudioCache() throws {
+        try connector.clearAudioCache()
+    }
+
+    /// Ties `player` to the session it started on, so ending that session stops it.
+    /// Returns false, and stops it, when that session has already ended.
+    @discardableResult
+    public func attach(_ player: PlayerModel, startedOn handle: any SessionHandle) -> Bool {
+        guard let session, session === handle else {
+            player.stop()
+            return false
+        }
+        self.player = player
+        return true
     }
 
     /// For app termination; the stored credentials stay.
@@ -281,6 +311,8 @@ public final class SessionModel {
         attempt += 1
         events?.cancel()
         events = nil
+        player?.stop()
+        player = nil
         session?.shutdown()
         session = nil
         knownBlob = nil
