@@ -408,12 +408,21 @@ private struct TrafficLightInset: NSViewRepresentable {
                 NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
                 NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
             ]
-            observers = names.map {
-                NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.place() }
-                }
+            observers = names.map { observe($0, window) }
+            // AppKit also re-lays out the titlebar on clicks and key/main changes; watching the frames catches every pass.
+            let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap(window.standardWindowButton)
+            let views = buttons + [buttons.first?.superview?.superview].compactMap { $0 }
+            observers += views.map { view in
+                view.postsFrameChangedNotifications = true
+                return observe(NSView.frameDidChangeNotification, view)
             }
             place()
+        }
+
+        private func observe(_ name: Notification.Name, _ object: AnyObject) -> NSObjectProtocol {
+            NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.place() }
+            }
         }
 
         override func setFrameSize(_ newSize: NSSize) {
@@ -429,14 +438,17 @@ private struct TrafficLightInset: NSViewRepresentable {
                 let top: CGFloat = 18, left: CGFloat = 20, gap: CGFloat = 8
                 // The titlebar container clips its buttons, so it grows to reach them.
                 let height = close.frame.height + 2 * top
-                container.frame = NSRect(
+                let frame = NSRect(
                     x: container.frame.minX, y: window.frame.height - height,
                     width: container.frame.width, height: height
                 )
+                // Setting only on change keeps the frame observers from looping.
+                if container.frame != frame { container.frame = frame }
                 for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                     guard let button = window.standardWindowButton(kind) else { continue }
                     let y = (button.superview?.frame.height ?? height) - top - button.frame.height
-                    button.setFrameOrigin(NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y))
+                    let origin = NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y)
+                    if button.frame.origin != origin { button.setFrameOrigin(origin) }
                 }
             }
         }
