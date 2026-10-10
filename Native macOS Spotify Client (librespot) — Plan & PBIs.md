@@ -227,13 +227,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-102
 
-**Status:** In progress - session-layer reconnect merged to develop; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
+**Status:** In review (claude/magical-meitner-12y709) - the player restores the current track and position after a reconnect (ADR-004 item 7); dealer close and takeover wait on PBI-501.
 
-**UI tests:** `SessionUITests` (reconnect banner). Track restore and takeover need tests when built.
+**UI tests:** `SessionUITests` (reconnect banner), `SettingsUITests` (cache size footer). Track restore is tested in spotcore: `cargo test -p spotcore reconnect`. Takeover needs tests when built.
 
 - [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s). (Access point timeout and backoff done; dealer close waits on PBI-501, which starts the dealer.)
 - [x] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
-- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile. (Banner done; track and position restore waits on the player, PBI-202.)
+- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile. (Banner done; restore of track, position, play state, context and queue done in spotcore and unit-tested, not yet checked against a live reconnect.)
 - [ ] Another device taking over the account ("playing elsewhere") pauses locally and informs the user. (Waits on the player and Connect dealer, PBI-202 and PBI-501.)
 
 #### PBI-104 · Sign out and switch account
@@ -255,12 +255,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 1 · **Milestone:** M1 · **Depends on:** PBI-101
 
-**Status:** In progress - Premium check at sign-in merged to develop; country greying waits on track lists (PBI-303, PBI-304).
+**Status:** In review (claude/magical-meitner-12y709) - region-locked tracks are dimmed with a tooltip and refuse to play in track lists and artist top tracks; the Premium check on restore still waits on ADR-005.
 
-**UI tests:** `PremiumUITests` (Free account sees the explanation and signs out).
+**UI tests:** `PremiumUITests` (Free account sees the explanation and signs out), `TrackListUITests` (region-locked row refuses to play and stays out of the queue).
 
 - [ ] After login, the `product` user attribute is read; non-Premium accounts see an explanation screen and can sign out. (Done for fresh sign-in through Web API `/v1/me`; restore and reconnect still hit librespot's `exit(1)`, see ADR-005.)
-- [ ] Tracks unavailable in the user's country are greyed out with a tooltip. (No track lists exist yet: PBI-303, PBI-304.)
+- [ ] Tracks unavailable in the user's country are greyed out with a tooltip. (Done in track lists and artist top tracks; Swift not compiled or run: written in a Linux container. Search results carry no playability yet.)
 
 ### E2 · Playback engine
 
