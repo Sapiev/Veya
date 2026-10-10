@@ -306,9 +306,10 @@ async fn sync(
 
 async fn post(session: &Session, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, LibraryError> {
     let mut headers = HeaderMap::new();
+    // The collection service answers 400 to the generic application/x-protobuf.
     headers.insert(
         CONTENT_TYPE,
-        HeaderValue::from_static("application/x-protobuf"),
+        HeaderValue::from_static("application/vnd.collection-v2.spotify.proto"),
     );
     let response = session
         .spclient()
