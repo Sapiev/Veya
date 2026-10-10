@@ -186,6 +186,15 @@ struct HomeModelTests {
         #expect(home.madeForYou == [page(weekly)])
     }
 
+    @Test func missingScopeIsNotAFailureWhenMadeForYouFailsToo() async {
+        let home = model(recent: .failure(.MissingScope), rootlist: .failure(.Request(message: "x")))
+
+        await home.load().value
+
+        #expect(home.state == .loaded)
+        #expect(home.recentlyPlayedNeedsSignIn)
+    }
+
     @Test func otherFailuresAndSuccessDoNotAskForSignIn() async {
         let failed = model(recent: .failure(.Network(message: "x")))
         let loaded = model()

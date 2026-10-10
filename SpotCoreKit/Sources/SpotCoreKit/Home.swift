@@ -102,7 +102,8 @@ public final class HomeModel {
             recentlyPlayed = []
             jumpBackIn = []
             recentlyPlayedNeedsSignIn = Self.needsSignIn(error)
-            return false
+            // A sign-in hint is shown in place of the section, so Home has not failed.
+            return recentlyPlayedNeedsSignIn
         }
     }
 
