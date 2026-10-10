@@ -10,12 +10,15 @@ public struct RootlistNode: Identifiable, Hashable, Sendable {
     public let children: [RootlistNode]?
 
     /// Nests `entries` under their folders, keeping the user's order. A row
-    /// whose folder does not come before it shows at the top level, so
-    /// stray or cyclic parents cannot hide or loop.
+    /// whose folder does not come before it shows at the top level, and a
+    /// repeated URI is dropped, so stray, cyclic or duplicated parents cannot
+    /// hide or loop and every node id is unique.
     static func tree(_ entries: [RootlistEntry]) -> [RootlistNode] {
         var rows: [String?: [RootlistEntry]] = [:]
         var folders: Set<String> = []
+        var seen: Set<String> = []
         for entry in entries {
+            guard seen.insert(entry.uri).inserted else { continue }
             let parent: String?
             switch entry {
             case let .folder(uri, _, folder):
@@ -37,6 +40,14 @@ public struct RootlistNode: Identifiable, Hashable, Sendable {
             }
         }
         return nodes(under: nil)
+    }
+}
+
+private extension RootlistEntry {
+    var uri: String {
+        switch self {
+        case let .folder(uri, _, _), let .playlist(uri, _, _, _, _): uri
+        }
     }
 }
 

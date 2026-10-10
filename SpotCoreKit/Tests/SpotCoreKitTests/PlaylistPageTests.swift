@@ -262,4 +262,21 @@ struct PlaylistPageTests {
             RootlistNode(id: loop, name: "Loop", children: []),
         ])
     }
+
+    /// Two nested start-group entries with the same id decode as a folder inside itself.
+    @Test func treeDropsRepeatedURIsSoASelfNestedFolderEnds() {
+        let folder = "spotify:user:me:folder:aa"
+        let entries: [RootlistEntry] = [
+            .folder(uri: folder, name: "Outer", parent: nil),
+            .folder(uri: folder, name: "Outer again", parent: folder),
+            playlist("spotify:playlist:1", "Inside", in: folder),
+            playlist("spotify:playlist:1", "Inside", in: folder),
+        ]
+
+        #expect(RootlistNode.tree(entries) == [
+            RootlistNode(id: folder, name: "Outer", children: [
+                RootlistNode(id: "spotify:playlist:1", name: "Inside", children: nil),
+            ]),
+        ])
+    }
 }
