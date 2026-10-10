@@ -119,9 +119,10 @@ struct ArtistPage: View {
     }
 
     private func content(_ artist: ArtistMetadata) -> some View {
-        ScrollView {
+        let fullBleed = artist.artwork.contains(where: \.isLarge)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if artist.artwork.contains(where: \.isLarge) {
+                if fullBleed {
                     ArtistHero(artist: artist)
                 } else {
                     PageHero(kind: "Artist", title: artist.name, artwork: artist.artwork, round: true) { EmptyView() }
@@ -162,6 +163,8 @@ struct ArtistPage: View {
                 .padding(.bottom, Theme.s8)
             }
         }
+        // The picture starts at the window's top edge, under the floating top bar (`.artist-hero` margin-top: -64px).
+        .ignoresSafeArea(.container, edges: fullBleed ? .top : [])
         .task(id: artist) {
             library.resolve(artist.topTracks + artist.albums + artist.singles + artist.compilations + artist.related.map(\.uri))
         }
@@ -314,10 +317,11 @@ struct PageHero<Subtitle: View>: View {
             }
             Spacer(minLength: 0)
         }
+        // The design's 340 pt hero starts under the 64 pt top bar; pages begin below the bar.
         .padding(.horizontal, Theme.s8)
-        .padding(.top, Theme.s12)
+        .padding(.top, 56)
         .padding(.bottom, Theme.s6)
-        .frame(maxWidth: .infinity, minHeight: 340, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, minHeight: 276, alignment: .bottomLeading)
         .background {
             LinearGradient(colors: [Color(palette.glow).opacity(0.9), .clear], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
@@ -346,23 +350,28 @@ private struct ArtistHero: View {
         .frame(maxWidth: .infinity, minHeight: 400, alignment: .bottomLeading)
         .background {
             GeometryReader { proxy in
-                let side = max(proxy.size.width, proxy.size.height)
-                // Faces sit near the top of artist photos; keep the upper fifth in view.
-                ArtworkView(artwork: artist.artwork, side: side)
-                    .offset(y: -(side - proxy.size.height) * 0.22)
+                // Pulling past the top stretches the picture, so no gap opens above it.
+                let pull = max(0, proxy.frame(in: .scrollView).minY)
+                let height = proxy.size.height + pull
+                let side = max(proxy.size.width, height)
+                ZStack(alignment: .topLeading) {
+                    // Faces sit near the top of artist photos; keep the upper fifth in view.
+                    ArtworkView(artwork: artist.artwork, side: side)
+                        .offset(y: -(side - height) * 0.22)
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black.opacity(0.12), location: 0),
+                            .init(color: .black.opacity(0.18), location: 0.45),
+                            .init(color: Color(palette.ambient).opacity(0.92), location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .frame(width: proxy.size.width, height: height, alignment: .topLeading)
+                .clipped()
+                .offset(y: -pull)
             }
-            .overlay {
-                LinearGradient(
-                    stops: [
-                        .init(color: .black.opacity(0.12), location: 0),
-                        .init(color: .black.opacity(0.18), location: 0.45),
-                        .init(color: Color(palette.ambient).opacity(0.92), location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .clipped()
             .accessibilityHidden(true)
         }
     }

@@ -280,7 +280,6 @@ struct SearchView: View {
                         }
                     }
                 }
-                .padding(.top, Theme.s5)
                 .padding(.bottom, Theme.s8)
             }
             .accessibilityIdentifier("searchResults")

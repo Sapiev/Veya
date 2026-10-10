@@ -1,7 +1,7 @@
 import XCTest
 
 /// PBI-404: album, artist and playlist pages; PBI-304: playlist follower count;
-/// PBI-105: a region-locked top track does not play.
+/// PBI-105: a region-locked top track does not play. The full-bleed artist header runs under the top bar.
 final class DetailPagesUITests: XCTestCase {
     @MainActor private func open(_ sidebarItem: String, then item: String? = nil, title: String) -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -74,6 +74,18 @@ final class DetailPagesUITests: XCTestCase {
         XCTAssertTrue(following.waitForExistence(timeout: XCUIApplication.timeout))
         following.click()
         XCTAssertTrue(app.buttons["Follow"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testFullBleedArtistHeaderStartsAtTheWindowTop() {
+        let app = open("Artists", then: "Test Artist", title: "Test Artist")
+        app.artistPage.scroll(byDeltaX: 0, deltaY: -1000)
+        let related = app.buttons["Related Artist"]
+        XCTAssertTrue(related.waitForExistence(timeout: XCUIApplication.timeout))
+        related.click()
+        XCTAssertTrue(app.showsRoute("Related Artist"))
+
+        let window = app.windows.firstMatch.frame
+        XCTAssertEqual(app.artistPage.frame.minY, window.minY, accuracy: 1)
     }
 
     @MainActor func testArtistTopTrackPlaysAndDiscographyOpensTheAlbum() {

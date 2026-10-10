@@ -246,7 +246,9 @@
         compilations: [], related: [ItemRef(uri: scenarioRelated.uri, name: scenarioRelated.name)]
     )
     private nonisolated let scenarioRelated = ArtistMetadata(
-        uri: "spotify:artist:ui-test-related", name: "Related Artist", artwork: [],
+        // Large enough for the full-bleed header; the scenario never loads artwork.
+        uri: "spotify:artist:ui-test-related", name: "Related Artist",
+        artwork: [Artwork(url: "https://i.scdn.co/image/ui-test-related", size: .large, width: 640, height: 640)],
         topTracks: [], albums: [], singles: [], compilations: [], related: []
     )
     /// Songs 1, 2 and 4; song 3 is the region-locked one.
@@ -340,8 +342,6 @@
         func next() {}
         func playNext(uri: String) throws { snapshot.withLock { $0.upNext.insert(uri, at: 0) } }
         func previous() {}
-        func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
-        func removeFromQueue(index: UInt32) throws { _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) } }
         func skip(count: UInt32) {
             let uri: String? = snapshot.withLock {
                 let upcoming = $0.upNext + $0.nextFromContext
@@ -356,6 +356,8 @@
             observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: 0))
         }
+        func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
+        func removeFromQueue(index: UInt32) throws { _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) } }
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
