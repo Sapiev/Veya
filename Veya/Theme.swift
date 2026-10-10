@@ -36,22 +36,64 @@ extension EnvironmentValues {
     @Entry var palette = AdaptivePalette.system(dark: true)
 }
 
-/// Follows the playing track's artwork and publishes its palette to the window.
+/// Where the window takes its colors from (Settings > General).
+enum ColorSource: String {
+    /// The playing track's artwork; the accent color while nothing plays.
+    case artwork
+    /// Always the accent color.
+    case accent
+    /// The accent color turning around the color wheel.
+    case cycle
+
+    static let key = "colorSource"
+    static let accentKey = "accentColor"
+    static let cycleSecondsKey = "colorCycleSeconds"
+    static let defaultCycleSeconds = 60.0
+}
+
+extension RGB {
+    init(_ color: Color) {
+        let srgb = NSColor(color).usingColorSpace(.sRGB) ?? .systemBlue
+        self.init(red: Double(srgb.redComponent), green: Double(srgb.greenComponent), blue: Double(srgb.blueComponent))
+    }
+}
+
+/// Publishes the window's palette: from the playing track's artwork, the accent color, or the accent cycling.
 struct AdaptiveColors: ViewModifier {
     let artwork: [Artwork]
+    @AppStorage(ColorSource.key) private var source = ColorSource.artwork
+    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
+    @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
     @Environment(\.artworkLoader) private var loader
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var colors: (accent: RGB, dominant: RGB)?
+    /// How far the cycle has turned the accent's hue, in turns of the wheel.
+    @State private var turns = 0.0
 
     func body(content: Content) -> some View {
         let dark = scheme == .dark
-        let palette = colors.map { AdaptivePalette(accent: $0.accent, dominant: $0.dominant, dark: dark) }
-            ?? .system(dark: dark)
+        let accent = RGB(hex: accentHex) ?? .systemAccent
+        let cycling = source == .cycle && !reduceMotion
+        // The accent washes the whole window, so the cycle reads in the background too.
+        let shown = accent.rotatingHue(by: cycling ? turns : 0)
+        let palette: AdaptivePalette = switch (source, colors) {
+        case let (.artwork, colors?): AdaptivePalette(accent: colors.accent, dominant: colors.dominant, dark: dark)
+        case (.artwork, nil): .system(dark: dark, accent: accent)
+        case (.accent, _), (.cycle, _): AdaptivePalette(accent: shown, dominant: shown, dark: dark)
+        }
         content
             .environment(\.palette, palette)
             .tint(Color(palette.tint))
-            .animation(reduceMotion ? nil : Theme.themeChange, value: palette)
+            // Cycle steps blend into each other, so the hue never stops moving.
+            .animation(reduceMotion ? nil : cycling ? .linear(duration: 1) : Theme.themeChange, value: palette)
+            .task(id: cycling ? cycleSeconds : nil) {
+                guard cycling, cycleSeconds > 0 else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    turns = (turns + 1 / cycleSeconds).truncatingRemainder(dividingBy: 1)
+                }
+            }
             .task(id: artwork.first?.url) {
                 guard let image = await loader?.image(for: artwork, pixels: 64) else {
                     colors = nil

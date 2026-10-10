@@ -1,6 +1,7 @@
 import XCTest
 
 /// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
+/// General: window colors from the artwork, an accent color, or the accent cycling.
 /// PBI-103: the cache size footer says playback survives the reconnect. PBI-309: the Spotify Web API section.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
@@ -65,6 +66,29 @@ final class SettingsUITests: XCTestCase {
         let reopened = toggle(app, "Autoplay")
         XCTAssertTrue(reopened.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(isOn(reopened))
+    }
+
+    @MainActor func testCyclingColorsShowsItsSpeedAndIsKeptAfterReopeningSettings() {
+        let app = openSettings()
+        tab(app, "General").click()
+        let colors = app.popUpButtons["Window colors"]
+        XCTAssertTrue(colors.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(colors.value as? String, "From the Playing Artwork")
+        XCTAssertTrue(app.colorWells["Accent color"].exists)
+        XCTAssertFalse(app.popUpButtons["Cycle speed"].exists)
+
+        colors.click()
+        app.menuItems["Cycle Through Colors"].click()
+        let speed = app.popUpButtons["Cycle speed"]
+        XCTAssertTrue(speed.waitForExistence(timeout: XCUIApplication.timeout))
+        speed.click()
+        app.menuItems["Fast (15 s)"].click()
+        app.typeKey("w", modifierFlags: .command)
+        app.typeKey(",", modifierFlags: .command)
+        tab(app, "General").click()
+
+        XCTAssertEqual(app.popUpButtons["Window colors"].value as? String, "Cycle Through Colors")
+        XCTAssertEqual(app.popUpButtons["Cycle speed"].value as? String, "Fast (15 s)")
     }
 
     @MainActor func testAccountSignOutReturnsToSignIn() {
