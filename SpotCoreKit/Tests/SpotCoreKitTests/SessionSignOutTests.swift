@@ -124,7 +124,7 @@ struct SessionSignOutTests {
         return try await PlayerModel.start(session: session, metadata: StubMetadata([]), settings: settings)
     }
 
-    @Test func signOutStopsPlaybackAndClearsAudioCacheOnce() async throws {
+    @Test func signOutStopsPlaybackOnceAndClearsCachesEachTime() async throws {
         let session = FakeSession()
         let model = try await ready(session, store: FakeStore(blob: storedBlob))
         let player = try await startPlayer(on: session)
