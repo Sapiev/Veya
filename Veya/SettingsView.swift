@@ -48,9 +48,10 @@ private struct PlaybackSettingsTab: View {
                 Text("Normal (160 kbps)").tag(Bitrate.kbps160)
                 Text("High (320 kbps)").tag(Bitrate.kbps320)
             }
-            // The grouped form shows the row label but leaves the pop-up button unnamed for VoiceOver.
+            // The grouped form shows row labels but leaves pop-up buttons and switches unnamed for VoiceOver.
             .accessibilityLabel("Streaming quality")
             Toggle("Normalize volume", isOn: $settings.normalises)
+            .accessibilityLabel("Normalize volume")
             Picker("Loudness", selection: $settings.loudness) {
                 Text("Quiet").tag(LoudnessPreset.quiet)
                 Text("Normal").tag(LoudnessPreset.normal)
@@ -62,11 +63,13 @@ private struct PlaybackSettingsTab: View {
                 Text("Autoplay")
                 Text("When an album or playlist ends, similar songs keep playing.")
             }
+            .accessibilityLabel("Autoplay")
             Picker("Podcast speed", selection: $settings.episodeSpeed) {
                 ForEach(Self.speeds, id: \.self) { speed in
                     Text("\(speed.formatted())×").tag(speed)
                 }
             }
+            .accessibilityLabel("Podcast speed")
             Picker("Output device", selection: $settings.outputDeviceUID) {
                 Text("System Default").tag(String?.none)
                 ForEach(devices.list) { device in
