@@ -194,6 +194,22 @@ public final class PlayerModel {
         refreshQueue()
     }
 
+    /// Plays the single item `uri`, such as an episode, from `startMs`.
+    @discardableResult
+    public func play(_ uri: String, startingAt startMs: UInt32) -> Task<Void, Never> {
+        context = uri
+        let player = player
+        return Task {
+            do {
+                try await player.load(uri: uri, startMs: startMs, autoplay: true)
+            } catch {
+                // Type name only: messages may carry server text.
+                log(.warn, "Couldn't play: \(String(describing: type(of: error)))")
+            }
+            refreshQueue()
+        }
+    }
+
     /// Puts `uris` at the front of Up Next, keeping their order.
     public func playNext(_ uris: [String]) {
         perform("queue") {

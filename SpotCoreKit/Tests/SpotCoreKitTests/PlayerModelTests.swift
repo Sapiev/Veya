@@ -37,7 +37,7 @@ final class FakePlayer: SpotPlayerProtocol {
         snapshot.withLock { $0.upNext.removeAll() }
     }
 
-    func load(uri: String, startMs _: UInt32, autoplay _: Bool) async throws { record("load \(uri)") }
+    func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws { record("load \(uri) \(startMs)") }
     func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, autoplay _: Bool) throws {
         record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")")
     }
@@ -245,6 +245,14 @@ struct PlayerModelTests {
         player.play(["a"], from: 0)
         player.play(["a"], from: 3)
         #expect(fake.recorded == ["loadTracks a,b,c 1 spotify:playlist:1", "loadTracks a 0 -"])
+    }
+
+    @Test func playOneItemLoadsItFromTheStartPositionAsTheContext() async {
+        let fake = FakePlayer()
+        let player = model(fake)
+        await player.play(episodeURI, startingAt: 90000).value
+        #expect(fake.recorded == ["load \(episodeURI) 90000"])
+        #expect(player.context == episodeURI)
     }
 
     @Test func playNextKeepsTheSelectionOrderAtTheFrontOfUpNext() {

@@ -7,6 +7,7 @@ struct ContentView: View {
     let metadataStore: MetadataStore?
     let recentSearches: RecentSearches
     let settings: PlaybackSettings
+    let episodeProgress: any EpisodeProgressProvider
     let signOut: () -> Void
 
     var body: some View {
@@ -36,7 +37,8 @@ struct ContentView: View {
                     webAPITokens: session.webAPITokens,
                     metadataStore: metadataStore,
                     recentSearches: recentSearches,
-                    settings: settings
+                    settings: settings,
+                    episodeProgress: episodeProgress
                 )
                 .id(ObjectIdentifier(handle))
                 .overlay(alignment: .top) {
@@ -173,6 +175,7 @@ private struct ReconnectBanner: View {
         metadataStore: nil,
         recentSearches: RecentSearches(defaults: UserDefaults(suiteName: "preview")!),
         settings: PlaybackSettings(defaults: UserDefaults(suiteName: "preview")!),
+        episodeProgress: WebAPIEpisodeProgress { "" },
         signOut: {}
     )
 }

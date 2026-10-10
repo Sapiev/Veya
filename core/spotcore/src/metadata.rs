@@ -132,6 +132,8 @@ pub struct EpisodeMetadata {
     pub explicit: bool,
     pub playability: Playability,
     pub artwork: Vec<Artwork>,
+    /// Release time in Unix seconds; `None` when the episode carries no date.
+    pub published_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
@@ -499,6 +501,10 @@ impl Context {
                         explicit: episode.is_explicit,
                         playability: self.playability(&episode.availability, &episode.restrictions),
                         artwork: self.artwork(&episode.covers),
+                        // librespot turns a missing date into year 0, like albums.
+                        published_at: Some(episode.publish_time.as_utc())
+                            .filter(|date| date.year() > 0)
+                            .map(|date| date.unix_timestamp()),
                         title: episode.name,
                         show_name: episode.show_name,
                         description: episode.description,
@@ -878,6 +884,45 @@ mod tests {
             }]
         );
         assert_eq!(decode("US").top_tracks, [other_track]);
+    }
+
+    fn episode_with(publish_time: Option<proto::Date>) -> EpisodeMetadata {
+        let message = proto::Episode {
+            gid: Some(gid(EPISODE)),
+            name: Some("Episode".to_owned()),
+            description: Some("Notes".to_owned()),
+            duration: Some(1_800_000),
+            publish_time: publish_time.into(),
+            ..Default::default()
+        };
+        let bytes = message.write_to_bytes().unwrap();
+        match decode_one(EPISODE, entry(EPISODE, 200, Some(bytes)), "US") {
+            MetadataItem::Episode { episode } => episode,
+            other => panic!("expected an episode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decodes_episode_description_duration_and_release_time() {
+        let episode = episode_with(Some(proto::Date {
+            year: Some(2025),
+            month: Some(10),
+            day: Some(1),
+            hour: Some(6),
+            minute: Some(30),
+            ..Default::default()
+        }));
+
+        assert_eq!(episode.title, "Episode");
+        assert_eq!(episode.description, "Notes");
+        assert_eq!(episode.duration_ms, 1_800_000);
+        // 2025-10-01T06:30:00Z
+        assert_eq!(episode.published_at, Some(1_759_300_200));
+    }
+
+    #[test]
+    fn episode_without_date_has_no_release_time() {
+        assert_eq!(episode_with(None).published_at, None);
     }
 
     #[test]

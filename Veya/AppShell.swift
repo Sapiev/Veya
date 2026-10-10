@@ -15,6 +15,7 @@ struct AppShell: View {
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
     @State private var library: LibraryModel
+    @State private var podcast: PodcastModel
     private let settings: PlaybackSettings
     @State private var player: PlayerModel?
     @State private var search: SearchModel
@@ -29,7 +30,8 @@ struct AppShell: View {
         webAPITokens: WebAPITokenProvider,
         metadataStore: MetadataStore?,
         recentSearches: RecentSearches,
-        settings: PlaybackSettings
+        settings: PlaybackSettings,
+        episodeProgress: any EpisodeProgressProvider
     ) {
         self.session = session
         self.settings = settings
@@ -45,6 +47,7 @@ struct AppShell: View {
             recentlyPlayed: session.makeRecentlyPlayed { try await webAPITokens.accessToken() }
         ))
         _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
+        _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
     }
 
     var body: some View {
@@ -71,8 +74,8 @@ struct AppShell: View {
                 ArtistPage(uri: uri, library: library, player: player, history: history)
             case let .playlist(uri):
                 PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
-            default:
-                RouteView(route: history.current)
+            case let .show(uri):
+                ShowPage(uri: uri, podcast: podcast, player: player)
             }
         }
         .inspector(isPresented: $queueVisible) {
@@ -291,52 +294,6 @@ private extension LibraryKind {
         case .albums: "Couldn't Load Albums"
         case .artists: "Couldn't Load Artists"
         case .shows: "Couldn't Load Podcasts"
-        }
-    }
-}
-
-/// Placeholder per route until its screen lands (shows: PBI-306).
-private struct RouteView: View {
-    let route: Route
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.title2)
-                .accessibilityIdentifier("routeTitle")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(title)
-    }
-
-    private var title: String {
-        switch route {
-        case .home: String(localized: "Home")
-        case .search: String(localized: "Search")
-        case .likedSongs: String(localized: "Liked Songs")
-        case .albums: String(localized: "Albums")
-        case .artists: String(localized: "Artists")
-        case .podcasts: String(localized: "Podcasts")
-        case .playlist: String(localized: "Playlist")
-        case .album: String(localized: "Album")
-        case .artist: String(localized: "Artist")
-        case .show: String(localized: "Podcast")
-        }
-    }
-
-    private var symbol: String {
-        switch route {
-        case .home: "house"
-        case .search: "magnifyingglass"
-        case .likedSongs: "heart"
-        case .albums, .album: "square.stack"
-        case .artists, .artist: "music.mic"
-        case .podcasts, .show: "mic"
-        case .playlist: "music.note.list"
         }
     }
 }
