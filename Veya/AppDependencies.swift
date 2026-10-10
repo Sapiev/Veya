@@ -12,6 +12,8 @@ struct AppDependencies {
     var artworkLoader: ArtworkLoader?
     var metadataStore: MetadataStore?
     var defaults: UserDefaults = .standard
+    /// `nil` reads episode progress from the Web API with the session's tokens.
+    var episodeProgress: (any EpisodeProgressProvider)?
 
     static func make() -> AppDependencies {
         #if DEBUG

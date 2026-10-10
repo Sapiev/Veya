@@ -48,26 +48,35 @@ private struct PlaybackSettingsTab: View {
                 Text("Normal (160 kbps)").tag(Bitrate.kbps160)
                 Text("High (320 kbps)").tag(Bitrate.kbps320)
             }
-            // The grouped form shows the row label but leaves the pop-up button unnamed for VoiceOver.
+            // The grouped form shows row labels but leaves pop-up buttons and switches unnamed for VoiceOver.
             .accessibilityLabel("Streaming quality")
             Toggle("Normalize volume", isOn: $settings.normalises)
+            .accessibilityLabel("Normalize volume")
             Picker("Loudness", selection: $settings.loudness) {
                 Text("Quiet").tag(LoudnessPreset.quiet)
                 Text("Normal").tag(LoudnessPreset.normal)
                 Text("Loud").tag(LoudnessPreset.loud)
             }
+            .accessibilityLabel("Loudness")
             .disabled(!settings.normalises)
+            Toggle(isOn: $settings.autoplay) {
+                Text("Autoplay")
+                Text("When an album or playlist ends, similar songs keep playing.")
+            }
+            .accessibilityLabel("Autoplay")
             Picker("Podcast speed", selection: $settings.episodeSpeed) {
                 ForEach(Self.speeds, id: \.self) { speed in
                     Text("\(speed.formatted())×").tag(speed)
                 }
             }
+            .accessibilityLabel("Podcast speed")
             Picker("Output device", selection: $settings.outputDeviceUID) {
                 Text("System Default").tag(String?.none)
                 ForEach(devices.list) { device in
                     Text(device.name).tag(String?.some(device.uid))
                 }
             }
+            .accessibilityLabel("Output device")
         }
         .formStyle(.grouped)
     }
@@ -78,6 +87,8 @@ private struct StorageSettingsTab: View {
     let settings: PlaybackSettings
     @State private var confirmingReset = false
     @State private var resetDone = false
+    @State private var confirmingAudioClear = false
+    @State private var audioCleared = false
     @State private var failure: LocalizedStringKey?
 
     private static let limits: [UInt64] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30]
@@ -96,8 +107,22 @@ private struct StorageSettingsTab: View {
                         Text(Int64(bytes).formatted(.byteCount(style: .memory))).tag(bytes)
                     }
                 }
+                .accessibilityLabel("Audio cache size")
+                LabeledContent("Downloaded audio") {
+                    Button("Clear Audio Cache…") { confirmingAudioClear = true }
+                        // Its own dialog: the Form already presents the metadata reset one.
+                        .confirmationDialog("Clear the audio cache?", isPresented: $confirmingAudioClear) {
+                            Button("Clear", role: .destructive, action: clearAudio)
+                        } message: {
+                            Text("Songs download again from Spotify the next time they play.")
+                        }
+                }
+                if audioCleared {
+                    Text("Audio cache cleared.")
+                        .foregroundStyle(.secondary)
+                }
             } footer: {
-                Text("Changing the size reconnects to Spotify, which stops the current track.")
+                Text("Changing the size reconnects to Spotify; the current track picks up where it was.")
             }
             Section {
                 LabeledContent("Library and metadata") {
@@ -129,6 +154,15 @@ private struct StorageSettingsTab: View {
             settings.audioCacheLimitBytes = bytes
         } catch {
             failure = "Couldn't change the audio cache size."
+        }
+    }
+
+    private func clearAudio() {
+        do {
+            try session.clearAudioCache()
+            audioCleared = true
+        } catch {
+            failure = "Couldn't clear the audio cache."
         }
     }
 

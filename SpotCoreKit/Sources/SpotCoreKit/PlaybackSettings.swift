@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// App volume, loudness normalisation, output device, streaming quality,
-/// audio cache size and episode speed, persisted across launches.
+/// audio cache size, episode speed and autoplay, persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -34,6 +34,11 @@ public final class PlaybackSettings {
         didSet { defaults.set(bitrate.storedName, forKey: Key.bitrate) }
     }
 
+    /// Whether radio for the context follows once it runs out.
+    public var autoplay: Bool {
+        didSet { defaults.set(autoplay, forKey: Key.autoplay) }
+    }
+
     /// Read when the audio cache opens; `SessionModel.setAudioCacheLimit` applies a change.
     public var audioCacheLimitBytes: UInt64 {
         didSet { defaults.set(String(audioCacheLimitBytes), forKey: Key.audioCacheLimit) }
@@ -55,7 +60,7 @@ public final class PlaybackSettings {
     @ObservationIgnored private let defaults: UserDefaults
 
     /// Defaults to full volume, which leaves the signal unchanged, Normal
-    /// loudness as Spotify does, 320 kbps and a 1 GB cache.
+    /// loudness as Spotify does, 320 kbps, a 1 GB cache and autoplay on.
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         storedVolume = Self.clamped(defaults.object(forKey: Key.volume) as? Double ?? 1)
@@ -63,6 +68,7 @@ public final class PlaybackSettings {
         loudness = defaults.string(forKey: Key.loudness).flatMap(LoudnessPreset.init(storedName:)) ?? .normal
         outputDeviceUID = defaults.string(forKey: Key.outputDevice)
         bitrate = defaults.string(forKey: Key.bitrate).flatMap(Bitrate.init(storedName:)) ?? .kbps320
+        autoplay = defaults.object(forKey: Key.autoplay) as? Bool ?? true
         audioCacheLimitBytes = defaults.string(forKey: Key.audioCacheLimit).flatMap(UInt64.init)
             ?? Self.defaultAudioCacheLimitBytes
         storedEpisodeSpeed = AudioEngine.clamped(rate: defaults.object(forKey: Key.episodeSpeed) as? Float ?? 1)
@@ -94,6 +100,7 @@ public final class PlaybackSettings {
         static let loudness = "playback.loudness"
         static let outputDevice = "playback.outputDevice"
         static let bitrate = "playback.bitrate"
+        static let autoplay = "playback.autoplay"
         // A string: UserDefaults has no UInt64 and Int64 would admit negatives.
         static let audioCacheLimit = "playback.audioCacheLimit"
         static let episodeSpeed = "playback.episodeSpeed"

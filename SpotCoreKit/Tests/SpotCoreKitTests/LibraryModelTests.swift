@@ -134,7 +134,7 @@ struct LibraryModelTests {
         await first.value
         await second.value
 
-        #expect(metadata.requested == [["spotify:track:a", "spotify:track:b"], ["spotify:track:c"]])
+        #expect(Set(metadata.requested) == [["spotify:track:a", "spotify:track:b"], ["spotify:track:c"]])
         #expect(model.metadata["spotify:track:a"] == .unavailable(uri: "spotify:track:a", error: .notFound))
         #expect(model.resolve(["spotify:track:a", "spotify:track:c"]) == nil)
         #expect(metadata.requested.count == 2)

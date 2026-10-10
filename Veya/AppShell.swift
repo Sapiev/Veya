@@ -15,23 +15,43 @@ struct AppShell: View {
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
     @State private var library: LibraryModel
+    @State private var podcast: PodcastModel
     private let settings: PlaybackSettings
     @State private var player: PlayerModel?
     @State private var search: SearchModel
+    @State private var home: HomeModel
     @State private var searchFocusRequest = 0
     private let recentSearches: RecentSearches
+    /// Hands the started player to the session owner, which stops it on sign out; false drops it.
+    private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
 
-    init(session: any SessionHandle, metadataStore: MetadataStore?, recentSearches: RecentSearches, settings: PlaybackSettings) {
+    init(
+        session: any SessionHandle,
+        webAPITokens: WebAPITokenProvider,
+        metadataStore: MetadataStore?,
+        recentSearches: RecentSearches,
+        settings: PlaybackSettings,
+        episodeProgress: any EpisodeProgressProvider,
+        attachPlayer: @escaping @MainActor (PlayerModel) -> Bool
+    ) {
         self.session = session
+        self.attachPlayer = attachPlayer
         self.settings = settings
         self.recentSearches = recentSearches
         _search = State(initialValue: SearchModel(service: session.makeSearch()))
         let metadata = session.makeMetadata(store: metadataStore)
         self.metadata = metadata
-        _playlists = State(initialValue: PlaylistModel(playlists: session.makePlaylists(store: metadataStore)))
+        let playlistService = session.makePlaylists(store: metadataStore)
+        _playlists = State(initialValue: PlaylistModel(playlists: playlistService))
+        _home = State(initialValue: HomeModel(
+            metadata: metadata,
+            playlists: playlistService,
+            recentlyPlayed: session.makeRecentlyPlayed { try await webAPITokens.accessToken() }
+        ))
         _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
+        _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
     }
 
     var body: some View {
@@ -40,6 +60,8 @@ struct AppShell: View {
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             switch history.current {
+            case .home:
+                HomeView(home: home, player: player, history: history)
             case .search:
                 SearchView(search: search, recent: recentSearches, player: player, history: history, focusRequest: searchFocusRequest)
             case .likedSongs:
@@ -56,8 +78,8 @@ struct AppShell: View {
                 ArtistPage(uri: uri, library: library, player: player, history: history)
             case let .playlist(uri):
                 PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
-            default:
-                RouteView(route: history.current)
+            case let .show(uri):
+                ShowPage(uri: uri, podcast: podcast, player: player)
             }
         }
         .inspector(isPresented: $queueVisible) {
@@ -98,7 +120,8 @@ struct AppShell: View {
         }
         .task {
             do {
-                player = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                let started = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
+                if attachPlayer(started) { player = started }
             } catch {
                 // Type name only: messages may carry server text.
                 logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
@@ -123,6 +146,8 @@ struct AppShell: View {
 private struct Sidebar: View {
     @Binding var selection: Route?
     let playlists: PlaylistModel
+    /// Expanded folder URIs, one per line.
+    @SceneStorage("expandedFolders") private var expandedFolders = ""
 
     var body: some View {
         List(selection: $selection) {
@@ -135,12 +160,7 @@ private struct Sidebar: View {
                 Label("Podcasts", systemImage: "mic").tag(Route.podcasts)
             }
             Section("Playlists") {
-                // shortcut: folders are flattened, nest them with DisclosureGroup once folders matter in the UI.
-                ForEach(playlists.rootlist, id: \.self) { entry in
-                    if case let .playlist(uri, name, _, _, _) = entry {
-                        Label(name, systemImage: "music.note.list").tag(Route.playlist(uri: uri))
-                    }
-                }
+                PlaylistRows(nodes: playlists.tree, expanded: expanded)
                 if playlists.rootlist.isEmpty {
                     switch playlists.state {
                     case .loaded:
@@ -158,6 +178,40 @@ private struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+    }
+
+    private var expanded: Binding<Set<String>> {
+        Binding(
+            get: { Set(expandedFolders.split(separator: "\n").map(String.init)) },
+            set: { expandedFolders = $0.sorted().joined(separator: "\n") }
+        )
+    }
+}
+
+/// Folders as disclosure groups, collapsed until opened; playlists select their page.
+private struct PlaylistRows: View {
+    let nodes: [RootlistNode]
+    @Binding var expanded: Set<String>
+
+    var body: some View {
+        ForEach(nodes) { node in
+            if let children = node.children {
+                DisclosureGroup(isExpanded: isExpanded(node.id)) {
+                    PlaylistRows(nodes: children, expanded: $expanded)
+                } label: {
+                    Label(node.name, systemImage: "folder")
+                }
+            } else {
+                Label(node.name, systemImage: "music.note.list").tag(Route.playlist(uri: node.id))
+            }
+        }
+    }
+
+    private func isExpanded(_ folder: String) -> Binding<Bool> {
+        Binding(
+            get: { expanded.contains(folder) },
+            set: { expanded = $0 ? expanded.union([folder]) : expanded.subtracting([folder]) }
+        )
     }
 }
 
@@ -239,7 +293,7 @@ private struct SavedItems: View {
     }
 }
 
-private struct PageTitle: View {
+struct PageTitle: View {
     let title: String
 
     var body: some View {
@@ -276,52 +330,6 @@ private extension LibraryKind {
         case .albums: "Couldn't Load Albums"
         case .artists: "Couldn't Load Artists"
         case .shows: "Couldn't Load Podcasts"
-        }
-    }
-}
-
-/// Placeholder per route until its screen lands (Home: PBI-307, shows: PBI-306).
-private struct RouteView: View {
-    let route: Route
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.title2)
-                .accessibilityIdentifier("routeTitle")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(title)
-    }
-
-    private var title: String {
-        switch route {
-        case .home: String(localized: "Home")
-        case .search: String(localized: "Search")
-        case .likedSongs: String(localized: "Liked Songs")
-        case .albums: String(localized: "Albums")
-        case .artists: String(localized: "Artists")
-        case .podcasts: String(localized: "Podcasts")
-        case .playlist: String(localized: "Playlist")
-        case .album: String(localized: "Album")
-        case .artist: String(localized: "Artist")
-        case .show: String(localized: "Podcast")
-        }
-    }
-
-    private var symbol: String {
-        switch route {
-        case .home: "house"
-        case .search: "magnifyingglass"
-        case .likedSongs: "heart"
-        case .albums, .album: "square.stack"
-        case .artists, .artist: "music.mic"
-        case .podcasts, .show: "mic"
-        case .playlist: "music.note.list"
         }
     }
 }

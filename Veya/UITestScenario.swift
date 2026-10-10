@@ -24,6 +24,8 @@
         case emptyLibrary
         /// Signed in; the library and playlists can't be fetched and nothing is cached.
         case libraryFails
+        /// Signed in before Veya asked for the scope Recently Played needs.
+        case recentlyPlayedNeedsSignIn
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -62,12 +64,14 @@
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
-                    library: library
+                    library: library,
+                    recentlyPlayedScope: self != .recentlyPlayedNeedsSignIn
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
                 artworkLoader: nil,
-                defaults: Self.freshDefaults()
+                defaults: Self.freshDefaults(),
+                episodeProgress: ScenarioEpisodeProgress()
             )
         }
     }
@@ -96,7 +100,7 @@
 
     /// What the signed-in library and playlists hold.
     private enum LibraryFill {
-        /// Liked songs "Song 1"... plus one album, one artist and one playlist.
+        /// Liked songs "Song 1"... plus one album, one artist, one show and one playlist.
         case liked(Int)
         case empty
         case failing
@@ -107,12 +111,14 @@
         private let premium: Bool
         private let initial: ConnectionState?
         private let library: LibraryFill
+        private let recentlyPlayedScope: Bool
 
-        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill) {
+        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
             self.premium = premium
             self.initial = initial
             self.library = library
+            self.recentlyPlayedScope = recentlyPlayedScope
         }
 
         func isPremium(accessToken _: String) async throws -> Bool {
@@ -131,6 +137,8 @@
 
         func clearMetadataCache() throws {}
 
+        func clearAudioCache() throws {}
+
         private func nextSession() throws -> any SessionHandle {
             let fails = failuresLeft.withLock { left in
                 defer { left = max(left - 1, 0) }
@@ -139,7 +147,7 @@
             if fails {
                 throw ScenarioConnectError()
             }
-            return ScenarioSession(initial: initial, library: library)
+            return ScenarioSession(initial: initial, library: library, recentlyPlayedScope: recentlyPlayedScope)
         }
     }
 
@@ -147,10 +155,12 @@
         static let blob = Data("ui-test-credentials".utf8)
         private let initial: ConnectionState?
         private let library: LibraryFill
+        private let recentlyPlayedScope: Bool
 
-        init(initial: ConnectionState?, library: LibraryFill) {
+        init(initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
             self.initial = initial
             self.library = library
+            self.recentlyPlayedScope = recentlyPlayedScope
         }
 
         func storedCredentials() throws -> Data {
@@ -187,6 +197,11 @@
             ScenarioSearch()
         }
 
+        // @concurrent: the app target defaults async closures to nonisolated(nonsending), SpotCoreKit does not.
+        func makeRecentlyPlayed(accessToken _: @escaping @concurrent @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
+            ScenarioRecentlyPlayed(fill: library, scope: recentlyPlayedScope)
+        }
+
         @MainActor
         func makePlayer(observer: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
             PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil)
@@ -218,7 +233,7 @@
 
     private nonisolated let scenarioArtist = ArtistMetadata(
         uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [],
-        topTracks: [likedSongURI(2), likedSongURI(1)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
+        topTracks: [likedSongURI(2), likedSongURI(1), likedSongURI(3)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
         compilations: [], related: [ItemRef(uri: scenarioRelated.uri, name: scenarioRelated.name)]
     )
     private nonisolated let scenarioRelated = ArtistMetadata(
@@ -236,6 +251,41 @@
         tracks: [likedSongURI(5)], playability: .playable, artwork: [], year: 2025, copyrights: []
     )
     private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
+    /// Spotify-owned, so Home lists it under Made for You.
+    private nonisolated let scenarioMixURI = "spotify:playlist:ui-test-mix"
+
+    /// Newest first: not started, halfway through, and played.
+    private nonisolated let scenarioEpisodes = [
+        scenarioEpisode("new", "New Episode", publishedAt: 1_759_300_200),
+        scenarioEpisode("halfway", "Halfway Episode", publishedAt: 1_758_700_000),
+        scenarioEpisode("finished", "Finished Episode", publishedAt: 1_758_100_000),
+        scenarioEpisode("locked", "Locked Episode", publishedAt: 1_757_500_000, playability: .regionLocked),
+    ]
+
+    /// An hour long, with "Notes for <title>" as its description.
+    private nonisolated func scenarioEpisode(
+        _ id: String, _ title: String, publishedAt: Int64, playability: Playability = .playable
+    ) -> EpisodeMetadata {
+        EpisodeMetadata(
+            uri: "spotify:episode:ui-test-\(id)", title: title, showName: "Test Podcast", description: "Notes for \(title)",
+            durationMs: 3_600_000, explicit: false, playability: playability, artwork: [], publishedAt: publishedAt
+        )
+    }
+
+    private nonisolated let scenarioShow = ShowMetadata(
+        uri: "spotify:show:ui-test", name: "Test Podcast", publisher: "Veya Test Studio",
+        description: "A podcast about testing Veya", artwork: [], episodes: scenarioEpisodes.map(\.uri)
+    )
+
+    /// 25 of 60 minutes into "Halfway Episode"; "Finished Episode" is played.
+    private nonisolated struct ScenarioEpisodeProgress: EpisodeProgressProvider {
+        func progress(uris: [String]) async throws -> [EpisodeProgress] {
+            [
+                EpisodeProgress(uri: scenarioEpisodes[1].uri, resumePositionMs: 1_500_000, fullyPlayed: false),
+                EpisodeProgress(uri: scenarioEpisodes[2].uri, resumePositionMs: 0, fullyPlayed: true),
+            ].filter { uris.contains($0.uri) }
+        }
+    }
 
     /// A paused "Test Track" that answers play and pause with the matching events.
     /// Songs 5 and 6 are queued and songs 7 and 8 follow; playing a list makes it the context.
@@ -256,7 +306,15 @@
         func pause() { observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0)) }
         func addToQueue(uri: String) throws { snapshot.withLock { $0.upNext.append(uri) } }
         func clearQueue() { snapshot.withLock { $0.upNext.removeAll() } }
-        func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
+        func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws {
+            snapshot.withLock {
+                $0.current = uri
+                $0.nextFromContext = []
+            }
+            let episode = scenarioEpisodes.first { $0.uri == uri }
+            observer.onEvent(event: .trackChanged(uri: uri, name: episode?.title ?? "", durationMs: episode?.durationMs ?? 180_000))
+            observer.onEvent(event: .playing(uri: uri, positionMs: startMs))
+        }
         func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
             snapshot.withLock {
@@ -306,7 +364,7 @@
             case .artists:
                 return [LibraryItem(uri: scenarioArtist.uri, addedAt: newest)]
             case .shows:
-                return []
+                return [LibraryItem(uri: scenarioShow.uri, addedAt: newest)]
             }
         }
 
@@ -324,7 +382,7 @@
         }
     }
 
-    /// "Road Trip" when the library is filled; it never changes.
+    /// "Road Trip" and Spotify's "Daily Mix 1" when the library is filled; they never change.
     private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
         private let fill: LibraryFill
 
@@ -334,7 +392,13 @@
 
         func cachedRootlist() -> [RootlistEntry] {
             guard case .liked = fill else { return [] }
-            return [.playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil)]
+            let folder = "spotify:user:ui-test:folder:mixes"
+            return [
+                .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil),
+                .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil),
+                .folder(uri: folder, name: "Mixes", parent: nil),
+                .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder),
+            ]
         }
 
         func rootlist() async throws -> [RootlistEntry] {
@@ -346,20 +410,25 @@
             nil
         }
 
-        /// Songs 1, 2 and 5, all on one page.
+        /// Road Trip has songs 1, 2 and 5, Daily Mix 1 songs 4 and 6, each on one page.
         func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
-            guard case .liked = fill, uri == scenarioPlaylistURI else { throw PlaylistError.Request(message: "ui-test") }
-            let tracks = from > 0 ? [] : [1, 2, 5].map {
+            guard case .liked = fill, [scenarioPlaylistURI, scenarioMixURI].contains(uri) else {
+                throw PlaylistError.Request(message: "ui-test")
+            }
+            let mix = uri == scenarioMixURI
+            let songs = mix ? [4, 6] : [1, 2, 5]
+            let tracks = from > 0 ? [] : songs.map {
                 PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
             }
             return PlaylistPage(
-                uri: uri, revision: "ui-test", name: "Road Trip", description: "Songs for the road", owner: "ui-test",
-                collaborative: false, artwork: [], total: 3, offset: from, tracks: tracks
+                uri: uri, revision: "ui-test", name: mix ? "Daily Mix 1" : "Road Trip",
+                description: mix ? "Made for you" : "Songs for the road", owner: mix ? "spotify" : "ui-test",
+                collaborative: false, artwork: [], total: UInt32(songs.count), offset: from, tracks: tracks
             )
         }
 
         func followerCount(uri _: String) async throws -> UInt64 {
-            0
+            1234
         }
 
         func waitForChange() async -> PlaylistChange {
@@ -367,6 +436,32 @@
                 try? await Task.sleep(for: .seconds(3600))
             }
             return .rootlist
+        }
+    }
+
+    /// Songs 2 and 1, played from Test Album, Road Trip and Test Artist.
+    private final nonisolated class ScenarioRecentlyPlayed: RecentlyPlayedProvider {
+        private let fill: LibraryFill
+        private let scope: Bool
+
+        init(fill: LibraryFill, scope: Bool) {
+            self.fill = fill
+            self.scope = scope
+        }
+
+        func recentlyPlayed() async throws -> RecentlyPlayed {
+            guard scope else { throw HomeError.MissingScope }
+            switch fill {
+            case .liked:
+                return RecentlyPlayed(
+                    tracks: [likedSongURI(2), likedSongURI(3), likedSongURI(1)],
+                    contexts: [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri]
+                )
+            case .empty:
+                return RecentlyPlayed(tracks: [], contexts: [])
+            case .failing:
+                throw HomeError.Network(message: "ui-test")
+            }
         }
     }
 
@@ -404,6 +499,8 @@
                 if uri == scenarioArtist.uri { return .artist(artist: scenarioArtist) }
                 if uri == scenarioRelated.uri { return .artist(artist: scenarioRelated) }
                 if uri == scenarioSingle.uri { return .album(album: scenarioSingle) }
+                if uri == scenarioShow.uri { return .show(show: scenarioShow) }
+                if let episode = scenarioEpisodes.first(where: { $0.uri == uri }) { return .episode(episode: episode) }
                 return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }

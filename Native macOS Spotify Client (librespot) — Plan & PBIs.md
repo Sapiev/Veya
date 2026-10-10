@@ -227,13 +227,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-102
 
-**Status:** In progress - session-layer reconnect merged to develop; track restore and takeover wait on PBI-202 and PBI-501 (ADR-004).
+**Status:** In progress (merged to develop) - the player restores the current track and position after a reconnect (ADR-004 item 7); dealer close and takeover wait on PBI-501.
 
-**UI tests:** `SessionUITests` (reconnect banner). Track restore and takeover need tests when built.
+**UI tests:** `SessionUITests` (reconnect banner), `SettingsUITests` (cache size footer). Track restore is tested in spotcore: `cargo test -p spotcore reconnect`. Takeover needs tests when built.
 
 - [ ] `spotcore` detects dead sessions (access point timeout, dealer close) and reconnects with backoff (1, 2, 4 … 60 s). (Access point timeout and backoff done; dealer close waits on PBI-501, which starts the dealer.)
 - [x] Listens to `NSWorkspace` wake notifications and `NWPathMonitor` to reconnect promptly.
-- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile. (Banner done; track and position restore waits on the player, PBI-202.)
+- [ ] Current track and position are restored after reconnect; UI shows an "Offline – reconnecting" banner meanwhile. (Banner done; restore of track, position, play state, context and queue done in spotcore and unit-tested, not yet checked against a live reconnect.)
 - [ ] Another device taking over the account ("playing elsewhere") pauses locally and informs the user. (Waits on the player and Connect dealer, PBI-202 and PBI-501.)
 
 #### PBI-104 · Sign out and switch account
@@ -242,11 +242,11 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-102
 
-**Status:** In progress - sign-out merged to develop (session end and Keychain delete); playback and cache clearing wait on PBI-202, PBI-207 and PBI-308.
+**Status:** In progress (merged to develop) - sign out also stops playback (`SessionModel.attach` ties the player to its session) and clears the audio cache; every step is attempted and repeats are safe.
 
-**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account has a Sign Out button again (PBI-407, `SettingsUITests`).
+**UI tests:** `SignOutUITests` (Account menu, menu disabled when signed out). The placeholder signed-in screen and its Sign Out button were replaced by the app shell (PBI-401); Settings › Account has a Sign Out button again (PBI-407, `SettingsUITests`). Stopping playback has nothing new to see in the UI-test fakes (a new sign-in gets a new player), so it is covered by `SessionSignOutTests`.
 
-- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (Session end, Keychain delete and metadata cache clear done; playback stop and audio cache clear not wired into sign-out yet: PBI-202, PBI-207.)
+- [ ] Account menu › Sign Out stops playback, clears Keychain items, metadata cache and audio cache. (All four wired, unit-tested in `SessionSignOutTests`; Swift not compiled or run: written in a Linux container.)
 - [x] App returns to the sign-in screen without a relaunch.
 
 #### PBI-105 · Premium and region checks
@@ -255,12 +255,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 1 · **Milestone:** M1 · **Depends on:** PBI-101
 
-**Status:** In progress - Premium check at sign-in merged to develop; country greying waits on track lists (PBI-303, PBI-304).
+**Status:** In progress (merged to develop) - region-locked tracks are dimmed with a tooltip and refuse to play in track lists, artist top tracks, Home Recently Played and the show page; the Premium check on restore still waits on ADR-005.
 
-**UI tests:** `PremiumUITests` (Free account sees the explanation and signs out).
+**UI tests:** `PremiumUITests` (Free account sees the explanation and signs out), `TrackListUITests` (region-locked row refuses to play and stays out of the queue).
 
 - [ ] After login, the `product` user attribute is read; non-Premium accounts see an explanation screen and can sign out. (Done for fresh sign-in through Web API `/v1/me`; restore and reconnect still hit librespot's `exit(1)`, see ADR-005.)
-- [ ] Tracks unavailable in the user's country are greyed out with a tooltip. (No track lists exist yet: PBI-303, PBI-304.)
+- [ ] Tracks unavailable in the user's country are greyed out with a tooltip. (Done in track lists and artist top tracks; Swift not compiled or run: written in a Linux container. Search results carry no playability yet.)
 
 ### E2 · Playback engine
 
@@ -296,12 +296,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-202
 
-**Status:** In progress - queue, shuffle, repeat and autoplay radio merged to develop (`queue.rs`, `SpotPlayer`); Settings toggle pending.
+**Status:** In progress (merged to develop) - Settings › Playback has an Autoplay switch, persisted in `PlaybackSettings.autoplay` and applied to the player at creation and live.
 
 - [x] Queue model holds context (album/playlist) tracks plus a user "Up Next" list, matching Spotify's semantics.
 - [x] Play Next, Add to Queue, remove, reorder and clear are supported.
 - [x] Shuffle and repeat (off / context / track) work together; previous within 3 s restarts the track.
-- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`, and the app drives the player and shows its queue (PBI-402, PBI-406); the Settings window has no autoplay switch yet.)
+- [ ] When the context ends, autoplay continues with radio for that context (can be switched off in Settings). (Radio and `set_autoplay` work in `spotcore`; the Settings switch is wired and tested in `PlayerModelTests` and `SettingsUITests`; Swift not compiled or run: written in a Linux container.)
 
 #### PBI-204 · Gapless playback and preloading
 
@@ -320,10 +320,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-201
 
-**Status:** In progress - merged to develop: `SpotPlayer.set_volume` (librespot soft mixer, 60 dB log curve) and `set_normalisation` (rebuilds the player live) plus SpotCoreKit `PlaybackSettings` persisted in UserDefaults; slider and toggle UI land with PBI-402 and PBI-407.
+**Status:** Done (merged to develop) - volume slider (PBI-402) and Normalize toggle with Loudness presets (PBI-407) already merged to develop; adds a UI test for the toggle and a VoiceOver name for the Loudness picker.
 
-- [ ] App volume slider (logarithmic curve) independent from system volume; persisted across launches. (Core volume and persistence done; no slider until the now-playing bar, PBI-402.)
-- [ ] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings. (Preset mapping and persistence done; no toggle until the Settings window, PBI-407.)
+- [x] App volume slider (logarithmic curve) independent from system volume; persisted across launches.
+- [x] Normalisation toggle with Quiet / Normal / Loud presets mapped to librespot's normaliser settings.
 
 #### PBI-206 · Output device selection
 
@@ -331,10 +331,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 3 · **Milestone:** M3 · **Depends on:** PBI-201
 
-**Status:** In progress - merged to develop: SpotCoreKit `OutputDevices` (live CoreAudio list), `AudioEngine.outputDeviceUID` (routes to the chosen device, falls back to the default and returns when it reappears) and `PlaybackSettings.outputDeviceUID` (UserDefaults); the picker UI lands with the Settings window, PBI-407.
+**Status:** Done (merged to develop) - the Output device picker (PBI-407) and the saved device applied when the player starts (`SpotSession.makePlayer`) were already merged to develop; adds a UI test and a VoiceOver name for the picker.
 
-- [ ] Settings lists CoreAudio output devices and updates live as devices appear/disappear. (Live list done in `OutputDevices`; no picker until the Settings window, PBI-407.)
-- [ ] Selected device is remembered; falls back to system default if missing. (Persistence and fallback done in SpotCoreKit; the app does not create an `AudioEngine` yet, so nothing applies the saved choice at launch.)
+- [x] Settings lists CoreAudio output devices and updates live as devices appear/disappear.
+- [x] Selected device is remembered; falls back to system default if missing.
 
 #### PBI-207 · Streaming quality and audio cache
 
@@ -342,10 +342,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-202
 
-**Status:** In progress - merged to develop: `SpotPlayer` takes a `Bitrate` and `set_bitrate` rebuilds it live; `AudioCache` wraps librespot's cache, is shared by every session and reconnect, and `clear` empties it; SpotCoreKit `PlaybackSettings` persists quality and cache cap, and `SessionModel.setAudioCacheLimit` applies a new cap live (evicts at once, then reconnects the session, which stops the current track). Picker and Clear Cache button land with the Settings window, PBI-407.
+**Status:** In progress (merged to develop) - quality and cache size pickers already merged with PBI-407; Settings › Storage gains a confirmed Clear Audio Cache button (`SessionModel.clearAudioCache`).
 
 - [x] Quality options 96 / 160 / 320 kbps map to librespot bitrate settings; default 320.
-- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache in `Caches/<bundle id>/Audio` with librespot's LRU limiter and `AudioCache.clear`; no button until the Settings window, PBI-407.)
+- [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache, cap and size picker done; the Clear Audio Cache button is wired and has a `SettingsUITests` test; Swift not compiled or run: written in a Linux container.)
 - [x] Cached audio is encrypted as librespot stores it and is not exportable.
 
 ### E3 · Catalog and library
@@ -393,11 +393,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M2 · **Depends on:** PBI-301
 
-**Status:** In progress - `PlaylistService` in `spotcore` (paged root list with folders, paged playlist contents, popcount follower count, dealer push wait shared with the library via `push.rs`) merged to develop; SpotCoreKit `PlaylistModel` (cached rootlist first, then sync and change watch) and the sidebar list (PBI-401) merged to develop; playlist page (PBI-404) merged to develop: contents load 200 tracks per request after a fully cached copy is shown, and an open playlist refreshes on its dealer push.
+**Status:** In progress (merged to develop) - sidebar shows folders as a collapsible tree (`PlaylistModel.tree`, expansion kept per window) and the playlist page shows the follower count; root list and open playlist refresh on dealer push now have a unit test.
 
-- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Fetch and folder nesting done in `spotcore` `playlist.rs`; no tree UI yet.)
-- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (Incremental loading, owner, description and artwork done on the PBI-404 playlist page; the follower count is not shown yet; not checked against a live account.)
-- [ ] Changes made on other devices appear within 10 s via dealer notifications. (`wait_for_change` reports root list and playlist pushes; nothing refreshes on it yet.)
+- [ ] Root list including folders is fetched (playlist4 protocol) and shown as a collapsible tree. (Tree wired, `NavigationUITests` covers expanding a folder; Swift not compiled or run: written in a Linux container.)
+- [ ] Playlist contents load incrementally; owner, description, follower count and artwork are shown. (Follower count wired and covered in `DetailPagesUITests`; Swift not compiled or run: written in a Linux container; not checked against a live account.)
+- [ ] Changes made on other devices appear within 10 s via dealer notifications. (`PlaylistModel.watch` refreshes the root list and open playlists on push, tested in `PlaylistPageTests`; Swift not compiled or run: written in a Linux container; delay not measured against a live account.)
 
 #### PBI-305 · Search
 
@@ -418,11 +418,13 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303
 
-**Status:** In progress - merged to develop: `LibraryKind::Shows`, show metadata (`SHOW_V4`), Web API resume points (`podcast.rs`, `user-read-playback-position`), SpotCoreKit `PodcastModel` and episode speed via `AVAudioUnitTimePitch` (ADR-007); Web API token refresh (`refresh_tokens`, Keychain refresh token, `WebAPITokenProvider`) merged to develop; UI and live checks pending.
+**Status:** In progress (merged to develop) - show page (`ShowPage`: header, episodes with release date, length, played and resume progress, selected episode's notes, Resume via `PlayerModel.play(_:startingAt:)`), episode release time in core; earlier: `LibraryKind::Shows`, `SHOW_V4` metadata, Web API resume points, SpotCoreKit `PodcastModel`, episode speed (ADR-007) and Web API token refresh merged to develop.
 
-- [ ] Followed shows list, show page with episode list, episode detail with description. (core and Kit done; UI waits on PBI-401; episode list in `SHOW_V4` not yet checked live)
-- [ ] Resume position syncs with Spotify; played state is shown. (read path and token refresh done; needs re-sign-in for sign-ins before this change; writing back relies on Spotify recording playback, unverified)
-- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer). (engine and setting done, ADR-007; picker UI pending, not yet listened to)
+**UI tests:** `PodcastUITests` (followed show opens its page, episode date, length, played and resume state, selected episode's notes, Resume and Play from the start).
+
+- [ ] Followed shows list, show page with episode list, episode detail with description. (Podcasts list, `ShowPage` and `PodcastUITests` written; Swift not compiled or run: written in a Linux container; episode list in `SHOW_V4` not yet checked live)
+- [ ] Resume position syncs with Spotify; played state is shown. (played and resume state shown on the show page and Resume starts at the resume point, Swift not compiled or run: written in a Linux container; needs re-sign-in for sign-ins before this change; writing back relies on Spotify recording playback, unverified)
+- [ ] Playback speed 0.8×–2× for episodes (if librespot cannot support speed, document and defer). (engine, setting and Settings › Playback › Podcast speed picker done, ADR-007; not yet listened to)
 
 #### PBI-307 · Home and discovery
 
@@ -430,11 +432,11 @@ veya/
 
 **Priority:** Could · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-**Status:** In progress - core `home.rs` (Web API recently played with `user-read-recently-played`, spclient radio) and SpotCoreKit `HomeModel` merged to develop; Home screen waits on the app shell (PBI-401). Accounts signed in before this change lack `user-read-recently-played` and hide Recently Played and Jump Back In until they sign in again; the re-auth prompt for `MissingScope` is still open (shared with PBI-306).
+**Status:** In progress (merged to develop) - `HomeView` shows the `HomeModel` sections as card rows, hides empty ones, and asks accounts without `user-read-recently-played` to sign in again (`HomeModel.recentlyPlayedNeedsSignIn`); `HomeUITests`.
 
-- [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account. (`HomeModel` sections done; "Made for you" is the Spotify-owned playlists in the root list because the Web API closed its browse endpoints to new apps; screen waits on PBI-401)
+- [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account. ("Made for you" is the Spotify-owned playlists in the root list because the Web API closed its browse endpoints to new apps; `HomeView` and `HomeUITests` written, Swift not compiled or run: written in a Linux container)
 - [x] Artist and track radio via librespot's `get_radio_for_track`.
-- [ ] Sections that cannot be fetched are hidden, not shown empty. (`HomeModel` leaves a failed section empty; the view that hides it waits on PBI-401)
+- [ ] Sections that cannot be fetched are hidden, not shown empty. (`HomeView` hides empty sections and shows a sign-in-again note for `MissingScope`; `HomeUITests`, Swift not compiled or run: written in a Linux container)
 
 #### PBI-308 · Persistent metadata cache
 

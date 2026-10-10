@@ -37,6 +37,9 @@ public final class HomeModel {
     public private(set) var jumpBackIn: [HomeTile] = []
     /// Spotify-owned playlists in the account's root list.
     public private(set) var madeForYou: [PlaylistPage] = []
+    /// Recently Played failed in a way only a fresh sign-in fixes, such as a
+    /// token from before the `user-read-recently-played` scope was added.
+    public private(set) var recentlyPlayedNeedsSignIn = false
     /// `.failed` only when every section failed.
     public private(set) var state: LibraryLoadState?
 
@@ -91,13 +94,16 @@ public final class HomeModel {
             guard mine == generation else { return true }
             recentlyPlayed = tracks.filter(\.isAvailable)
             jumpBackIn = tiles
+            recentlyPlayedNeedsSignIn = false
             return true
         } catch {
             guard mine == generation else { return true }
             log(.warn, "Couldn't load recently played: \(Self.summary(error))")
             recentlyPlayed = []
             jumpBackIn = []
-            return false
+            recentlyPlayedNeedsSignIn = Self.needsSignIn(error)
+            // A sign-in hint is shown in place of the section, so Home has not failed.
+            return recentlyPlayedNeedsSignIn
         }
     }
 
@@ -149,6 +155,13 @@ public final class HomeModel {
                 found[index] = page
             }
             return found.compactMap(\.self)
+        }
+    }
+
+    private static func needsSignIn(_ error: any Error) -> Bool {
+        switch error {
+        case HomeError.MissingScope, WebAPITokenError.notAvailable, WebAPITokenError.rejected: true
+        default: false
         }
     }
 

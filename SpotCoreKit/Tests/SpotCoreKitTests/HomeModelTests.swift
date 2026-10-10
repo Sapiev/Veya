@@ -164,6 +164,48 @@ struct HomeModelTests {
         #expect(logged == ["Couldn't load recently played: MissingScope"])
     }
 
+    @Test func missingScopeAsksForSignIn() async {
+        let home = model(recent: .failure(.MissingScope))
+
+        await home.load().value
+
+        #expect(home.recentlyPlayedNeedsSignIn)
+    }
+
+    @Test func missingRefreshTokenAsksForSignIn() async {
+        let home = HomeModel(
+            metadata: StubMetadata([]),
+            playlists: StubPlaylists(rootlist: .success(rootlist), pages: [page(weekly)]),
+            recentlyPlayed: WebAPIRecentlyPlayed { throw WebAPITokenError.notAvailable },
+            log: { _, _ in }
+        )
+
+        await home.load().value
+
+        #expect(home.recentlyPlayedNeedsSignIn)
+        #expect(home.madeForYou == [page(weekly)])
+    }
+
+    @Test func missingScopeIsNotAFailureWhenMadeForYouFailsToo() async {
+        let home = model(recent: .failure(.MissingScope), rootlist: .failure(.Request(message: "x")))
+
+        await home.load().value
+
+        #expect(home.state == .loaded)
+        #expect(home.recentlyPlayedNeedsSignIn)
+    }
+
+    @Test func otherFailuresAndSuccessDoNotAskForSignIn() async {
+        let failed = model(recent: .failure(.Network(message: "x")))
+        let loaded = model()
+
+        await failed.load().value
+        await loaded.load().value
+
+        #expect(!failed.recentlyPlayedNeedsSignIn)
+        #expect(!loaded.recentlyPlayedNeedsSignIn)
+    }
+
     @Test func rootlistFailureHidesOnlyMadeForYou() async {
         let home = model(rootlist: .failure(.Request(message: "x")))
 

@@ -38,7 +38,7 @@ struct QueuePanel: View {
             if let current = player.nowPlaying {
                 Section("Now Playing") {
                     QueueRow(uri: current.uri, library: library)
-                        .onAppear { library.resolve([current.uri]) }
+                        .task(id: current.uri) { library.resolve([current.uri]) }
                         .selectionDisabled()
                 }
             }
@@ -49,7 +49,7 @@ struct QueuePanel: View {
                 }
                 ForEach(Array(player.upNext.enumerated()), id: \.offset) { offset, uri in
                     QueueRow(uri: uri, library: library)
-                        .onAppear { resolve(player.upNext, from: offset) }
+                        .task(id: uri) { resolve(player.upNext, from: offset) }
                         .contextMenu {
                             Button("Remove from Queue") { player.removeFromUpNext(at: removal(offset)) }
                         }
@@ -74,7 +74,7 @@ struct QueuePanel: View {
                     ForEach(player.nextFromContext.indices.map { -1 - $0 }, id: \.self) { id in
                         let offset = -1 - id
                         QueueRow(uri: player.nextFromContext[offset], library: library)
-                            .onAppear { resolve(player.nextFromContext, from: offset) }
+                            .task(id: player.nextFromContext[offset]) { resolve(player.nextFromContext, from: offset) }
                             .selectionDisabled()
                     }
                 }

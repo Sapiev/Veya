@@ -7,8 +7,18 @@ final class FakePlayer: SpotPlayerProtocol {
     private let calls = OSAllocatedUnfairLock<[String]>(initialState: [])
     /// Up Next behaves like the core queue so position mapping can be checked by outcome.
     private let snapshot: OSAllocatedUnfairLock<QueueSnapshot>
+    private let failsLoad: Bool
 
-    init(shuffle: Bool = false, repeat mode: RepeatMode = .off, upNext: [String] = [], nextFromContext: [String] = []) {
+    struct LoadFailed: Error {}
+
+    init(
+        shuffle: Bool = false,
+        repeat mode: RepeatMode = .off,
+        upNext: [String] = [],
+        nextFromContext: [String] = [],
+        failsLoad: Bool = false
+    ) {
+        self.failsLoad = failsLoad
         snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
             current: nil, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
         ))
@@ -37,7 +47,10 @@ final class FakePlayer: SpotPlayerProtocol {
         snapshot.withLock { $0.upNext.removeAll() }
     }
 
-    func load(uri: String, startMs _: UInt32, autoplay _: Bool) async throws { record("load \(uri)") }
+    func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws {
+        record("load \(uri) \(startMs)")
+        if failsLoad { throw LoadFailed() }
+    }
     func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, autoplay _: Bool) throws {
         record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")")
     }
@@ -217,6 +230,35 @@ struct PlayerModelTests {
         #expect(fake.recorded.count == 4)
     }
 
+    @Test func savedAutoplayOffReachesANewPlayer() {
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.autoplay = false
+        let fake = FakePlayer()
+
+        let player = model(fake, settings: settings)
+
+        withExtendedLifetime(player) {
+            #expect(fake.recorded == ["autoplay false"])
+        }
+    }
+
+    @Test func autoplaySwitchReachesTheLivePlayerOnce() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+
+        settings.autoplay = false
+        while fake.recorded.isEmpty {
+            await Task.yield()
+        }
+        settings.autoplay = false
+        await Task.yield()
+
+        withExtendedLifetime(player) {
+            #expect(fake.recorded == ["autoplay false"])
+        }
+    }
+
     @Test func unchangedSettingsSendNothing() async {
         let fake = FakePlayer()
         let settings = PlaybackSettings(defaults: defaults)
@@ -245,6 +287,21 @@ struct PlayerModelTests {
         player.play(["a"], from: 0)
         player.play(["a"], from: 3)
         #expect(fake.recorded == ["loadTracks a,b,c 1 spotify:playlist:1", "loadTracks a 0 -"])
+    }
+
+    @Test func playOneItemLoadsItFromTheStartPositionAsTheContext() async {
+        let fake = FakePlayer()
+        let player = model(fake)
+        await player.play(episodeURI, startingAt: 90000).value
+        #expect(fake.recorded == ["load \(episodeURI) 90000"])
+        #expect(player.context == episodeURI)
+    }
+
+    @Test func playOneItemThatFailsToLoadKeepsTheContext() async {
+        let player = model(FakePlayer(failsLoad: true))
+        player.play(["a"], from: 0, context: "spotify:playlist:1")
+        await player.play(episodeURI, startingAt: 0).value
+        #expect(player.context == "spotify:playlist:1")
     }
 
     @Test func playNextKeepsTheSelectionOrderAtTheFrontOfUpNext() {

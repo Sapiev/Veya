@@ -21,6 +21,7 @@ use librespot_playback::player::{Player, PlayerEvent, PlayerEventChannel};
 use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
 use librespot_protocol::context::Context;
 use log::{info, warn};
+use tokio::sync::watch;
 
 use crate::audio::{AudioOutput, CoreAudioSink};
 use crate::queue::{Queue, RepeatMode};
@@ -158,9 +159,11 @@ impl Clock {
         };
     }
 
+    /// Extrapolates at most one tick interval: librespot reports position as
+    /// it decodes, so a longer silence means a stalled stream, not progress.
     fn position_ms(&self) -> u32 {
         let since = match self.reported_at {
-            Some(at) if self.playing => at.elapsed().as_millis(),
+            Some(at) if self.playing => at.elapsed().min(POSITION_INTERVAL).as_millis(),
             _ => 0,
         };
         self.position_ms
@@ -228,6 +231,8 @@ impl SpotPlayer {
             current: Arc::default(),
             mine: 0,
         };
+        // Subscribe first so a reconnect between the two calls is not missed.
+        let links = session.link_changes();
         let link = session.current_session();
         let state = Arc::new(Mutex::new(State {
             queue: Queue::default(),
@@ -243,7 +248,7 @@ impl SpotPlayer {
             epoch: epoch.clone(),
         };
         let player = spawn_player(&session, link, shared, &mixer, &state, &observer, tuning);
-        Ok(Arc::new(Self {
+        let this = Arc::new(Self {
             session,
             player: Mutex::new(player),
             tuning: Mutex::new(tuning),
@@ -252,7 +257,9 @@ impl SpotPlayer {
             mixer,
             observer,
             state,
-        }))
+        });
+        tokio::spawn(restore_after_reconnects(links, Arc::downgrade(&this)));
+        Ok(this)
     }
 
     /// App volume on a logarithmic curve, independent of the system volume.
@@ -283,8 +290,10 @@ impl SpotPlayer {
         let uri = SpotifyUri::from_uri(&uri).map_err(|e| PlayerError::InvalidUri {
             message: e.to_string(),
         })?;
-        let session = self.sync_session();
-        let tracks = resolve(&session, &uri).await?;
+        // Adopt the session only once resolve succeeds: adopting first would
+        // make a pending reconnect restore skip, leaving playback dead on failure.
+        let tracks = resolve(&self.session.current_session(), &uri).await?;
+        self.sync_session();
         let empty = canonical(&uri);
         self.start_context(tracks, None, Some(uri), empty, start_ms, autoplay)
     }
@@ -500,6 +509,24 @@ impl SpotPlayer {
         tokio::task::spawn_blocking(move || drop(old));
     }
 
+    /// Moves the player onto a reconnected session and restarts the current
+    /// track where it was, playing or paused as before. The queue and context
+    /// live here, not in the session, so they carry over. A no-op once the
+    /// player holds the current session, so a repeat call changes nothing.
+    fn restore_after_reconnect(&self) {
+        let link = self.session.current_session();
+        let mut state = lock(&self.state);
+        let Some(resume) = prepare_restore(&mut state, link.session_id()) else {
+            return;
+        };
+        let player = self.player();
+        player.set_session(link);
+        if let Some((track, play, position_ms)) = resume {
+            info!("restoring playback after reconnect at {position_ms} ms");
+            player.load(track, play, position_ms);
+        }
+    }
+
     /// Hands the player the supervisor's current session if a reconnect
     /// replaced the one it holds; loads on a dead session would fail.
     fn sync_session(&self) -> Session {
@@ -636,13 +663,44 @@ fn resume_point(state: &State) -> Option<(SpotifyUri, bool, u32)> {
 
 fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Session {
     let session = spot.current_session();
-    let id = session.session_id();
-    let mut state = lock(state);
-    if state.session_id != id {
+    if adopt_session(&mut lock(state), session.session_id()) {
         player.set_session(session.clone());
-        state.session_id = id;
     }
     session
+}
+
+/// None when `session_id` is already held; otherwise where to resume, if
+/// anything was playing. Bumps the generation so a radio fetch started on
+/// the old session cannot replace the restored track.
+fn prepare_restore(
+    state: &mut State,
+    session_id: String,
+) -> Option<Option<(SpotifyUri, bool, u32)>> {
+    if !adopt_session(state, session_id) {
+        return None;
+    }
+    state.generation += 1;
+    Some(resume_point(state))
+}
+
+/// Records `session_id` as the player's session; false if it already was.
+fn adopt_session(state: &mut State, session_id: String) -> bool {
+    if state.session_id == session_id {
+        return false;
+    }
+    state.session_id = session_id;
+    true
+}
+
+/// Ends once the player or the session is gone.
+async fn restore_after_reconnects(mut links: watch::Receiver<u64>, player: Weak<SpotPlayer>) {
+    while links.changed().await.is_ok() {
+        let Some(player) = player.upgrade() else {
+            return;
+        };
+        // This may hold the last reference, and dropping a player joins its thread.
+        let _ = tokio::task::spawn_blocking(move || player.restore_after_reconnect()).await;
+    }
 }
 
 fn seed() -> u64 {
@@ -966,6 +1024,58 @@ mod tests {
 
         state.clock.note(&PlaybackEvent::Stopped);
         assert_eq!(resume_point(&state), None);
+    }
+
+    #[test]
+    fn clock_stops_extrapolating_when_position_ticks_stop() {
+        let mut clock = Clock::default();
+        clock.note(&PlaybackEvent::Playing {
+            uri: canonical(&track(0)),
+            position_ms: 10_000,
+        });
+        clock.reported_at = Instant::now().checked_sub(Duration::from_secs(30));
+
+        assert_eq!(
+            clock.position_ms(),
+            11_000,
+            "a stalled stream did not play on"
+        );
+    }
+
+    #[test]
+    fn reconnect_restores_once_per_new_session_and_retires_radio_fetches() {
+        let mut state = state_playing(track(0));
+        state.session_id = "first".to_owned();
+        state.clock.note(&PlaybackEvent::Paused {
+            uri: canonical(&track(0)),
+            position_ms: 42_000,
+        });
+        let generation = state.generation;
+
+        assert_eq!(
+            prepare_restore(&mut state, "first".to_owned()),
+            None,
+            "no reconnect yet"
+        );
+        assert_eq!(state.generation, generation);
+        assert_eq!(
+            prepare_restore(&mut state, "second".to_owned()),
+            Some(Some((track(0), false, 42_000)))
+        );
+        assert!(
+            state.generation > generation,
+            "a radio fetch from the old session could replace the restored track"
+        );
+        assert_eq!(
+            prepare_restore(&mut state, "second".to_owned()),
+            None,
+            "a repeated notice for the same session restores nothing"
+        );
+        assert_eq!(
+            prepare_restore(&mut state, "third".to_owned()),
+            Some(Some((track(0), false, 42_000))),
+            "a reconnect during a restore restores again"
+        );
     }
 
     #[test]
