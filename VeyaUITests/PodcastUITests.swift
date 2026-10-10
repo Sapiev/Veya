@@ -1,6 +1,7 @@
 import XCTest
 
-/// PBI-306: followed shows, the show page and resuming an episode.
+/// PBI-306: followed shows, the show page and resuming an episode. PBI-105: an
+/// unplayable episode cannot be started.
 final class PodcastUITests: XCTestCase {
     @MainActor private func openShow() -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -67,6 +68,20 @@ final class PodcastUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.elapsed(beginningWith: "0:0").waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testRegionLockedEpisodeCannotBePlayed() {
+        let app = openShow()
+        let episode = app.staticTexts["Locked Episode"]
+        XCTAssertTrue(episode.waitForExistence(timeout: XCUIApplication.timeout))
+        episode.click()
+        let play = app.buttons["episodePlay"]
+        XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(play.isEnabled)
+
+        episode.doubleClick()
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
     }
 }
 

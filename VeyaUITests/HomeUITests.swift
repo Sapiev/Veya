@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-307: the Home screen.
+/// PBI-307: the Home screen. PBI-105: the scenario's Song 3 is region locked, so it never plays.
 final class HomeUITests: XCTestCase {
     private static let sections = ["Recently Played", "Jump Back In", "Made for You"]
     private static let signInAgain = "Sign out and sign in again to see Recently Played and Jump Back In."
@@ -81,5 +81,27 @@ final class HomeUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).firstMatch.exists)
+    }
+
+    @MainActor func testRegionLockedRecentTrackRefusesToPlay() {
+        let app = home()
+        let locked = app.buttons["Song 3, Test Artist"]
+        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+
+        locked.click()
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor func testPlayingRecentTracksLeavesTheRegionLockedOneOut() {
+        let app = home()
+        XCTAssertTrue(app.buttons["Song 2, Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
+        app.menuItem("View", "Show Queue").click()
+        let queue = app.outlines["queue"]
+
+        app.buttons["Song 2, Test Artist"].click()
+
+        XCTAssertTrue(queue.staticTexts["Song 1"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(queue.staticTexts["Song 3"].exists)
     }
 }

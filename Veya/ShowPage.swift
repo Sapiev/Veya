@@ -41,13 +41,13 @@ struct ShowPage: View {
                         progress: podcast.progress[episode.uri],
                         isSelected: selection == episode.uri,
                         isCurrent: player?.nowPlaying?.uri == episode.uri,
-                        canPlay: player != nil
+                        canPlay: player != nil && episode.playability == .playable
                     ) { play(episode.uri) }
                 }
                 .contextMenu(forSelectionType: String.self) { uris in
                     if let episode = uris.first {
                         Button("Play") { play(episode) }
-                            .disabled(player == nil)
+                            .disabled(player == nil || !isPlayable(episode))
                     }
                 } primaryAction: { uris in
                     if let episode = uris.first { play(episode) }
@@ -80,7 +80,12 @@ struct ShowPage: View {
     }
 
     private func play(_ episode: String) {
+        guard isPlayable(episode) else { return }
         player?.play(episode, startingAt: podcast.startPosition(for: episode))
+    }
+
+    private func isPlayable(_ episode: String) -> Bool {
+        episodes.first { $0.uri == episode }?.playability == .playable
     }
 }
 

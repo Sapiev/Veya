@@ -259,13 +259,16 @@
         scenarioEpisode("new", "New Episode", publishedAt: 1_759_300_200),
         scenarioEpisode("halfway", "Halfway Episode", publishedAt: 1_758_700_000),
         scenarioEpisode("finished", "Finished Episode", publishedAt: 1_758_100_000),
+        scenarioEpisode("locked", "Locked Episode", publishedAt: 1_757_500_000, playability: .regionLocked),
     ]
 
     /// An hour long, with "Notes for <title>" as its description.
-    private nonisolated func scenarioEpisode(_ id: String, _ title: String, publishedAt: Int64) -> EpisodeMetadata {
+    private nonisolated func scenarioEpisode(
+        _ id: String, _ title: String, publishedAt: Int64, playability: Playability = .playable
+    ) -> EpisodeMetadata {
         EpisodeMetadata(
             uri: "spotify:episode:ui-test-\(id)", title: title, showName: "Test Podcast", description: "Notes for \(title)",
-            durationMs: 3_600_000, explicit: false, playability: .playable, artwork: [], publishedAt: publishedAt
+            durationMs: 3_600_000, explicit: false, playability: playability, artwork: [], publishedAt: publishedAt
         )
     }
 
@@ -451,7 +454,7 @@
             switch fill {
             case .liked:
                 return RecentlyPlayed(
-                    tracks: [likedSongURI(2), likedSongURI(1)],
+                    tracks: [likedSongURI(2), likedSongURI(3), likedSongURI(1)],
                     contexts: [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri]
                 )
             case .empty:

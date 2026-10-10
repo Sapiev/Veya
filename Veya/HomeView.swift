@@ -30,7 +30,10 @@ struct HomeView: View {
                             .foregroundStyle(.secondary)
                         }
                         Shelf(title: "Recently Played", tiles: recent) { index, _ in
-                            player?.play(recent.map(\.uri), from: index)
+                            let queue = recent.enumerated().filter { $0.element.playable }
+                            if let start = queue.firstIndex(where: { $0.offset == index }) {
+                                player?.play(queue.map(\.element.uri), from: start)
+                            }
                         }
                         Shelf(title: "Jump Back In", tiles: jumpBackIn) { _, tile in open(tile) }
                         Shelf(title: "Made for You", tiles: madeForYou) { _, tile in open(tile) }
@@ -48,7 +51,7 @@ struct HomeView: View {
     private func open(_ tile: Tile) {
         if let route = tile.route {
             history.navigate(to: route)
-        } else {
+        } else if tile.playable {
             player?.play([tile.uri], from: 0)
         }
     }
@@ -70,6 +73,7 @@ private struct Shelf: View {
                             Card(title: tile.title, subtitle: tile.subtitle, artwork: tile.artwork, round: tile.round) {
                                 activate(index, tile)
                             }
+                            .opacity(tile.playable ? 1 : 0.45)
                         }
                     }
                 }
@@ -87,6 +91,7 @@ private struct Tile {
     let artwork: [Artwork]
     var round = false
     var route: Route?
+    var playable = true
 }
 
 private extension Tile {
@@ -94,8 +99,10 @@ private extension Tile {
         switch item {
         case let .track(track):
             self.init(uri: track.uri, title: track.title, subtitle: Self.names(track.artists), artwork: track.artwork)
+            playable = track.playability == .playable
         case let .episode(episode):
             self.init(uri: episode.uri, title: episode.title, subtitle: episode.showName, artwork: episode.artwork)
+            playable = episode.playability == .playable
         case let .album(album):
             self.init(
                 uri: album.uri, title: album.title, subtitle: Self.names(album.artists), artwork: album.artwork,
