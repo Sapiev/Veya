@@ -407,10 +407,26 @@ veya/
 
 **Status:** In progress - `SearchService` in `spotcore` (`searchview/km/v4` over spclient, grouped results, per-type pages, typed `SearchError`) and `SearchModel` in SpotCoreKit (250 ms debounce, stale responses dropped, "See all" paging, fallback provider hook) merged to develop; search screen merged with PBI-405 (`SearchView`, `SessionHandle.makeSearch`); a Web API provider is still pending.
 
-- [ ] Search uses the internal search endpoint via spclient (not the Web API, which caps dev-mode results at 10). (`SearchService` calls `/searchview/km/v4/search` over spclient; response shape not checked against a live account.)
+- [ ] Search uses the internal search endpoint via spclient (not the Web API, which caps dev-mode results at 10). (Superseded by PBI-309: `searchview/km/v4` now answers HTTP 400 for every request, so search moved to the Web API through the user's own client ID, 10 results per page.)
 - [x] Queries are debounced (250 ms) and stale responses cancelled.
 - [x] Results grouped by type with "See all" pagination per type. (Search screen shows a section per type with a Show More button that loads the next page, PBI-405.)
 - [ ] If the internal endpoint fails, a typed error is shown and the optional Web API provider is used when configured. (`SearchModel.failure` is typed and a `fallback` provider is used when passed; the search screen shows the failure with Try Again (PBI-405); no Web API provider yet.)
+
+#### PBI-309 · Web API through the user's own client ID
+
+**Story:** As a user, I want Veya to call the Spotify Web API through my own developer app so that search, Recently Played and podcast resume points work despite the shared client ID being rate limited.
+
+**Priority:** Must · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-305, PBI-306, PBI-307
+
+**Status:** Done (merged to develop)
+
+**UI tests:** `SearchUITests` (not connected asks to connect and opens Settings › Account, connecting there shows the pending query's results, rate limit message), `SettingsUITests` (invalid Client ID keeps Connect disabled, connected state shows Disconnect).
+
+- [x] Search calls `GET /v1/search` with a bearer token from the user's own client ID, at most 10 results per type; results keep the URI kind check and `https`-only artwork; 401, 403 and 429 are typed errors (`cargo test -p spotcore search`).
+- [x] Settings › Account › Spotify Web API takes a Client ID (32 hex characters, checked before connecting), explains the dashboard steps and the redirect URI `http://127.0.0.1:8898/login`, connects through PKCE, shows the status and disconnects; a new Client ID drops the old refresh token.
+- [x] Search, Recently Played and episode progress use the own client's tokens (`WebAPIConnection`, `WebAPITokenProvider`); the main sign-in no longer keeps the shared client's refresh token, and launch deletes its stale Keychain item (safe to repeat).
+- [x] Without a connection, Search shows a prompt whose button opens Settings › Account; a rate limit has its own message.
+- [ ] Search, Recently Played and resume points work against a live account through a real developer app. (Not run: needs the user's own Client ID.)
 
 #### PBI-306 · Podcasts and episodes
 
