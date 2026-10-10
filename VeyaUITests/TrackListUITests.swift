@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 
 /// PBI-403: the shared track list, shown on Liked Songs.
+/// PBI-105: the scenario's Song 3 is region locked, so it is dimmed and never plays.
 final class TrackListUITests: XCTestCase {
     @MainActor private func likedSongs(_ scenario: Scenario = .signedIn, timeout: TimeInterval = XCUIApplication.timeout) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -43,6 +44,32 @@ final class TrackListUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
 
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testRegionLockedRowRefusesToPlay() {
+        let app = likedSongs()
+        let locked = app.trackList.staticTexts["Song 3"]
+        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+
+        locked.doubleClick()
+        app.typeKey(.return, modifierFlags: [])
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Play"].exists)
+        XCTAssertFalse(app.trackList.images["Now Playing"].exists)
+    }
+
+    @MainActor func testPlayingAListLeavesTheRegionLockedRowOut() {
+        let app = likedSongs()
+        XCTAssertTrue(app.trackList.staticTexts["Song 3"].waitForExistence(timeout: XCUIApplication.timeout))
+        app.menuItem("View", "Show Queue").click()
+        let queue = app.outlines["queue"]
+        XCTAssertTrue(queue.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.trackList.staticTexts["Song 2"].doubleClick()
+
+        XCTAssertTrue(queue.staticTexts["Song 4"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(queue.staticTexts["Song 3"].exists)
     }
 
     @MainActor func testContextMenuOffersTheTrackActions() {

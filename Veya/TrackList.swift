@@ -41,12 +41,14 @@ struct TrackList: View {
                 }
                 .lineLimit(1)
                 .opacity(row.playable ? 1 : 0.45)
+                .help(row.unavailableHelp ?? "")
             }
             .width(min: 160, ideal: 280)
             TableColumn("Album", value: \.albumName) { row in
                 Text(row.albumName)
                     .foregroundStyle(.secondary)
                     .opacity(row.playable ? 1 : 0.45)
+                    .help(row.unavailableHelp ?? "")
             }
             .width(min: 100, ideal: 200)
             TableColumn("Date Added", value: \.addedSort) { row in
@@ -117,10 +119,12 @@ struct TrackList: View {
         return sortOrder == [KeyPathComparator(\Row.number)] ? rows : rows.sorted(using: sortOrder)
     }
 
-    /// Plays the whole list in its shown order, from the first of `ids`.
+    /// Plays the list in its shown order from the first playable of `ids`,
+    /// leaving out rows known to be unplayable; refuses when `ids` has none.
     private func play(_ ids: Set<Row.ID>, in rows: [Row]) {
-        if let index = rows.firstIndex(where: { ids.contains($0.id) }) {
-            player?.play(rows.map(\.uri), from: index, context: context)
+        let playable = rows.filter(\.playable)
+        if let index = playable.firstIndex(where: { ids.contains($0.id) }) {
+            player?.play(playable.map(\.uri), from: index, context: context)
         }
     }
 
@@ -157,6 +161,7 @@ struct TrackList: View {
         let album: ItemRef?
         let durationMs: UInt32
         let playable: Bool
+        let unavailableHelp: String?
 
         var id: Int { number }
         var albumName: String { album?.name ?? "" }
@@ -173,25 +178,40 @@ struct TrackList: View {
                 album = track.album
                 durationMs = track.durationMs
                 playable = track.playability == .playable
+                unavailableHelp = track.playability.unavailableHelp
             case let .episode(episode):
                 title = episode.title
                 artists = [ItemRef(uri: "", name: episode.showName)]
                 album = nil
                 durationMs = episode.durationMs
                 playable = true
+                unavailableHelp = nil
             case .unavailable:
                 title = String(localized: "Unavailable")
                 artists = []
                 album = nil
                 durationMs = 0
                 playable = false
+                unavailableHelp = nil
             default:
                 title = ""
                 artists = []
                 album = nil
                 durationMs = 0
                 playable = true
+                unavailableHelp = nil
             }
+        }
+    }
+}
+
+extension Playability {
+    /// Tooltip for a track the account cannot play now; nil when playable.
+    var unavailableHelp: String? {
+        switch self {
+        case .playable: nil
+        case .regionLocked: String(localized: "Not available in your country")
+        case .notYetReleased: String(localized: "Not released yet")
         }
     }
 }

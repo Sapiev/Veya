@@ -303,8 +303,9 @@ private struct TopTracks: View {
         VStack(spacing: 2) {
             ForEach(Array(uris.prefix(10).enumerated()), id: \.offset) { index, uri in
                 let track: TrackMetadata? = if case let .track(track) = library.metadata[uri] { track } else { nil }
+                let playability = track?.playability ?? .playable
                 Button {
-                    player?.play(uris, from: index, context: context)
+                    play(from: index)
                 } label: {
                     HStack {
                         Text(index + 1, format: .number)
@@ -324,10 +325,21 @@ private struct TopTracks: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .opacity(track.map { $0.playability == .playable } ?? true ? 1 : 0.45)
+                .opacity(playability == .playable ? 1 : 0.45)
+                .help(playability.unavailableHelp ?? "")
             }
         }
         .frame(maxWidth: 560)
+    }
+
+    /// Like `TrackList`, refuses an unplayable track and leaves known ones out.
+    private func play(from index: Int) {
+        let playable = uris.filter { uri in
+            if case let .track(track) = library.metadata[uri] { track.playability == .playable } else { true }
+        }
+        if let start = playable.firstIndex(of: uris[index]) {
+            player?.play(playable, from: start, context: context)
+        }
     }
 }
 
