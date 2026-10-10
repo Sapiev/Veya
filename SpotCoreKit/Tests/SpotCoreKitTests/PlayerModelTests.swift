@@ -68,6 +68,7 @@ final class FakePlayer: SpotPlayerProtocol {
     }
 
     func previous() { record("previous") }
+    func skip(count: UInt32) { record("skip \(count)") }
     func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
     func removeFromQueue(index: UInt32) throws {
         record("remove \(index)")
@@ -345,6 +346,14 @@ struct PlayerModelTests {
         let player = model(FakePlayer(upNext: ["a", "b", "c", "d"]))
         player.removeFromUpNext(at: [1, 3])
         #expect(player.upNext == ["a", "c"])
+    }
+
+    @Test func skipToARowSkipsPastTheRowsBeforeIt() {
+        let fake = FakePlayer(upNext: ["a", "b"])
+        let player = model(fake)
+        player.skip(to: 1)
+        player.skip(to: 5)
+        #expect(fake.recorded.filter { $0.hasPrefix("skip") } == ["skip 2"])
     }
 
     @Test func staleQueuePositionsChangeNothing() {

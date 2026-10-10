@@ -113,6 +113,19 @@ impl Queue {
         self.current()
     }
 
+    /// Skips `count` tracks as `count` presses of Next would, stopping at the
+    /// end of the context; the track landed on, or `None` if none moved.
+    pub fn skip(&mut self, count: usize) -> Option<&SpotifyUri> {
+        let mut moved = false;
+        for _ in 0..count {
+            if self.advance(true).is_none() {
+                break;
+            }
+            moved = true;
+        }
+        if moved { self.current() } else { None }
+    }
+
     /// What `advance(false)` would return, without moving the queue. Used to
     /// preload the next track for gapless playback.
     pub fn upcoming(&self) -> Option<&SpotifyUri> {
@@ -270,6 +283,23 @@ mod tests {
             played_by_advancing(&mut q, 4),
             [track(9), track(8), track(1), track(2)]
         );
+    }
+
+    #[test]
+    fn skip_lands_on_the_upcoming_row_through_up_next_into_the_context() {
+        let mut q = context(4);
+        q.add(track(8));
+        q.add(track(9));
+        assert_eq!(q.skip(3), Some(&track(1)));
+        assert_eq!(q.up_next().count(), 0);
+        assert_eq!(q.advance(false), Some(&track(2)));
+    }
+
+    #[test]
+    fn skip_stops_at_the_end_of_the_context() {
+        let mut q = context(2);
+        assert_eq!(q.skip(5), Some(&track(1)));
+        assert_eq!(q.skip(0), None);
     }
 
     #[test]

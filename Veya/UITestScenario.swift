@@ -342,6 +342,20 @@
         func previous() {}
         func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
         func removeFromQueue(index: UInt32) throws { _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) } }
+        func skip(count: UInt32) {
+            let uri: String? = snapshot.withLock {
+                let upcoming = $0.upNext + $0.nextFromContext
+                guard count >= 1, Int(count) <= upcoming.count else { return nil }
+                let fromUpNext = min(Int(count), $0.upNext.count)
+                $0.upNext.removeFirst(fromUpNext)
+                $0.nextFromContext.removeFirst(Int(count) - fromUpNext)
+                $0.current = upcoming[Int(count) - 1]
+                return $0.current
+            }
+            guard let uri else { return }
+            observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
+            observer.onEvent(event: .playing(uri: uri, positionMs: 0))
+        }
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
