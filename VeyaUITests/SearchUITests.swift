@@ -94,8 +94,10 @@ final class SearchUITests: XCTestCase {
         searchFor("test", in: app)
         let album = app.searchResults.staticTexts["Test Album"]
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
-        for _ in 0 ..< 10 where !album.isHittable {
-            app.searchResults.scroll(byDeltaX: 0, deltaY: -200)
+        // isHittable holds under the player bar too, so scroll until the card is inside the visible results.
+        // Scroll near the top, over Songs: the center can land on a horizontal card rail, which keeps vertical scrolls.
+        for _ in 0 ..< 10 where !app.searchResults.frame.contains(album.frame) {
+            app.searchResults.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.15)).scroll(byDeltaX: 0, deltaY: -200)
         }
 
         album.click()

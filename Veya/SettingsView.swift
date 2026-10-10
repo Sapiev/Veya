@@ -19,7 +19,7 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            NoSettingsYet()
+            GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)
             PlaybackSettingsTab(settings: settings)
@@ -47,6 +47,42 @@ private struct NoSettingsYet: View {
         Text("No settings yet.")
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 120)
+    }
+}
+
+/// The window's colors: from the artwork, a fixed accent, or the accent cycling at a chosen speed.
+private struct GeneralSettingsTab: View {
+    @AppStorage(ColorSource.key) private var source = ColorSource.artwork
+    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
+    @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
+
+    var body: some View {
+        Form {
+            Picker("Window colors", selection: $source) {
+                Text("From the Playing Artwork").tag(ColorSource.artwork)
+                Text("Accent Color").tag(ColorSource.accent)
+                Text("Cycle Through Colors").tag(ColorSource.cycle)
+            }
+            .accessibilityLabel("Window colors")
+            ColorPicker(selection: accent, supportsOpacity: false) {
+                Text("Accent color")
+                Text(source == .cycle ? "Where the cycle starts." : "Also used while nothing is playing.")
+            }
+            .accessibilityLabel("Accent color")
+            if source == .cycle {
+                Picker("Cycle speed", selection: $cycleSeconds) {
+                    Text("Slow (5 min)").tag(300.0)
+                    Text("Medium (1 min)").tag(60.0)
+                    Text("Fast (15 s)").tag(15.0)
+                }
+                .accessibilityLabel("Cycle speed")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var accent: Binding<Color> {
+        Binding(get: { Color(RGB(hex: accentHex) ?? .systemAccent) }, set: { accentHex = RGB($0).hex })
     }
 }
 

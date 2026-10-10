@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-406: the queue inspector. The scenario queues songs 5 and 6, then songs 7 and 8 follow.
+/// PBI-406: the floating queue panel. The scenario queues songs 5 and 6, then songs 7 and 8 follow.
 final class QueueUITests: XCTestCase {
     @MainActor private func openQueue() -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -13,7 +13,7 @@ final class QueueUITests: XCTestCase {
     @MainActor func testQueueButtonShowsNowPlayingQueuedAndUpcomingSongs() {
         let app = openQueue()
 
-        for text in ["Now Playing", "Test Track", "Next in Queue", "Song 6", "Next Up", "Song 7", "Song 8"] {
+        for text in ["Queue", "Now playing", "Test Track", "Next in queue", "Song 6", "Next up", "Song 7", "Song 8"] {
             XCTAssertTrue(app.queue.staticTexts[text].exists, text)
         }
     }
@@ -28,23 +28,34 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(app.queue.staticTexts["Song 6"].exists)
     }
 
-    @MainActor func testDeleteKeyRemovesTheSelectedRow() {
+    @MainActor func testClickingAnUpcomingRowPlaysItAndSkipsTheRowsBeforeIt() {
         let app = openQueue()
 
-        app.queue.staticTexts["Song 6"].click()
-        app.typeKey(.delete, modifierFlags: [])
+        app.queue.staticTexts["Song 7"].click()
 
-        XCTAssertTrue(app.queue.staticTexts["Song 6"].waitForNonExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.queue.staticTexts["Song 5"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 8"].exists)
+    }
+
+    @MainActor func testTheCloseButtonAndTheTopBarToggleShareOneState() {
+        let app = openQueue()
+
+        app.queue.buttons["Close Queue"].click()
+        XCTAssertTrue(app.queue.waitForNonExistence(timeout: XCUIApplication.timeout))
+
+        app.descendants(matching: .any)["Queue"].firstMatch.click()
+        XCTAssertTrue(app.queue.waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testClearQueueEmptiesNextInQueueOnly() {
         let app = openQueue()
 
-        app.queue.buttons["Clear Queue"].click()
+        app.queue.buttons["Clear queue"].click()
 
-        XCTAssertTrue(app.queue.staticTexts["Songs you add to the queue play next."].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.queue.staticTexts["Song 5"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
         XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
     }
 
@@ -73,7 +84,7 @@ final class QueueUITests: XCTestCase {
 
         app.buttons["pagePlay"].click()
 
-        XCTAssertTrue(app.queue.staticTexts["Next From: Test Album"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.queue.staticTexts["Next from: Test Album"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.queue.staticTexts["Song 4"].exists)
         XCTAssertFalse(app.queue.staticTexts["Song 7"].exists)
     }
@@ -81,6 +92,6 @@ final class QueueUITests: XCTestCase {
 
 private extension XCUIApplication {
     var queue: XCUIElement {
-        outlines["queue"]
+        descendants(matching: .any)["queue"].firstMatch
     }
 }

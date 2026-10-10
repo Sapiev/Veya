@@ -16,6 +16,22 @@ struct AdaptivePaletteTests {
         }
     }
 
+    @Test func hexRoundTripsAndRejectsOtherText() {
+        #expect(RGB(hex: "#E0604A")?.hex == "#E0604A")
+        #expect(RGB(hex: RGB.systemAccent.hex)?.hex == RGB.systemAccent.hex)
+        for text in ["", "E0604A", "#E0604", "#GGGGGG", "#E0604A00"] {
+            #expect(RGB(hex: text) == nil, "\(text)")
+        }
+    }
+
+    @Test func hueRotationWrapsAroundTheWheel() {
+        let red = RGB(red: 1, green: 0, blue: 0)
+        #expect(red.rotatingHue(by: 1 / 3).hex == "#00FF00")
+        #expect(red.rotatingHue(by: 7 / 3).hex == "#00FF00")
+        #expect(red.rotatingHue(by: -1 / 3).hex == "#0000FF")
+        #expect(Self.grey.rotatingHue(by: 0.5) == Self.grey)
+    }
+
     @Test func inkIsTheMoreReadableOfBlackAndWhite() {
         let palette = AdaptivePalette(accent: Self.red, dominant: Self.red, dark: true)
         let other: RGB = palette.tintInk == .white ? .black : .white

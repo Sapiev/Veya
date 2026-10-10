@@ -359,6 +359,18 @@ impl SpotPlayer {
         }
     }
 
+    /// Jumps to the `count`th upcoming track (Up Next first, then the
+    /// context) with one load, as a queue row click does.
+    pub fn skip(&self, count: u32) {
+        self.sync_session();
+        let mut state = lock(&self.state);
+        if let Some(track) = state.queue.skip(count as usize).cloned() {
+            state.generation += 1;
+            state.clock.wants_play = true;
+            self.player().load(track, true, 0);
+        }
+    }
+
     /// Restarts the track once it is more than 3 s in, as Spotify does;
     /// otherwise goes back one track.
     pub fn previous(&self) {

@@ -137,7 +137,7 @@ final class HomeUITests: XCTestCase {
         let app = home()
         XCTAssertTrue(app.buttons["Song 2, Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
         app.menuItem("View", "Show Queue").click()
-        let queue = app.outlines["queue"]
+        let queue = app.descendants(matching: .any)["queue"].firstMatch
         scrollToRecentlyPlayed(app)
 
         app.buttons["Song 2, Test Artist"].click()

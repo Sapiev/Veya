@@ -306,6 +306,13 @@ public final class PlayerModel {
         player.previous()
     }
 
+    /// Plays the upcoming row at `offset`: Up Next rows first, then the context's.
+    public func skip(to offset: Int) {
+        guard queueIsCurrent(), (0 ..< upNext.count + nextFromContext.count).contains(offset) else { return }
+        player.skip(count: UInt32(offset + 1))
+        refreshQueue()
+    }
+
     public func seek(to positionMs: UInt32) {
         player.seek(positionMs: positionMs)
         report(positionMs)

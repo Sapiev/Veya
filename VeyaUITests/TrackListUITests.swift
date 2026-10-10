@@ -63,7 +63,7 @@ final class TrackListUITests: XCTestCase {
         let app = likedSongs()
         XCTAssertTrue(app.trackList.staticTexts["Song 3"].waitForExistence(timeout: XCUIApplication.timeout))
         app.menuItem("View", "Show Queue").click()
-        let queue = app.outlines["queue"]
+        let queue = app.descendants(matching: .any)["queue"].firstMatch
         XCTAssertTrue(queue.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
 
         app.trackList.staticTexts["Song 2"].doubleClick()

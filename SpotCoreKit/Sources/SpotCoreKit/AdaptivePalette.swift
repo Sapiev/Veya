@@ -59,6 +59,28 @@ public struct RGB: Equatable, Sendable {
         }
         self.init(red: channel(hue + 1 / 3), green: channel(hue), blue: channel(hue - 1 / 3))
     }
+
+    /// `#RRGGBB`, how Settings stores the accent color; nil for anything else.
+    public init?(hex: String) {
+        guard hex.count == 7, hex.first == "#", let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        self.init(
+            red: Double(value >> 16 & 0xFF) / 255,
+            green: Double(value >> 8 & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+
+    public var hex: String {
+        func byte(_ channel: Double) -> Int { Int((min(max(channel, 0), 1) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(red), byte(green), byte(blue))
+    }
+
+    /// The same color with its hue turned `turns` of the color wheel; any number of turns wraps.
+    public func rotatingHue(by turns: Double) -> RGB {
+        let (hue, saturation, lightness) = hsl
+        let turned = (hue + turns).truncatingRemainder(dividingBy: 1)
+        return RGB(hue: turned < 0 ? turned + 1 : turned, saturation: saturation, lightness: lightness)
+    }
 }
 
 /// Window colors derived from artwork: an ambient wash, a glow, an accent for
@@ -98,9 +120,9 @@ public struct AdaptivePalette: Equatable, Sendable {
         tintText = text
     }
 
-    /// The palette when nothing is playing.
-    public static func system(dark: Bool) -> AdaptivePalette {
-        AdaptivePalette(accent: .systemAccent, dominant: RGB(red: 44 / 255, green: 44 / 255, blue: 46 / 255), dark: dark)
+    /// The palette when nothing is playing: `accent` over a neutral wash.
+    public static func system(dark: Bool, accent: RGB = .systemAccent) -> AdaptivePalette {
+        AdaptivePalette(accent: accent, dominant: RGB(red: 44 / 255, green: 44 / 255, blue: 46 / 255), dark: dark)
     }
 }
 
