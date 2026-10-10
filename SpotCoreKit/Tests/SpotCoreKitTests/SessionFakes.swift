@@ -157,7 +157,7 @@ final class FakeSession: SessionHandle {
         StubPlaylists(rootlist: .success([]), pages: [])
     }
 
-    func makeSearch() -> any SearchServiceProtocol {
+    func makeSearch(accessToken _: @escaping @Sendable () async throws -> String) -> any SearchServiceProtocol {
         FakeSearch()
     }
 

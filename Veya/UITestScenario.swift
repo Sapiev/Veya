@@ -26,14 +26,20 @@
         case libraryFails
         /// Signed in before Veya asked for the scope Recently Played needs.
         case recentlyPlayedNeedsSignIn
+        /// Signed in; no Web API client ID is set, and connecting one succeeds.
+        case webAPINotConnected
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
+        static let clientID = "0123456789abcdef0123456789abcdef"
+
         /// Each launch starts with no recent searches and default settings.
-        private static func freshDefaults() -> UserDefaults {
+        private static func freshDefaults(clientID: String?) -> UserDefaults {
             let suite = "veya-ui-test"
             UserDefaults().removePersistentDomain(forName: suite)
-            return UserDefaults(suiteName: suite)!
+            let defaults = UserDefaults(suiteName: suite)!
+            defaults.set(clientID, forKey: WebAPIConnection.clientIDKey)
+            return defaults
         }
 
         /// A typo in a test must fail loudly, not launch against real Spotify.
@@ -57,9 +63,10 @@
         var dependencies: AppDependencies {
             let hasSavedSignIn = ![.signedOut, .signInCancelled, .notPremium].contains(self)
             let signInCompletes = self != .signInCancelled
+            let webAPIConnected = self != .webAPINotConnected
             return AppDependencies(
                 store: InMemoryCredentialStore(blob: hasSavedSignIn ? ScenarioSession.blob : nil),
-                refreshTokenStore: InMemoryCredentialStore(blob: nil),
+                refreshTokenStore: InMemoryCredentialStore(blob: webAPIConnected ? Data("ui-test".utf8) : nil),
                 connector: ScenarioConnector(
                     failures: self == .restoreFails ? 1 : 0,
                     premium: self != .notPremium,
@@ -69,8 +76,10 @@
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
+                webAPIStartFlow: { _ in ScenarioFlow(completes: true) },
+                tokenRefresher: ScenarioRefresher(),
                 artworkLoader: nil,
-                defaults: Self.freshDefaults(),
+                defaults: Self.freshDefaults(clientID: webAPIConnected ? Self.clientID : nil),
                 episodeProgress: ScenarioEpisodeProgress()
             )
         }
@@ -193,8 +202,8 @@
             ScenarioPlaylists(fill: library)
         }
 
-        func makeSearch() -> any SearchServiceProtocol {
-            ScenarioSearch()
+        func makeSearch(accessToken: @escaping @concurrent @Sendable () async throws -> String) -> any SearchServiceProtocol {
+            ScenarioSearch(accessToken: accessToken)
         }
 
         // @concurrent: the app target defaults async closures to nonisolated(nonsending), SpotCoreKit does not.
@@ -465,11 +474,20 @@
         }
     }
 
-    /// "test" finds a track section with one more page, an artist and an album;
-    /// "fail" fails; anything else finds nothing.
+    /// Needs a Web API token like the real search; "test" finds a track
+    /// section with one more page, an artist and an album; "fail" fails;
+    /// "busy" is rate limited; anything else finds nothing.
     private final nonisolated class ScenarioSearch: SearchServiceProtocol {
+        private let accessToken: @Sendable () async throws -> String
+
+        init(accessToken: @escaping @Sendable () async throws -> String) {
+            self.accessToken = accessToken
+        }
+
         func search(query: String, limit _: UInt32) async throws -> [SearchGroup] {
+            _ = try await accessToken()
             let query = query.lowercased()
+            if query.contains("busy") { throw SearchError.RateLimited }
             if query.contains("fail") { throw SearchError.Request(message: "ui-test") }
             guard query.contains("test") else { return [] }
             return [
@@ -484,7 +502,8 @@
         }
 
         func page(query _: String, kind: SearchKind, offset: UInt32, limit _: UInt32) async throws -> SearchGroup {
-            SearchGroup(kind: kind, total: 4, offset: offset, hits: kind == .track && offset == 3 ? [Self.track(4)] : [])
+            _ = try await accessToken()
+            return SearchGroup(kind: kind, total: 4, offset: offset, hits: kind == .track && offset == 3 ? [Self.track(4)] : [])
         }
 
         private static func track(_ n: Int) -> SearchHit {
@@ -503,6 +522,12 @@
                 if let episode = scenarioEpisodes.first(where: { $0.uri == uri }) { return .episode(episode: episode) }
                 return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
+        }
+    }
+
+    private struct ScenarioRefresher: TokenRefresher {
+        func refresh(clientID _: String, refreshToken: String) async throws -> OAuthTokens {
+            OAuthTokens(accessToken: "ui-test", refreshToken: refreshToken, expiresInSecs: 3600, scopes: [])
         }
     }
 

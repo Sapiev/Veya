@@ -6,6 +6,7 @@ import SwiftUI
     /// One window and one session per app, restored exactly once at launch.
     @State private var session: SessionModel
     @State private var signIn: SignInModel
+    @State private var webAPI: WebAPIConnection
     @State private var systemEvents: SystemEvents
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
@@ -30,7 +31,15 @@ import SwiftUI
             connector: dependencies.connector
         )
         session.restore()
-        let tokens = session.webAPITokens
+        let webAPI = WebAPIConnection(
+            store: dependencies.refreshTokenStore,
+            defaults: dependencies.defaults,
+            browser: dependencies.browser,
+            startFlow: dependencies.webAPIStartFlow,
+            refresher: dependencies.tokenRefresher
+        )
+        _webAPI = State(initialValue: webAPI)
+        let tokens = webAPI.tokens
         episodeProgress = dependencies.episodeProgress ?? WebAPIEpisodeProgress { try await tokens.accessToken() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -52,6 +61,7 @@ import SwiftUI
             ContentView(
                 session: session,
                 signIn: signIn,
+                webAPI: webAPI,
                 metadataStore: metadataStore,
                 recentSearches: recentSearches,
                 settings: settings,
@@ -60,6 +70,7 @@ import SwiftUI
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
+            .defaultAppStorage(defaults)
             .alert("Couldn't Sign Out Completely", isPresented: $signOutFailed) {
                 Button("Try Again") { AccountCommands.signOut(session, failed: $signOutFailed) }
                 Button("Cancel", role: .cancel) {}
@@ -80,7 +91,7 @@ import SwiftUI
         }
 
         Settings {
-            SettingsView(session: session, settings: settings) {
+            SettingsView(session: session, webAPI: webAPI, settings: settings) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .defaultAppStorage(defaults)

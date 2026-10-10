@@ -7,6 +7,7 @@ import Testing
 final class FakeRefresher: TokenRefresher {
     private struct Box {
         var calls: [String] = []
+        var clientIDs: [String] = []
         var waiters: [CheckedContinuation<OAuthTokens, any Error>] = []
     }
 
@@ -16,14 +17,19 @@ final class FakeRefresher: TokenRefresher {
         box.withLock { $0.calls }
     }
 
+    var clientIDs: [String] {
+        box.withLock { $0.clientIDs }
+    }
+
     var pending: Int {
         box.withLock { $0.waiters.count }
     }
 
-    func refresh(refreshToken: String) async throws -> OAuthTokens {
+    func refresh(clientID: String, refreshToken: String) async throws -> OAuthTokens {
         try await withCheckedThrowingContinuation { continuation in
             box.withLock { box in
                 box.calls.append(refreshToken)
+                box.clientIDs.append(clientID)
                 box.waiters.append(continuation)
             }
         }
@@ -51,6 +57,8 @@ private func issued(access: String, refresh: String, expiresIn: UInt64 = 3600) -
     OAuthTokens(accessToken: access, refreshToken: refresh, expiresInSecs: expiresIn, scopes: ["streaming"])
 }
 
+let ownClientID = "0123456789abcdef0123456789ABCDEF"
+
 private func stored(_ token: String) -> Data {
     Data(token.utf8)
 }
@@ -60,8 +68,8 @@ struct WebAPITokenProviderTests {
     private let refresher = FakeRefresher()
     private let clock = FakeClock()
 
-    private func provider(_ store: FakeStore) -> WebAPITokenProvider {
-        WebAPITokenProvider(store: store, refresher: refresher, now: { [clock] in clock.now })
+    private func provider(_ store: FakeStore, clientID: String? = ownClientID) -> WebAPITokenProvider {
+        WebAPITokenProvider(store: store, clientID: { clientID }, refresher: refresher, now: { [clock] in clock.now })
     }
 
     /// Starts `accessToken()` and waits until it is parked in the refresher.
@@ -76,6 +84,24 @@ struct WebAPITokenProviderTests {
 
         await #expect(throws: WebAPITokenError.notAvailable) { try await provider.accessToken() }
         #expect(refresher.calls.isEmpty)
+    }
+
+    @Test(arguments: [nil, "", "not-a-client-id", "0123456789abcdef0123456789abcdeg"])
+    func missingOrInvalidClientIDIsNotAvailable(clientID: String?) async {
+        let provider = provider(FakeStore(blob: stored("rt-1")), clientID: clientID)
+
+        await #expect(throws: WebAPITokenError.notAvailable) { try await provider.accessToken() }
+        #expect(refresher.calls.isEmpty)
+    }
+
+    @Test func refreshUsesTheOwnClientID() async throws {
+        let provider = provider(FakeStore(blob: stored("rt-1")))
+
+        let task = try await refreshing(provider)
+        refresher.resolve(0, with: .success(issued(access: "at-2", refresh: "rt-1")))
+
+        #expect(try await task.value == "at-2")
+        #expect(refresher.clientIDs == [ownClientID])
     }
 
     @Test func seededTokenIsReusedWithoutRefresh() async throws {
@@ -197,17 +223,9 @@ struct WebAPITokenProviderTests {
 @Suite(.timeLimit(.minutes(1)))
 struct SessionRefreshTokenTests {
     private let connector = FakeConnector()
-    private let refresher = FakeRefresher()
-    private let logs = LogSpy()
 
     private func model(store: FakeStore = FakeStore(), refreshTokens: FakeStore) -> SessionModel {
-        SessionModel(
-            store: store,
-            refreshTokenStore: refreshTokens,
-            connector: connector,
-            tokenRefresher: refresher,
-            log: logs.log
-        )
+        SessionModel(store: store, refreshTokenStore: refreshTokens, connector: connector, log: LogSpy().log)
     }
 
     private func signIn(_ model: SessionModel) async throws {
@@ -218,48 +236,25 @@ struct SessionRefreshTokenTests {
         #expect(model.state == .ready)
     }
 
-    @Test func signInSavesRefreshTokenAndSeedsAccessToken() async throws {
+    /// The shared client ID's refresh token is rate limited on the Web API, so it is not kept.
+    @Test func signInSavesNoRefreshToken() async throws {
         let refreshTokens = FakeStore()
         let model = model(refreshTokens: refreshTokens)
 
         try await signIn(model)
-
-        #expect(refreshTokens.blob == Data(tokens.refreshToken.utf8))
-        #expect(try await model.webAPITokens.accessToken() == tokens.accessToken)
-        #expect(refresher.calls.isEmpty)
-    }
-
-    @Test func failedSignInSavesNoRefreshToken() async throws {
-        let refreshTokens = FakeStore()
-        let model = model(refreshTokens: refreshTokens)
-
-        let task = model.connect(tokens: tokens)
-        try await waitUntil { connector.pending == 1 }
-        connector.resolve(0, with: .failure(SessionError.LoginFailed(reason: "no")))
-        await task.value
 
         #expect(refreshTokens.saves == 0)
+        #expect(refreshTokens.blob == nil)
     }
 
-    @Test func refreshTokenSaveFailureIsLoggedAndSessionStaysReady() async throws {
-        let refreshTokens = FakeStore(saveError: KeychainError(status: -25308))
-        let model = model(refreshTokens: refreshTokens)
-
-        try await signIn(model)
-
-        #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("-25308") })
-        #expect(!logs.entries.contains { $0.1.contains(tokens.refreshToken) })
-    }
-
-    @Test func signOutDeletesRefreshToken() async throws {
-        let refreshTokens = FakeStore()
+    @Test func signOutDeletesWebAPIRefreshToken() async throws {
+        let refreshTokens = FakeStore(blob: Data("rt".utf8))
         let model = model(refreshTokens: refreshTokens)
         try await signIn(model)
 
         try model.signOut()
 
         #expect(refreshTokens.blob == nil)
-        await #expect(throws: WebAPITokenError.notAvailable) { try await model.webAPITokens.accessToken() }
     }
 
     @Test func signOutDeletesRefreshTokenEvenWhenCredentialDeleteFails() async throws {

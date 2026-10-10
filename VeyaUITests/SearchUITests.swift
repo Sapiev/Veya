@@ -1,6 +1,6 @@
 import XCTest
 
-/// PBI-405: the Search screen and its toolbar field.
+/// PBI-405: the Search screen and its toolbar field. PBI-309: search needs the user's own Web API client ID.
 final class SearchUITests: XCTestCase {
     @MainActor private func signedIn() -> XCUIApplication {
         let app = XCUIApplication.launch(.signedIn)
@@ -153,6 +153,49 @@ final class SearchUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Couldn't Search"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Try Again"].exists)
+    }
+
+    /// PBI-309
+    @MainActor func testRateLimitSaysSo() {
+        let app = signedIn()
+        searchFor("busy", in: app)
+
+        XCTAssertTrue(app.staticTexts["Search Is Rate Limited"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Try Again"].exists)
+    }
+
+    /// PBI-309
+    @MainActor func testNotConnectedAsksToConnectAndOpensAccountSettings() {
+        let app = XCUIApplication.launch(.webAPINotConnected)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        searchFor("test", in: app)
+
+        XCTAssertTrue(app.staticTexts["Connect Spotify Web API to Search"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.searchResults.exists)
+        app.buttons["Open Settings"].click()
+
+        XCTAssertTrue(app.textFields["Client ID"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == 'webAPIStatus' AND value == %@", "Not connected"))
+            .firstMatch.waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// PBI-309: connecting in Settings brings the pending query's results back.
+    @MainActor func testConnectingInSettingsShowsResults() {
+        let app = XCUIApplication.launch(.webAPINotConnected)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        searchFor("test", in: app)
+        app.buttons["Open Settings"].click()
+        let field = app.textFields["Client ID"]
+        XCTAssertTrue(field.waitForExistence(timeout: XCUIApplication.timeout))
+
+        field.click()
+        field.typeText("0123456789abcdef0123456789abcdef")
+        // The "Connect" tab shares the button's name.
+        app.scrollViews.buttons["Connect"].click()
+        XCTAssertTrue(app.buttons["Disconnect"].waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey("w", modifierFlags: .command)
+
+        XCTAssertTrue(app.searchResults.staticTexts["Top Result"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testCommittedSearchIsRememberedUntilCleared() {

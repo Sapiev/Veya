@@ -8,7 +8,7 @@ import Testing
 final class FakeSearch: SearchServiceProtocol {
     private struct Box {
         var results: [String: [SearchGroup]] = [:]
-        var error: SearchError?
+        var error: (any Error)?
         var hold = false
         var queries: [String] = []
         var pages: [(kind: SearchKind, offset: UInt32)] = []
@@ -17,7 +17,7 @@ final class FakeSearch: SearchServiceProtocol {
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
 
-    init(_ results: [String: [SearchGroup]] = [:], error: SearchError? = nil) {
+    init(_ results: [String: [SearchGroup]] = [:], error: (any Error)? = nil) {
         box.withLock {
             $0.results = results
             $0.error = error
@@ -149,6 +149,28 @@ struct SearchModelTests {
         #expect(model.failure == refused)
         #expect(model.state == .failed)
         #expect(model.groups.isEmpty)
+    }
+
+    @Test(arguments: [WebAPITokenError.notAvailable, .rejected])
+    func aMissingWebAPITokenIsNotConnectedAndSkipsTheFallback(error: WebAPITokenError) async {
+        let fallback = FakeSearch(["a": tracks("web", total: 1)])
+        let model = SearchModel(service: FakeSearch(error: error), fallback: fallback, debounce: .zero, log: LogSpy().log)
+
+        await model.search("a").value
+
+        #expect(model.state == .notConnected)
+        #expect(model.failure == nil)
+        #expect(model.groups.isEmpty)
+        #expect(fallback.queries.isEmpty)
+    }
+
+    @Test func rateLimitIsKeptAsTheFailure() async {
+        let model = SearchModel(service: FakeSearch(error: SearchError.RateLimited), debounce: .zero, log: LogSpy().log)
+
+        await model.search("a").value
+
+        #expect(model.state == .failed)
+        #expect(model.failure == .RateLimited)
     }
 
     @Test func seeAllAppendsTheNextPageUntilTheTotal() async throws {

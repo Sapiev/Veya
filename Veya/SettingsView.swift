@@ -4,26 +4,41 @@ import SwiftUI
 /// The Settings window (⌘,). Playback changes reach the live player through
 /// the shared `PlaybackSettings`; nothing here needs a relaunch.
 struct SettingsView: View {
+    enum Tab: String {
+        case general, playback, storage, connect, account, advanced
+    }
+
+    /// Written by other windows to open Settings on a given tab.
+    static let tabKey = "settingsTab"
+
     let session: SessionModel
+    let webAPI: WebAPIConnection
     let settings: PlaybackSettings
     let signOut: () -> Void
+    @AppStorage(Self.tabKey) private var tab = Tab.general
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             NoSettingsYet()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
             PlaybackSettingsTab(settings: settings)
                 .tabItem { Label("Playback", systemImage: "play.circle") }
+                .tag(Tab.playback)
             StorageSettingsTab(session: session, settings: settings)
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
+                .tag(Tab.storage)
             NoSettingsYet()
                 .tabItem { Label("Connect", systemImage: "hifispeaker.2") }
-            AccountSettingsTab(session: session, signOut: signOut)
+                .tag(Tab.connect)
+            AccountSettingsTab(session: session, webAPI: webAPI, signOut: signOut)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
+                .tag(Tab.account)
             AdvancedSettingsTab()
                 .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+                .tag(Tab.advanced)
         }
-        .frame(width: 460, height: 320)
+        .frame(width: 460, height: tab == .account ? 520 : 320)
     }
 }
 
@@ -178,6 +193,7 @@ private struct StorageSettingsTab: View {
 
 private struct AccountSettingsTab: View {
     let session: SessionModel
+    let webAPI: WebAPIConnection
     let signOut: () -> Void
 
     private var signedIn: Bool {
@@ -186,13 +202,95 @@ private struct AccountSettingsTab: View {
 
     var body: some View {
         Form {
-            LabeledContent("Spotify") {
-                Text(signedIn ? "Signed in" : "Not signed in")
+            Section {
+                LabeledContent("Spotify") {
+                    Text(signedIn ? "Signed in" : "Not signed in")
+                }
+                Button("Sign Out", action: signOut)
+                    .disabled(!signedIn)
             }
-            Button("Sign Out", action: signOut)
-                .disabled(!signedIn)
+            WebAPISection(webAPI: webAPI)
         }
         .formStyle(.grouped)
+        // A sign-out deletes the Web API token too.
+        .onChange(of: session.state) { webAPI.reload() }
+    }
+}
+
+/// Search, Recently Played and podcast progress go through the user's own
+/// Spotify app, since the shared client ID is rate limited on the Web API.
+private struct WebAPISection: View {
+    let webAPI: WebAPIConnection
+    @State private var clientID = ""
+
+    private var connecting: Bool {
+        webAPI.attempt?.state == .signingIn
+    }
+
+    var body: some View {
+        Section {
+            TextField("Client ID", text: $clientID, prompt: Text(verbatim: "0123456789abcdef0123456789abcdef"))
+                .accessibilityLabel("Client ID")
+                .font(.body.monospaced())
+                .onSubmit(connect)
+            LabeledContent("Status") {
+                // Separate branches: an updated Text kept its old accessibility value.
+                Group {
+                    if connecting {
+                        Text("Connecting…")
+                    } else if webAPI.isConnected {
+                        Text("Connected")
+                    } else {
+                        Text("Not connected")
+                    }
+                }
+                .accessibilityIdentifier("webAPIStatus")
+            }
+            if connecting {
+                Button("Cancel") { webAPI.attempt?.cancel() }
+            } else {
+                Button(webAPI.isConnected ? "Reconnect" : "Connect", action: connect)
+                    .disabled(!WebAPIConnection.isValid(clientID: trimmed))
+            }
+            if webAPI.isConnected {
+                Button("Disconnect") { try? webAPI.disconnect() }
+            }
+            if let problem {
+                Text(problem)
+                    .foregroundStyle(.red)
+            }
+        } header: {
+            Text("Spotify Web API")
+        } footer: {
+            Text(
+                "Create an app at developer.spotify.com/dashboard, add the redirect URI \(WebAPIConnection.redirectURI), select Web API, then paste its Client ID here. Search, Recently Played and podcast progress use it."
+            )
+            .textSelection(.enabled)
+        }
+        .onAppear {
+            clientID = webAPI.clientID
+            webAPI.reload()
+        }
+    }
+
+    private var trimmed: String {
+        clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var problem: LocalizedStringKey? {
+        if webAPI.saveFailed { return "Couldn't save the connection in the Keychain." }
+        if !trimmed.isEmpty, !WebAPIConnection.isValid(clientID: trimmed) {
+            return "A Client ID is 32 letters and digits (0-9, a-f)."
+        }
+        switch webAPI.attempt?.state {
+        case let .failed(failure) where failure != .cancelled:
+            return "Couldn't connect. Check the Client ID and the redirect URI, then try again."
+        default: return nil
+        }
+    }
+
+    private func connect() {
+        webAPI.connect(clientID: trimmed)
     }
 }
 

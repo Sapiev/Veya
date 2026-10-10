@@ -15,7 +15,8 @@ public protocol SessionHandle: AnyObject, Sendable {
     func makeMetadata(store: MetadataStore?) -> any MetadataServiceProtocol
     /// Without `store` the playlists are fetched again on every launch.
     func makePlaylists(store: MetadataStore?) -> any PlaylistServiceProtocol
-    func makeSearch() -> any SearchServiceProtocol
+    /// Web API search; `accessToken` comes from the user's own client ID.
+    func makeSearch(accessToken: @escaping @Sendable () async throws -> String) -> any SearchServiceProtocol
     /// Web API plays; `accessToken` needs the `user-read-recently-played` scope.
     func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider
     /// Starts audio output and a player whose events go to `observer`.
@@ -35,8 +36,8 @@ extension SpotSession: SessionHandle {
         PlaylistService(session: self, store: store)
     }
 
-    public func makeSearch() -> any SearchServiceProtocol {
-        SearchService(session: self)
+    public func makeSearch(accessToken: @escaping @Sendable () async throws -> String) -> any SearchServiceProtocol {
+        WebAPISearch(accessToken: accessToken)
     }
 
     public func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
@@ -147,10 +148,8 @@ public final class SessionModel {
     public private(set) var connection: ConnectionStatus = .online
 
     @ObservationIgnored private let store: any CredentialStore
+    /// The Web API refresh token, deleted at sign-out since it belongs to the account.
     @ObservationIgnored private let refreshTokenStore: any CredentialStore
-    /// Web API access for this account; throws `WebAPITokenError.notAvailable`
-    /// until a sign-in stores a refresh token.
-    @ObservationIgnored public let webAPITokens: WebAPITokenProvider
     @ObservationIgnored private let connector: any SessionConnector
     @ObservationIgnored private let log: SessionLog
     @ObservationIgnored private var attempt = 0
@@ -168,12 +167,10 @@ public final class SessionModel {
         store: any CredentialStore,
         refreshTokenStore: any CredentialStore,
         connector: any SessionConnector = SpotSessionConnector(),
-        tokenRefresher: any TokenRefresher = SpotTokenRefresher(),
         log: @escaping SessionLog = { logMessage(level: $0, category: "session", message: $1) }
     ) {
         self.store = store
         self.refreshTokenStore = refreshTokenStore
-        webAPITokens = WebAPITokenProvider(store: refreshTokenStore, refresher: tokenRefresher)
         self.connector = connector
         self.log = log
     }
@@ -216,9 +213,7 @@ public final class SessionModel {
             guard current == attempt else { return }
             do {
                 let session = try await connector.connect(accessToken: accessToken)
-                if adopt(session, attempt: current, started: nil), saveRefreshToken(of: tokens) {
-                    await webAPITokens.seed(tokens)
-                }
+                adopt(session, attempt: current, started: nil)
             } catch {
                 guard current == attempt else { return }
                 state = .failed(SessionFailure(error))
@@ -378,17 +373,6 @@ public final class SessionModel {
             log(elapsed > Self.readyBudget ? .warn : .info, "Session restored in \(millis) ms")
         }
         return true
-    }
-
-    /// Without it only Web API extras (episode progress) go missing, so a failure is logged.
-    private func saveRefreshToken(of tokens: OAuthTokens) -> Bool {
-        do {
-            try refreshTokenStore.save(Data(tokens.refreshToken.utf8))
-            return true
-        } catch {
-            log(.warn, "Couldn't save the refresh token: \(Self.summary(error))")
-            return false
-        }
     }
 
     private func saveCredentials(of session: any SessionHandle, skippingKnown: Bool = false) {

@@ -12,6 +12,7 @@ enum Scenario: String {
     case emptyLibrary
     case libraryFails
     case recentlyPlayedNeedsSignIn
+    case webAPINotConnected
 }
 
 @MainActor

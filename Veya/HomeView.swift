@@ -32,7 +32,7 @@ struct HomeView: View {
                             .padding(.top, Theme.s2)
                         if home.recentlyPlayedNeedsSignIn {
                             Label(
-                                "Sign out and sign in again to see Recently Played and Jump Back In.",
+                                "Connect Spotify Web API in Settings to see Recently Played and Jump Back In.",
                                 systemImage: "info.circle"
                             )
                             .foregroundStyle(.secondary)

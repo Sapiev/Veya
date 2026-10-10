@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     let session: SessionModel
     let signIn: SignInModel
+    let webAPI: WebAPIConnection
     let metadataStore: MetadataStore?
     let recentSearches: RecentSearches
     let settings: PlaybackSettings
@@ -34,7 +35,7 @@ struct ContentView: View {
             if let handle = session.session {
                 AppShell(
                     session: handle,
-                    webAPITokens: session.webAPITokens,
+                    webAPI: webAPI,
                     metadataStore: metadataStore,
                     recentSearches: recentSearches,
                     settings: settings,
@@ -173,6 +174,11 @@ private struct ReconnectBanner: View {
             refreshTokenStore: KeychainCredentialStore(service: "preview", account: "preview-refresh")
         ),
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
+        webAPI: WebAPIConnection(
+            store: KeychainCredentialStore(service: "preview", account: "preview-refresh"),
+            defaults: UserDefaults(suiteName: "preview")!,
+            browser: WebAuthenticationBrowser()
+        ),
         metadataStore: nil,
         recentSearches: RecentSearches(defaults: UserDefaults(suiteName: "preview")!),
         settings: PlaybackSettings(defaults: UserDefaults(suiteName: "preview")!),

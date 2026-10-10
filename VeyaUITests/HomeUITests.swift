@@ -3,7 +3,7 @@ import XCTest
 /// PBI-307: the Home screen. PBI-105: the scenario's Song 3 is region locked, so it never plays.
 final class HomeUITests: XCTestCase {
     private static let sections = ["Made for you", "Artists you follow", "Recently Played"]
-    private static let signInAgain = "Sign out and sign in again to see Recently Played and Jump Back In."
+    private static let connectWebAPI = "Connect Spotify Web API in Settings to see Recently Played and Jump Back In."
 
     @MainActor private func home(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -28,7 +28,7 @@ final class HomeUITests: XCTestCase {
         for card in ["Song 1, Test Artist", "Test Album, Test Artist", "Road Trip, Songs for the road", "Test Artist, Artist", "Daily Mix 1, Made for you"] {
             XCTAssertTrue(app.buttons[card].exists, card)
         }
-        XCTAssertFalse(app.staticTexts[Self.signInAgain].exists)
+        XCTAssertFalse(app.staticTexts[Self.connectWebAPI].exists)
     }
 
     @MainActor func testGreetsByTimeOfDay() {
@@ -52,10 +52,10 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Road Trip"))
     }
 
-    @MainActor func testMissingScopeHidesRecentSectionsAndAsksToSignInAgain() {
+    @MainActor func testMissingScopeHidesRecentSectionsAndAsksToConnectWebAPI() {
         let app = home(.recentlyPlayedNeedsSignIn)
 
-        XCTAssertTrue(app.staticTexts[Self.signInAgain].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts[Self.connectWebAPI].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Daily Mix 1, Made for you"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts["Made for you"].exists)
         XCTAssertFalse(app.staticTexts["Recently Played"].exists)
