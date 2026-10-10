@@ -102,14 +102,23 @@ struct AppShell: View {
                     .padding(Theme.s3)
                 }
             }
+            if queueVisible {
+                QueuePanel(player: player, library: library, playlists: playlists) { queueVisible = false }
+                    .frame(width: Theme.queueWidth)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .glassPanel(cornerRadius: Theme.panelRadius)
+                    // The rounded panel clips the scrolling rows, so the last one peeks at the bottom edge.
+                    .clipShape(.rect(cornerRadius: Theme.panelRadius))
+                    .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
+                    .padding([.trailing, .vertical], Theme.s2)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
         .background { AmbientBackground() }
         .background(TrafficLightInset())
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarVisible)
-        .inspector(isPresented: $queueVisible) {
-            QueuePanel(player: player, library: library, playlists: playlists)
-        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
         .overlay {
             if let nowPlayingTab, let player {
                 NowPlayingView(player: player, library: library, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
@@ -497,7 +506,7 @@ struct NavigationCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
             .disabled(sidebarVisible == nil)
-            // ⌥⌘I is the system's Show Inspector shortcut.
+            // ⌥⌘I is the system's Show Inspector shortcut; the queue panel plays that role.
             Button(queueVisible?.wrappedValue == true ? "Hide Queue" : "Show Queue") {
                 queueVisible?.wrappedValue.toggle()
             }
