@@ -290,8 +290,10 @@ impl SpotPlayer {
         let uri = SpotifyUri::from_uri(&uri).map_err(|e| PlayerError::InvalidUri {
             message: e.to_string(),
         })?;
-        let session = self.sync_session();
-        let tracks = resolve(&session, &uri).await?;
+        // Adopt the session only once resolve succeeds: adopting first would
+        // make a pending reconnect restore skip, leaving playback dead on failure.
+        let tracks = resolve(&self.session.current_session(), &uri).await?;
+        self.sync_session();
         let empty = canonical(&uri);
         self.start_context(tracks, None, Some(uri), empty, start_ms, autoplay)
     }
@@ -667,7 +669,6 @@ fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Se
     session
 }
 
-/// Records `session_id` as the player's session; false if it already was.
 /// None when `session_id` is already held; otherwise where to resume, if
 /// anything was playing. Bumps the generation so a radio fetch started on
 /// the old session cannot replace the restored track.
@@ -682,6 +683,7 @@ fn prepare_restore(
     Some(resume_point(state))
 }
 
+/// Records `session_id` as the player's session; false if it already was.
 fn adopt_session(state: &mut State, session_id: String) -> bool {
     if state.session_id == session_id {
         return false;
