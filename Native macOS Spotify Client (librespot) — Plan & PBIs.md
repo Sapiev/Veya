@@ -628,8 +628,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M3 · **Depends on:** PBI-402
 
-- [ ] `MenuBarExtra` with artwork, title, controls, scrubber and like; optional scrolling title in the menu bar.
-- [ ] Setting to keep the app running in the menu bar after closing the last window.
+**Status:** Done (merged to develop)
+
+- [x] `MenuBarExtra` with artwork, title, controls, scrubber and like; optional scrolling title in the menu bar.
+- [x] Setting to keep the app running in the menu bar after closing the last window. ("Keep running in menu bar only"; verified by hand, the window-close UI tests need third-party auto-quit apps such as Vorssaint off)
 
 #### PBI-603 · Dock menu and track notifications
 
