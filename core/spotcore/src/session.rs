@@ -3,7 +3,7 @@
 
 use std::error::Error as StdError;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use librespot_core::authentication::Credentials;
@@ -20,7 +20,7 @@ use tokio::sync::watch;
 use crate::cache::AudioCache;
 use crate::reconnect::{ConnectionObserver, Connector, Link, Supervisor};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BLOB_VERSION: u32 = 1;
 
 /// Messages never carry tokens, auth data or usernames.
@@ -50,7 +50,7 @@ fn internal(message: impl fmt::Display) -> SessionError {
 pub(crate) struct StoredCredentials {
     version: u32,
     pub(crate) device_id: String,
-    credentials: Credentials,
+    pub(crate) credentials: Credentials,
 }
 
 impl fmt::Debug for StoredCredentials {
@@ -104,9 +104,17 @@ impl StoredCredentials {
     }
 }
 
+/// Another connection for the same account, such as the Connect session,
+/// that should react to the same wake and network notices.
+pub(crate) trait ConnectivityFollower: Send + Sync {
+    fn system_did_wake(&self);
+    fn network_changed(&self, available: bool);
+}
+
 #[derive(uniffi::Object)]
 pub struct SpotSession {
     supervisor: Supervisor<Session>,
+    follower: Mutex<Option<Weak<dyn ConnectivityFollower>>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -137,10 +145,7 @@ impl SpotSession {
 
     /// Credentials of the current session, which may be a reconnected one.
     pub fn stored_credentials(&self) -> Result<Vec<u8>, SessionError> {
-        self.supervisor
-            .current_link()
-            .stored_credentials()?
-            .encode()
+        self.stored()?.encode()
     }
 
     /// Replaces any previous observer and delivers the current state to it.
@@ -151,6 +156,9 @@ impl SpotSession {
     /// Reconnects now with backoff reset; sockets rarely survive sleep.
     pub fn system_did_wake(&self) {
         self.supervisor.reconnect_now();
+        if let Some(follower) = self.follower() {
+            follower.system_did_wake();
+        }
     }
 
     /// Replaces a healthy session, for example so a new audio cache limit
@@ -163,6 +171,9 @@ impl SpotSession {
     /// including `false`, a no-op: the liveness poll notices a dead session.
     pub fn network_changed(&self, available: bool) {
         self.supervisor.network_changed(available);
+        if let Some(follower) = self.follower() {
+            follower.network_changed(available);
+        }
     }
 
     /// Stops reconnecting and closes the session. Idempotent; no observer
@@ -176,6 +187,21 @@ impl SpotSession {
     /// The live session, which a reconnect may have replaced.
     pub(crate) fn current_session(&self) -> Session {
         (*self.supervisor.current_link()).clone()
+    }
+
+    /// Replaces any previous follower.
+    pub(crate) fn set_follower(&self, follower: Weak<dyn ConnectivityFollower>) {
+        *crate::player::lock(&self.follower) = Some(follower);
+    }
+
+    fn follower(&self) -> Option<Arc<dyn ConnectivityFollower>> {
+        crate::player::lock(&self.follower)
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    pub(crate) fn stored(&self) -> Result<StoredCredentials, SessionError> {
+        self.supervisor.current_link().stored_credentials()
     }
 
     /// Changes after each reconnect, once `current_session` returns the new session.
@@ -198,6 +224,7 @@ impl SpotSession {
         info!("session connected");
         Ok(Arc::new(Self {
             supervisor: Supervisor::start(session, initial, SessionConnector { cache }),
+            follower: Mutex::default(),
         }))
     }
 }
@@ -338,6 +365,45 @@ fn login_reason(code: ErrorCode) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[derive(Default)]
+    struct Follower(std::sync::Mutex<Vec<String>>);
+
+    impl super::ConnectivityFollower for Follower {
+        fn system_did_wake(&self) {
+            self.0.lock().unwrap().push("wake".to_owned());
+        }
+
+        fn network_changed(&self, available: bool) {
+            self.0.lock().unwrap().push(format!("network {available}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn wake_and_network_notices_reach_the_connect_session() {
+        let initial = super::StoredCredentials::new(
+            "device".to_owned(),
+            super::reusable_credentials("user".to_owned(), vec![1]),
+        );
+        let unconnected = super::Session::new(super::SessionConfig::default(), None);
+        let spot = super::SpotSession {
+            supervisor: super::Supervisor::start(
+                unconnected,
+                initial,
+                super::SessionConnector { cache: None },
+            ),
+            follower: super::Mutex::default(),
+        };
+        let follower = super::Arc::new(Follower::default());
+        let weak = super::Arc::downgrade(&follower);
+        spot.set_follower(weak);
+
+        spot.system_did_wake();
+        spot.network_changed(true);
+
+        assert_eq!(*follower.0.lock().unwrap(), ["wake", "network true"]);
+        spot.shutdown();
+    }
+
     use super::*;
 
     const USERNAME: &str = "veya-test-user";

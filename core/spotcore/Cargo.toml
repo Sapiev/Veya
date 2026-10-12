@@ -20,6 +20,10 @@ librespot-playback = { git = "https://github.com/librespot-org/librespot", rev =
 librespot-connect = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
+librespot-discovery = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
+    "with-dns-sd",
+    "rustls-tls-native-roots",
+] }
 librespot-metadata = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
     "rustls-tls-native-roots",
 ] }
