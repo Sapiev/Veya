@@ -28,7 +28,7 @@ struct SettingsView: View {
             StorageSettingsTab(session: session, settings: settings)
                 .tabItem { Label("Storage", systemImage: "internaldrive") }
                 .tag(Tab.storage)
-            NoSettingsYet()
+            ConnectSettingsTab(settings: settings)
                 .tabItem { Label("Connect", systemImage: "hifispeaker.2") }
                 .tag(Tab.connect)
             AccountSettingsTab(session: session, webAPI: webAPI, signOut: signOut)
@@ -42,11 +42,33 @@ struct SettingsView: View {
     }
 }
 
-private struct NoSettingsYet: View {
+/// PBI-501: how this Mac appears as a Spotify Connect device.
+private struct ConnectSettingsTab: View {
+    @Bindable var settings: PlaybackSettings
+    /// Committed on Return or when the tab closes, as each change re-registers the device.
+    @State private var name = ""
+
     var body: some View {
-        Text("No settings yet.")
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, minHeight: 120)
+        Form {
+            TextField("Device name", text: $name)
+                .accessibilityLabel("Device name")
+                .onSubmit(commitName)
+            Toggle(isOn: $settings.zeroconf) {
+                Text("Discoverable on the local network")
+                Text("Spotify apps on this network can find this Mac. Only your account can play on it.")
+            }
+            .accessibilityLabel("Discoverable on the local network")
+        }
+        .formStyle(.grouped)
+        .onAppear { name = settings.connectDeviceName }
+        .onDisappear(perform: commitName)
+    }
+
+    private func commitName() {
+        if name != settings.connectDeviceName {
+            settings.connectDeviceName = name
+        }
+        name = settings.connectDeviceName
     }
 }
 

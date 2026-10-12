@@ -29,6 +29,14 @@ final class FakePlayer: SpotPlayerProtocol {
         snapshot.withLock { $0.upNext = uris }
     }
 
+    /// Stands in for a Connect remote changing the queue's modes.
+    func setModes(shuffle: Bool, repeat mode: RepeatMode) {
+        snapshot.withLock {
+            $0.shuffle = shuffle
+            $0.repeat = mode
+        }
+    }
+
     var recorded: [String] {
         calls.withLock { $0 }
     }
@@ -82,7 +90,9 @@ final class FakePlayer: SpotPlayerProtocol {
     func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
     func setShuffle(on: Bool) { record("shuffle \(on)") }
     func setVolume(volume: UInt16) { record("volume \(volume)") }
+    func setRemoteVolume(volume: UInt16) { record("remote volume \(volume)") }
     func stop() { record("stop") }
+    func stopLocal() { record("stopLocal") }
 }
 
 private let trackURI = "spotify:track:1"
@@ -231,6 +241,79 @@ struct PlayerModelTests {
         #expect(fake.recorded.count == 4)
     }
 
+    /// PBI-501: a phone's volume change moves the slider and is not sent back.
+    @Test func remoteVolumeIsPersistedWithoutEchoingBack() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+
+        player.apply(.volumeChanged(volume: 0))
+        for _ in 0 ..< 20 {
+            await Task.yield()
+        }
+
+        #expect(player.volume == 0)
+        #expect(PlaybackSettings(defaults: defaults).volume == 0)
+        #expect(fake.recorded.isEmpty)
+    }
+
+    /// PBI-501: a phone's queue and mode changes show without a local action.
+    @Test func remoteQueueChangeRefreshesUpNextAndModes() {
+        let fake = FakePlayer()
+        let player = model(fake)
+        fake.setUpNext(["spotify:track:4uLU6hMCjMI75M1A2tKUQA"])
+        fake.setModes(shuffle: true, repeat: .context)
+
+        player.apply(.queueChanged)
+
+        #expect(player.upNext == ["spotify:track:4uLU6hMCjMI75M1A2tKUQA"])
+        #expect(player.shuffle)
+        #expect(player.repeatMode == .context)
+    }
+
+    /// PBI-501: Connect starts with the saved name and restarts when it changes.
+    @Test func connectStartsWithTheSettingsAndRestartsOnChange() async {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        let devices = ConnectStarts()
+        let player = PlayerModel(
+            player: FakePlayer(), engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, clock: Date.init, log: { _, _ in }
+        )
+        await player.connectStart?.value
+        #expect(devices.started == ["Studio Mac off"])
+
+        settings.connectDeviceName = "Den"
+        while devices.started.count < 2 {
+            await Task.yield()
+        }
+        await player.connectStart?.value
+
+        #expect(devices.started == ["Studio Mac off", "Den off"])
+        #expect(devices.made.map(\.shutdowns) == [1, 0])
+        #expect(devices.order == ["start", "shutdown", "start"], "the old device finished unregistering first")
+    }
+
+    /// PBI-501: Spirc's player takes bitrate and loudness at start, so a change restarts Connect.
+    @Test func tuningChangeRestartsConnectAfterThePlayerIsRetuned() async {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        let fake = FakePlayer()
+        let devices = ConnectStarts()
+        let player = PlayerModel(
+            player: fake, engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, clock: Date.init, log: { _, _ in }
+        )
+        await player.connectStart?.value
+
+        settings.bitrate = .kbps96
+        while devices.started.count < 2 {
+            await Task.yield()
+        }
+        await player.connectStart?.value
+
+        #expect(fake.recorded == ["bitrate kbps96"])
+        #expect(devices.made.map(\.shutdowns) == [1, 0])
+    }
+
     @Test func savedAutoplayOffReachesANewPlayer() {
         let settings = PlaybackSettings(defaults: defaults)
         settings.autoplay = false
@@ -376,5 +459,55 @@ struct PlayerModelTests {
         fake.setUpNext(["z"])
         player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 1000))
         #expect(player.upNext == ["z"])
+    }
+}
+
+final class FakeConnect: SpotConnectProtocol, Sendable {
+    private let calls = OSAllocatedUnfairLock<(shutdowns: Int, transfers: [String])>(initialState: (0, []))
+    private let log: ConnectStarts
+    private let failsTransfer: Bool
+
+    init(log: ConnectStarts, failsTransfer: Bool = false) {
+        self.log = log
+        self.failsTransfer = failsTransfer
+    }
+
+    var shutdowns: Int { calls.withLock { $0.shutdowns } }
+    var transfers: [String] { calls.withLock { $0.transfers } }
+
+    func shutdown() async {
+        await Task.yield()
+        calls.withLock { $0.shutdowns += 1 }
+        await log.note("shutdown")
+    }
+
+    func transfer(deviceId: String) async throws {
+        calls.withLock { $0.transfers.append(deviceId) }
+        await Task.yield()
+        if failsTransfer {
+            throw ConnectError.Transfer(message: "down")
+        }
+    }
+}
+
+@MainActor
+final class ConnectStarts {
+    private(set) var started: [String] = []
+    private(set) var made: [FakeConnect] = []
+    /// Starts and shutdowns in the order they completed.
+    private(set) var order: [String] = []
+
+    func note(_ step: String) {
+        order.append(step)
+    }
+
+    var failTransfers = false
+
+    func start(name: String, zeroconf: Bool) async throws -> any SpotConnectProtocol {
+        started.append("\(name) \(zeroconf ? "on" : "off")")
+        order.append("start")
+        let device = FakeConnect(log: self, failsTransfer: failTransfers)
+        made.append(device)
+        return device
     }
 }

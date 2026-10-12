@@ -1,8 +1,10 @@
+import SystemConfiguration
 import XCTest
 
 /// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
 /// General: window colors from the artwork, an accent color, or the accent cycling.
 /// PBI-103: the cache size footer says playback survives the reconnect. PBI-309: the Spotify Web API section.
+/// PBI-501: the Connect device name and the zeroconf switch.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -33,6 +35,30 @@ final class SettingsUITests: XCTestCase {
         for name in ["General", "Playback", "Storage", "Connect", "Account", "Advanced"] {
             XCTAssertTrue(tab(app, name).waitForExistence(timeout: XCUIApplication.timeout), name)
         }
+    }
+
+    /// PBI-501: the device is named after the Mac, stays off the LAN by default, and a new name is kept.
+    @MainActor func testConnectDeviceNameDefaultsToTheMacAndARenameIsKept() {
+        let app = openSettings()
+        tab(app, "Connect").click()
+        let name = app.textFields["Device name"]
+        XCTAssertTrue(name.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(name.value as? String, SCDynamicStoreCopyComputerName(nil, nil) as String? ?? "Veya")
+        let zeroconf = toggle(app, "Discoverable on the local network")
+        XCTAssertTrue(zeroconf.exists)
+        XCTAssertFalse(isOn(zeroconf))
+
+        name.click()
+        name.typeKey("a", modifierFlags: .command)
+        name.typeText("Kitchen Mac\r")
+        zeroconf.click()
+        app.typeKey("w", modifierFlags: .command)
+        app.typeKey(",", modifierFlags: .command)
+        tab(app, "Connect").click()
+
+        XCTAssertTrue(name.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(name.value as? String, "Kitchen Mac")
+        XCTAssertTrue(isOn(toggle(app, "Discoverable on the local network")))
     }
 
     @MainActor func testPlaybackChoiceIsKeptAfterReopeningSettings() {

@@ -275,7 +275,7 @@ public final class SessionModel {
     @discardableResult
     public func attach(_ player: PlayerModel, startedOn handle: any SessionHandle) -> Bool {
         guard let session, session === handle else {
-            player.stop()
+            player.teardown()
             return false
         }
         self.player = player
@@ -306,7 +306,7 @@ public final class SessionModel {
         attempt += 1
         events?.cancel()
         events = nil
-        player?.stop()
+        player?.teardown()
         player = nil
         session?.shutdown()
         session = nil

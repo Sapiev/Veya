@@ -24,6 +24,29 @@ struct PlaybackSettingsTests {
         #expect(settings.autoplay)
     }
 
+    /// PBI-501: the Connect device is named after the Mac and stays off the LAN until asked.
+    @Test func freshInstallNamesTheConnectDeviceAfterTheMacWithZeroconfOff() {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+
+        #expect(settings.connectDeviceName == "Studio Mac")
+        #expect(!settings.zeroconf)
+        #expect(PlaybackSettings(defaults: defaults, macName: nil).connectDeviceName == "Veya")
+    }
+
+    @Test func connectDeviceNameIsTrimmedPersistedAndBlankFallsBackToTheMacName() {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        settings.connectDeviceName = "  Kitchen  "
+        settings.zeroconf = true
+
+        let relaunched = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        #expect(relaunched.connectDeviceName == "Kitchen")
+        #expect(relaunched.zeroconf)
+
+        relaunched.connectDeviceName = " "
+        #expect(relaunched.connectDeviceName == "Studio Mac")
+        #expect(PlaybackSettings(defaults: defaults, macName: "Renamed Mac").connectDeviceName == "Renamed Mac")
+    }
+
     @Test func episodeSpeedIsClampedPersistedAndAppliedToEpisodesOnly() {
         let settings = PlaybackSettings(defaults: defaults)
         #expect(settings.episodeSpeed == 1)

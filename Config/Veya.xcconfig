@@ -8,6 +8,8 @@ LD_RUNPATH_SEARCH_PATHS = @executable_path/../Frameworks
 SWIFT_EMIT_LOC_STRINGS = YES
 STRING_CATALOG_GENERATE_SYMBOLS = YES
 GENERATE_INFOPLIST_FILE = YES
+// Keys the generated plist cannot express: Bonjour for Connect zeroconf (ADR-009).
+INFOPLIST_FILE = Config/Veya-Info.plist
 ENABLE_PREVIEWS = YES
 CODE_SIGN_STYLE = Automatic
 

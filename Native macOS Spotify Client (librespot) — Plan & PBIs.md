@@ -579,30 +579,33 @@ veya/
 **Story:** As a user, I want my Mac to show up in the Spotify app on my phone so that I can start music on it remotely.
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M3 · **Depends on:** PBI-103, PBI-203
+**Status:** In progress (merged to develop) - ADR-009 hybrid: `SpotConnect` runs `Spirc` on a second session for the signed-in account beside the local player.
 
-- [ ] `spotcore` runs librespot-connect's `Spirc` with the signed-in session; device name defaults to the Mac's name (editable in Settings).
-- [ ] Remote play, pause, seek, skip, volume and queue changes from the phone are reflected in the app UI within 1 s.
-- [ ] Local actions update the remote device's view of the queue and position.
-- [ ] Optional zeroconf discovery on the LAN (Settings toggle, off by default) using mDNS.
+- [x] `spotcore` runs librespot-connect's `Spirc` with the signed-in session; device name defaults to the Mac's name (editable in Settings).
+- [ ] Remote play, pause, seek, skip, volume and queue changes from the phone are reflected in the app UI within 1 s. (Player events, volume and cluster queue updates are wired and unit tested; not yet checked with a real phone.)
+- [ ] Local actions update the remote device's view of the queue and position. (Transport, load, shuffle, repeat, volume and add to queue route to Spirc in Connect mode; play next, remove, reorder and clear return `ConnectQueueEdit` until a `set_queue` command lands; not yet checked with a real phone.)
+- [x] Optional zeroconf discovery on the LAN (Settings toggle, off by default) using mDNS.
 
 #### PBI-502 · Device picker and transfer playback
 
 **Story:** As a user, I want to move playback between my Mac, speakers and phone so that music follows me.
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-501
+**Status:** In progress (merged to develop) - devices come from the Connect cluster listener; with nothing active, a transfer starts from this Mac's device so Spotify resumes the last session on the target.
 
-- [ ] Device popover lists the account's active Connect devices with type icons and volume.
-- [ ] Selecting a device transfers playback (position and queue preserved); "This Mac" uses librespot 0.8's `Spirc::transfer`.
-- [ ] List refreshes live via dealer cluster updates.
+- [x] Device popover lists the account's active Connect devices with type icons and volume.
+- [ ] Selecting a device transfers playback (position and queue preserved); "This Mac" uses librespot 0.8's `Spirc::transfer`. (Routing is unit and UI tested on fakes; not yet checked against real devices. Local-mode playback is not published to Connect, so moving it elsewhere pauses it here and the target resumes Spotify's last session, not the local queue.)
+- [x] List refreshes live via dealer cluster updates.
 
 #### PBI-503 · Remote control mode
 
 **Story:** As a user playing on a speaker, I want the app to act as a remote so that I can control the speaker from my Mac.
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-502
+**Status:** In progress (merged to develop) - the cluster drives the bar; transport, load, shuffle, repeat, volume and add to queue go to the active device as connect-state commands.
 
-- [ ] When another device is active, the now-playing bar shows "Playing on \<device>" and all controls command that device.
-- [ ] Local audio is not decoded while in remote mode (CPU near idle).
+- [ ] When another device is active, the now-playing bar shows "Playing on \<device>" and all controls command that device. (Label, routing and command bodies are tested on fakes; not yet checked with a real device. Play next, remove, reorder and clear return `ConnectQueueEdit`, as a `set_queue` built from the remote's uids and queue revision cannot be verified here.)
+- [x] Local audio is not decoded while in remote mode (CPU near idle). (Unit level: entering Remote mode stops the local player and every call routes away from it; real CPU use not measured.)
 
 ### E6 · macOS integration
 

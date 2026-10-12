@@ -28,6 +28,10 @@
         case recentlyPlayedNeedsSignIn
         /// Signed in; no Web API client ID is set, and connecting one succeeds.
         case webAPINotConnected
+        /// Signed in; Connect lists this Mac, an active phone, an idle speaker and a TV that refuses transfers.
+        case connectDevices
+        /// Signed in; the phone is playing, so the bar is its remote control.
+        case remoteControl
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -72,7 +76,9 @@
                     premium: self != .notPremium,
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
                     library: library,
-                    recentlyPlayedScope: self != .recentlyPlayedNeedsSignIn
+                    recentlyPlayedScope: self != .recentlyPlayedNeedsSignIn,
+                    connectDevices: [.connectDevices, .remoteControl].contains(self),
+                    remote: self == .remoteControl
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
                 startFlow: { ScenarioFlow(completes: signInCompletes) },
@@ -121,13 +127,20 @@
         private let initial: ConnectionState?
         private let library: LibraryFill
         private let recentlyPlayedScope: Bool
+        private let connectDevices: Bool
+        private let remote: Bool
 
-        init(failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
+        init(
+            failures: Int, premium: Bool, initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool,
+            connectDevices: Bool, remote: Bool
+        ) {
+            self.remote = remote
             failuresLeft = OSAllocatedUnfairLock(initialState: failures)
             self.premium = premium
             self.initial = initial
             self.library = library
             self.recentlyPlayedScope = recentlyPlayedScope
+            self.connectDevices = connectDevices
         }
 
         func isPremium(accessToken _: String) async throws -> Bool {
@@ -156,7 +169,10 @@
             if fails {
                 throw ScenarioConnectError()
             }
-            return ScenarioSession(initial: initial, library: library, recentlyPlayedScope: recentlyPlayedScope)
+            return ScenarioSession(
+                initial: initial, library: library, recentlyPlayedScope: recentlyPlayedScope, connectDevices: connectDevices,
+                remote: remote
+            )
         }
     }
 
@@ -165,11 +181,15 @@
         private let initial: ConnectionState?
         private let library: LibraryFill
         private let recentlyPlayedScope: Bool
+        private let connectDevices: Bool
+        private let remote: Bool
 
-        init(initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool) {
+        init(initial: ConnectionState?, library: LibraryFill, recentlyPlayedScope: Bool, connectDevices: Bool, remote: Bool) {
             self.initial = initial
             self.library = library
             self.recentlyPlayedScope = recentlyPlayedScope
+            self.connectDevices = connectDevices
+            self.remote = remote
         }
 
         func storedCredentials() throws -> Data {
@@ -213,7 +233,17 @@
 
         @MainActor
         func makePlayer(observer: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
-            PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil)
+            if remote {
+                return PlayerConnection(player: ScenarioRemotePlayer(observer: observer), engine: nil) { _, _ in
+                    ScenarioConnect(observer: observer)
+                }
+            }
+            guard connectDevices else {
+                return PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil)
+            }
+            return PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil) { _, _ in
+                ScenarioConnect(observer: observer)
+            }
         }
     }
 
@@ -300,6 +330,98 @@
 
     /// A paused "Test Track" that answers play and pause with the matching events.
     /// Songs 5 and 6 are queued and songs 7 and 8 follow; playing a list makes it the context.
+    /// A Connect device whose transfers move the active mark, as the next cluster update would.
+    private final nonisolated class ScenarioConnect: SpotConnectProtocol {
+        private let observer: any PlayerObserver
+        private let active = OSAllocatedUnfairLock(initialState: "phone")
+
+        init(observer: any PlayerObserver) {
+            self.observer = observer
+            publish()
+        }
+
+        func shutdown() async {}
+
+        func transfer(deviceId: String) async throws {
+            if deviceId == "tv" {
+                throw ConnectError.Transfer(message: "ui-test")
+            }
+            active.withLock { $0 = deviceId }
+            publish()
+        }
+
+        private func publish() {
+            let active = active.withLock { $0 }
+            let device = { (id: String, name: String, kind: DeviceKind, volume: UInt16) in
+                ConnectDevice(
+                    id: id, name: name, kind: kind, volume: volume, isActive: id == active, isThisDevice: id == "mac"
+                )
+            }
+            observer.onEvent(event: .devicesChanged(devices: [
+                device("mac", "Studio Mac", .computer, .max),
+                device("speaker", "Kitchen Speaker", .speaker, 32768),
+                device("phone", "Pixel", .smartphone, 6554),
+                device("tv", "Living Room TV", .tv, 0),
+            ]))
+        }
+    }
+
+    /// Stands in for spotcore in Remote mode: each command plays out on the
+    /// phone and comes back as the cluster's events, as "Remote Track" then liked songs.
+    private final nonisolated class ScenarioRemotePlayer: SpotPlayerProtocol {
+        private let observer: any PlayerObserver
+        private let song = OSAllocatedUnfairLock(initialState: 1)
+
+        /// Unknown to the scenario metadata, so its title stays as the cluster gave it.
+        private static let remoteTrackURI = "spotify:track:ui-test-remote"
+
+        init(observer: any PlayerObserver) {
+            self.observer = observer
+            observer.onEvent(event: .trackChanged(uri: Self.remoteTrackURI, name: "Remote Track", durationMs: 180_000))
+            observer.onEvent(event: .paused(uri: Self.remoteTrackURI, positionMs: 0))
+            observer.onEvent(event: .remoteChanged(deviceName: "Pixel", volume: 6554))
+        }
+
+        func play() { observer.onEvent(event: .playing(uri: current, positionMs: 0)) }
+        func pause() { observer.onEvent(event: .paused(uri: current, positionMs: 0)) }
+        func next() {
+            let uri = song.withLock {
+                $0 += 1
+                return likedSongURI($0)
+            }
+            observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
+            observer.onEvent(event: .playing(uri: uri, positionMs: 0))
+        }
+
+        private var current: String {
+            let n = song.withLock { $0 }
+            return n == 1 ? Self.remoteTrackURI : likedSongURI(n)
+        }
+
+        func addToQueue(uri _: String) throws {}
+        func clearQueue() {}
+        func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
+        func loadTracks(uris _: [String], startIndex _: UInt32, contextUri _: String?, autoplay _: Bool) throws {}
+        func moveInQueue(from _: UInt32, to _: UInt32) throws {}
+        func playNext(uri _: String) throws {}
+        func previous() {}
+        func skip(count _: UInt32) {}
+        func queue() -> QueueSnapshot {
+            QueueSnapshot(current: current, upNext: [], nextFromContext: [], shuffle: false, repeat: .off, autoplay: true)
+        }
+        func removeFromQueue(index _: UInt32) throws {}
+        func seek(positionMs _: UInt32) {}
+        func setAutoplay(on _: Bool) {}
+        func setBitrate(bitrate _: Bitrate) async {}
+        func setNormalisation(normalisation _: LoudnessPreset?) async {}
+        func setRepeat(mode _: RepeatMode) {}
+        func setShuffle(on _: Bool) {}
+        func setVolume(volume _: UInt16) {}
+        func setRemoteVolume(volume _: UInt16) {}
+        func stop() {}
+        func stopLocal() {}
+    }
+
     private final nonisolated class ScenarioPlayer: SpotPlayerProtocol {
         private let observer: any PlayerObserver
         private let snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
@@ -365,7 +487,9 @@
         func setRepeat(mode _: RepeatMode) {}
         func setShuffle(on _: Bool) {}
         func setVolume(volume _: UInt16) {}
+        func setRemoteVolume(volume _: UInt16) {}
         func stop() {}
+        func stopLocal() {}
     }
 
     /// Liked songs newest first, nothing else saved; never changes.

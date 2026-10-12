@@ -5,10 +5,11 @@
 //! the end of a track advances it, and an exhausted context continues with
 //! Spotify's autoplay radio for it.
 
-use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use librespot_connect::{LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist};
 use librespot_playback::audio_backend::{Sink, SinkResult};
@@ -24,7 +25,10 @@ use log::{info, warn};
 use tokio::sync::watch;
 
 use crate::audio::{AudioOutput, CoreAudioSink};
+use crate::connect::SpotConnect;
+use crate::devices::DeviceList;
 use crate::queue::{Queue, RepeatMode};
+use crate::remote::{Change, PlayRequest, RemoteCommand, RemotePlayback, load_leaves_remote};
 use crate::session::SpotSession;
 
 const POSITION_INTERVAL: Duration = Duration::from_secs(1);
@@ -45,6 +49,9 @@ pub enum PlayerError {
     OutputTaken,
     #[error("no Up Next entry at {index}")]
     OutOfRange { index: u32 },
+    /// Spirc's queue takes additions only; see ADR-009.
+    #[error("this queue edit is unavailable while playing through Spotify Connect")]
+    ConnectQueueEdit,
 }
 
 /// Spotify's loudness levels: Quiet is about -19 LUFS, Normal -14, Loud -11.
@@ -102,6 +109,22 @@ pub enum PlaybackEvent {
         uri: String,
     },
     Stopped,
+    /// A Connect remote changed the volume; 0..=65535 like `set_volume`.
+    VolumeChanged {
+        volume: u16,
+    },
+    /// The queue changed outside the app; read it again with `queue`.
+    QueueChanged,
+    /// The device this Mac controls in Remote mode, with its volume to show
+    /// but never save as the app's; both `None` once back in Local mode.
+    RemoteChanged {
+        device_name: Option<String>,
+        volume: Option<u16>,
+    },
+    /// The account's Connect devices, after every cluster update.
+    DevicesChanged {
+        devices: Vec<crate::devices::ConnectDevice>,
+    },
 }
 
 /// Called on a tokio worker thread, in the order the player emits events.
@@ -187,6 +210,9 @@ struct State {
     session_id: String,
 }
 
+/// Lock order: `state`, then `player` or `connect`, then `SpotConnect`'s
+/// device list. Code holding the device list never calls back into a
+/// `SpotPlayer` method that takes `state` or `player`; it only emits events.
 #[derive(uniffi::Object)]
 pub struct SpotPlayer {
     session: Arc<SpotSession>,
@@ -198,9 +224,12 @@ pub struct SpotPlayer {
     mixer: SoftMixer,
     observer: Arc<dyn PlayerObserver>,
     state: Arc<Mutex<State>>,
+    owner: Owner,
+    /// Set by `SpotConnect::start`; held weakly as the connect side owns this player.
+    connect: Mutex<Weak<SpotConnect>>,
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -243,9 +272,14 @@ impl SpotPlayer {
             request_id: None,
             session_id: link.session_id(),
         }));
+        let owner = Owner::default();
         let shared = SharedSink {
             sink: Arc::clone(&sink),
-            epoch: epoch.clone(),
+            gate: Gate {
+                epoch: epoch.clone(),
+                role: Role::Local,
+                owner: owner.clone(),
+            },
         };
         let player = spawn_player(&session, link, shared, &mixer, &state, &observer, tuning);
         let this = Arc::new(Self {
@@ -257,6 +291,8 @@ impl SpotPlayer {
             mixer,
             observer,
             state,
+            owner,
+            connect: Mutex::new(Weak::new()),
         });
         tokio::spawn(restore_after_reconnects(links, Arc::downgrade(&this)));
         Ok(this)
@@ -264,7 +300,25 @@ impl SpotPlayer {
 
     /// App volume on a logarithmic curve, independent of the system volume.
     pub fn set_volume(&self, volume: u16) {
-        self.mixer.set_volume(volume);
+        match self.connect_mode() {
+            // Spirc sets the shared mixer and tells the remotes.
+            Some(connect) => connect.spirc(|s| s.set_volume(volume)),
+            None => self.mixer.set_volume(volume),
+        }
+    }
+
+    /// The remote device's volume in Remote mode; otherwise ignored, so a
+    /// remote's value never reaches the app's own mixer.
+    pub fn set_remote_volume(&self, volume: u16) {
+        if let Some((connect, target)) = self.remote_mode() {
+            connect.remote_volume(target, volume);
+        }
+    }
+
+    /// Stops local playback only, for teardown: never commands Spirc's
+    /// remotes or a device in Remote mode.
+    pub fn stop_local(&self) {
+        self.player().stop();
     }
 
     /// Rebuilds the librespot player with the new normaliser settings and
@@ -290,6 +344,37 @@ impl SpotPlayer {
         let uri = SpotifyUri::from_uri(&uri).map_err(|e| PlayerError::InvalidUri {
             message: e.to_string(),
         })?;
+        if let Some(connect) = self.connect_mode() {
+            let options = LoadRequestOptions {
+                start_playing: autoplay,
+                seek_to: start_ms,
+                ..Default::default()
+            };
+            let request = match uri {
+                SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } => {
+                    LoadRequest::from_tracks(vec![canonical(&uri)], options)
+                }
+                _ => LoadRequest::from_context_uri(canonical(&uri), options),
+            };
+            connect.spirc(|s| s.load(request));
+            return Ok(());
+        }
+        if let Some((connect, target)) = self.remote_for_load() {
+            let single = matches!(uri, SpotifyUri::Track { .. } | SpotifyUri::Episode { .. });
+            let request = PlayRequest {
+                context_uri: (!single).then(|| canonical(&uri)),
+                tracks: if single {
+                    vec![canonical(&uri)]
+                } else {
+                    Vec::new()
+                },
+                start_index: 0,
+                seek_to: start_ms,
+                paused: !autoplay,
+            };
+            connect.remote(target, &RemoteCommand::Play(request));
+            return Ok(());
+        }
         // Adopt the session only once resolve succeeds: adopting first would
         // make a pending reconnect restore skip, leaving playback dead on failure.
         let tracks = resolve(&self.session.current_session(), &uri).await?;
@@ -322,6 +407,28 @@ impl SpotPlayer {
         if start_index as usize >= tracks.len() {
             return Err(PlayerError::OutOfRange { index: start_index });
         }
+        if let Some(connect) = self.connect_mode() {
+            // shortcut: Spirc takes no context for a track list, so radio after
+            // it follows Spirc's own autoplay; pass `context` if that misfires.
+            let options = LoadRequestOptions {
+                start_playing: autoplay,
+                playing_track: Some(PlayingTrack::Index(start_index)),
+                ..Default::default()
+            };
+            connect.spirc(|s| s.load(LoadRequest::from_tracks(uris, options)));
+            return Ok(());
+        }
+        if let Some((connect, target)) = self.remote_for_load() {
+            let request = PlayRequest {
+                context_uri: None,
+                tracks: uris,
+                start_index,
+                seek_to: 0,
+                paused: !autoplay,
+            };
+            connect.remote(target, &RemoteCommand::Play(request));
+            return Ok(());
+        }
         self.sync_session();
         self.start_context(
             tracks,
@@ -334,22 +441,46 @@ impl SpotPlayer {
     }
 
     pub fn play(&self) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::Resume);
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(Spirc::play);
+        }
         lock(&self.state).clock.wants_play = true;
         self.player().play();
     }
 
     pub fn pause(&self) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::Pause);
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(Spirc::pause);
+        }
         lock(&self.state).clock.wants_play = false;
         self.player().pause();
     }
 
     pub fn seek(&self, position_ms: u32) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::SeekTo(position_ms));
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(|s| s.set_position_ms(position_ms));
+        }
         self.player().seek(position_ms);
     }
 
     /// Plays Up Next first, then the context. No-op at the end of the
     /// context unless repeat is on.
     pub fn next(&self) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::SkipNext);
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(Spirc::next);
+        }
         self.sync_session();
         let mut state = lock(&self.state);
         if let Some(track) = state.queue.advance(true).cloned() {
@@ -362,6 +493,21 @@ impl SpotPlayer {
     /// Jumps to the `count`th upcoming track (Up Next first, then the
     /// context) with one load, as a queue row click does.
     pub fn skip(&self, count: u32) {
+        if let Some((connect, target)) = self.remote_mode() {
+            // shortcut: one skip_next per step, as in Connect mode.
+            for _ in 0..count {
+                connect.remote(target.clone(), &RemoteCommand::SkipNext);
+            }
+            return;
+        }
+        if let Some(connect) = self.connect_mode() {
+            // shortcut: Spirc has no skip-to, so each step loads a track; send a
+            // `skip_next` command with the target track if that is audible.
+            for _ in 0..count {
+                connect.spirc(Spirc::next);
+            }
+            return;
+        }
         self.sync_session();
         let mut state = lock(&self.state);
         if let Some(track) = state.queue.skip(count as usize).cloned() {
@@ -374,6 +520,12 @@ impl SpotPlayer {
     /// Restarts the track once it is more than 3 s in, as Spotify does;
     /// otherwise goes back one track.
     pub fn previous(&self) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::SkipPrev);
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(Spirc::prev);
+        }
         self.sync_session();
         let mut state = lock(&self.state);
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
@@ -388,6 +540,7 @@ impl SpotPlayer {
     /// Puts a track or episode at the front of Up Next.
     pub fn play_next(&self, uri: String) -> Result<(), PlayerError> {
         let track = playable(&uri)?;
+        self.local_queue_only()?;
         lock(&self.state).queue.play_next(track);
         Ok(())
     }
@@ -395,11 +548,20 @@ impl SpotPlayer {
     /// Puts a track or episode at the end of Up Next.
     pub fn add_to_queue(&self, uri: String) -> Result<(), PlayerError> {
         let track = playable(&uri)?;
+        if let Some(connect) = self.connect_mode() {
+            connect.add_to_queue(canonical(&track));
+            return Ok(());
+        }
+        if let Some((connect, target)) = self.remote_mode() {
+            connect.remote_add_to_queue(target, &canonical(&track));
+            return Ok(());
+        }
         lock(&self.state).queue.add(track);
         Ok(())
     }
 
     pub fn remove_from_queue(&self, index: u32) -> Result<(), PlayerError> {
+        self.local_queue_only()?;
         lock(&self.state)
             .queue
             .remove(index as usize)
@@ -409,6 +571,7 @@ impl SpotPlayer {
 
     /// Moves the Up Next entry at `from` so it ends up at `to`.
     pub fn move_in_queue(&self, from: u32, to: u32) -> Result<(), PlayerError> {
+        self.local_queue_only()?;
         if lock(&self.state).queue.reorder(from as usize, to as usize) {
             Ok(())
         } else {
@@ -418,15 +581,35 @@ impl SpotPlayer {
         }
     }
 
+    /// A no-op while playing through Spotify Connect or controlling another device.
     pub fn clear_queue(&self) {
+        if self.local_queue_only().is_err() {
+            return warn!("clear queue ignored in Connect or Remote mode");
+        }
         lock(&self.state).queue.clear_up_next();
     }
 
     pub fn set_shuffle(&self, on: bool) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::Shuffle(on));
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(|s| s.shuffle(on));
+        }
         lock(&self.state).queue.set_shuffle(on, seed());
     }
 
     pub fn set_repeat(&self, mode: RepeatMode) {
+        if let Some((connect, target)) = self.remote_mode() {
+            let (context, track) = spirc_repeat(mode);
+            connect.remote(target.clone(), &RemoteCommand::RepeatContext(context));
+            return connect.remote(target, &RemoteCommand::RepeatTrack(track));
+        }
+        if let Some(connect) = self.connect_mode() {
+            let (context, track) = spirc_repeat(mode);
+            connect.spirc(|s| s.repeat(context));
+            return connect.spirc(|s| s.repeat_track(track));
+        }
         lock(&self.state).queue.repeat = mode;
     }
 
@@ -436,7 +619,14 @@ impl SpotPlayer {
     }
 
     pub fn queue(&self) -> QueueSnapshot {
+        // Resolved before taking `state`; see the lock order on `SpotPlayer`.
+        let cluster = self
+            .connect_mode()
+            .or_else(|| self.remote_mode().map(|(c, _)| c));
         let state = lock(&self.state);
+        if let Some(connect) = cluster {
+            return connect.queue(state.autoplay);
+        }
         let q = &state.queue;
         QueueSnapshot {
             current: q.current().map(canonical),
@@ -448,7 +638,15 @@ impl SpotPlayer {
         }
     }
 
+    /// Pauses instead in Connect and Remote mode, where the remotes keep the
+    /// queue; teardown uses `stop_local`.
     pub fn stop(&self) {
+        if let Some((connect, target)) = self.remote_mode() {
+            return connect.remote(target, &RemoteCommand::Pause);
+        }
+        if let Some(connect) = self.connect_mode() {
+            return connect.spirc(Spirc::pause);
+        }
         self.player().stop();
     }
 }
@@ -501,7 +699,11 @@ impl SpotPlayer {
         state.session_id = link.session_id();
         let shared = SharedSink {
             sink: Arc::clone(&self.sink),
-            epoch,
+            gate: Gate {
+                epoch,
+                role: Role::Local,
+                owner: self.owner.clone(),
+            },
         };
         let player = spawn_player(
             &self.session,
@@ -547,6 +749,261 @@ impl SpotPlayer {
 
     fn player(&self) -> Arc<Player> {
         Arc::clone(&lock(&self.player))
+    }
+
+    /// The Connect session while it owns the sink (ADR-009 Connect mode).
+    fn connect_mode(&self) -> Option<Arc<SpotConnect>> {
+        if self.owner.get() != Role::Connect {
+            return None;
+        }
+        lock(&self.connect).upgrade()
+    }
+
+    /// The remote's queue would need a `set_queue` built from its uids and
+    /// queue revision, which no test here can verify (ADR-009).
+    fn local_queue_only(&self) -> Result<(), PlayerError> {
+        match self.connect_mode().is_some() || self.remote_mode().is_some() {
+            true => Err(PlayerError::ConnectQueueEdit),
+            false => Ok(()),
+        }
+    }
+
+    /// The Connect session and the active device while another device plays
+    /// (ADR-009 Remote mode).
+    fn remote_mode(&self) -> Option<(Arc<SpotConnect>, String)> {
+        self.followed_remote()
+            .map(|(connect, remote)| (connect, remote.device_id))
+    }
+
+    fn followed_remote(&self) -> Option<(Arc<SpotConnect>, RemotePlayback)> {
+        let connect = lock(&self.connect).upgrade()?;
+        let owner = self.owner.get();
+        let remote = connect.with_devices(|list| remote_for(owner, list))?;
+        Some((connect, remote))
+    }
+
+    /// Where a load goes in Remote mode: to a playing remote; a paused one
+    /// is left so the Mac plays (ADR-009).
+    fn remote_for_load(&self) -> Option<(Arc<SpotConnect>, String)> {
+        let (connect, remote) = self.followed_remote()?;
+        if !load_leaves_remote(&remote) {
+            return Some((connect, remote.device_id));
+        }
+        if connect.leave_paused_remote() {
+            self.leave_remote(false);
+        }
+        None
+    }
+
+    /// Applies a cluster update's Remote-mode change and shows its events.
+    /// Called without the device list locked; see the lock order.
+    pub(crate) fn apply_remote(&self, change: Change, events: Vec<PlaybackEvent>, epoch: &Epoch) {
+        match change {
+            Change::Enter => {
+                info!("entering Remote mode");
+                if enter_remote(&self.owner, &mut lock(&self.state)) {
+                    self.player().stop();
+                }
+                // Link shutdown retires before it leaves Remote mode; undo an
+                // Enter that lost that race, or local events stay hidden.
+                if !epoch.is_current() {
+                    self.owner.set_remote(false);
+                    return;
+                }
+            }
+            Change::Leave => self.leave_remote(false),
+            Change::Stay => {}
+        }
+        for event in events {
+            self.observer.on_event(event);
+        }
+    }
+
+    /// Shows the app's own volume again; `stopped` also clears the remote's
+    /// playback. Takes no locks, so it is safe under the device list lock.
+    pub(crate) fn leave_remote(&self, stopped: bool) {
+        info!("leaving Remote mode");
+        self.owner.set_remote(false);
+        self.observer.on_event(PlaybackEvent::RemoteChanged {
+            device_name: None,
+            volume: None,
+        });
+        if stopped {
+            self.observer.on_event(PlaybackEvent::Stopped);
+        }
+    }
+
+    pub(crate) fn attach_connect(&self, connect: Weak<SpotConnect>) {
+        *lock(&self.connect) = connect;
+    }
+
+    pub(crate) fn volume(&self) -> u16 {
+        self.mixer.volume()
+    }
+
+    pub(crate) fn connect_mixer(&self) -> Arc<dyn Mixer> {
+        Arc::new(self.mixer.clone())
+    }
+
+    pub(crate) fn emit(&self, event: PlaybackEvent) {
+        self.observer.on_event(event);
+    }
+
+    /// Pauses the local player unless Connect owns the sink. Never routed to
+    /// a remote device.
+    pub(crate) fn pause_local(&self) {
+        if self.owner.get() == Role::Local {
+            lock(&self.state).clock.wants_play = false;
+            self.player().pause();
+        }
+    }
+
+    /// The cluster's queue changed; it is the app's queue in Connect and
+    /// Remote mode.
+    pub(crate) fn queue_changed(&self, remote: bool) {
+        if remote || self.owner.get() == Role::Connect {
+            self.observer.on_event(PlaybackEvent::QueueChanged);
+        }
+    }
+
+    /// Spirc's player: it shares the sink and mixer, and plays through the
+    /// sink only while `epoch` is current and Connect owns it.
+    pub(crate) fn spawn_connect_player(
+        self: &Arc<Self>,
+        session: Session,
+        epoch: Epoch,
+    ) -> Arc<Player> {
+        let sink = SharedSink {
+            sink: Arc::clone(&self.sink),
+            gate: Gate {
+                epoch: epoch.clone(),
+                role: Role::Connect,
+                owner: self.owner.clone(),
+            },
+        };
+        let tuning = *lock(&self.tuning);
+        let player = Player::new(
+            player_config(tuning),
+            session,
+            self.mixer.get_soft_volume(),
+            move || Box::new(sink),
+        );
+        tokio::spawn(forward_connect_events(
+            player.get_player_event_channel(),
+            Arc::downgrade(self),
+            epoch,
+        ));
+        player
+    }
+
+    /// Hands the sink back to the local player when a retired Connect
+    /// link held it, so the app is not left in Connect mode without Spirc.
+    pub(crate) fn connect_retired(&self, epoch: &Epoch) {
+        if self.owner.retire(epoch) {
+            info!("leaving Connect mode: link retired");
+            self.observer.on_event(PlaybackEvent::Stopped);
+        }
+    }
+
+    fn on_connect_event(&self, event: PlayerEvent, epoch: &Epoch) {
+        if let PlayerEvent::VolumeChanged { volume } = event {
+            // The mixer is shared, so the app's volume moved even while idle.
+            if epoch.is_current() {
+                self.observer
+                    .on_event(PlaybackEvent::VolumeChanged { volume });
+            }
+            return;
+        }
+        let attached = lock(&self.connect).strong_count() > 0;
+        match connect_step(&self.owner, epoch, attached, &event) {
+            Step::Drop => return,
+            Step::Enter => {
+                info!("entering Connect mode");
+                self.player().stop();
+            }
+            // Spirc stopping as a transfer moves playback to the followed
+            // remote would blank the remote's track.
+            Step::Forward
+                if self.owner.is_remote() && matches!(event, PlayerEvent::Stopped { .. }) =>
+            {
+                return;
+            }
+            Step::Forward => {}
+        }
+        if let Some(event) = map_event(event) {
+            self.observer.on_event(event);
+        }
+    }
+}
+
+/// The followed remote while it, not this Mac, plays (ADR-009 Remote mode).
+fn remote_for(owner: Role, list: &DeviceList) -> Option<RemotePlayback> {
+    match route(owner, list.remote.is_some()) {
+        Route::Remote => list.remote.clone(),
+        Route::Local | Route::Connect => None,
+    }
+}
+
+/// Marks Remote mode and retires in-flight radio fetches; true when the
+/// local player must stop, so nothing decodes while another device plays.
+fn enter_remote(owner: &Owner, state: &mut State) -> bool {
+    owner.set_remote(true);
+    state.generation += 1;
+    state.clock.wants_play = false;
+    owner.get() == Role::Local
+}
+
+/// Where a player call goes. Connect wins over a remote, as this Mac then
+/// plays itself; Local only when no other device is active.
+#[derive(Debug, PartialEq, Eq)]
+enum Route {
+    Local,
+    Connect,
+    Remote,
+}
+
+fn route(owner: Role, remote_active: bool) -> Route {
+    match (owner, remote_active) {
+        (Role::Connect, _) => Route::Connect,
+        (Role::Local, true) => Route::Remote,
+        (Role::Local, false) => Route::Local,
+    }
+}
+
+/// Spirc's `repeat` and `repeat_track` flags for a repeat mode.
+fn spirc_repeat(mode: RepeatMode) -> (bool, bool) {
+    match mode {
+        RepeatMode::Off => (false, false),
+        RepeatMode::Context => (true, false),
+        RepeatMode::Track => (true, true),
+    }
+}
+
+/// Which side a Spirc player event hands the sink to: loading, playing or
+/// pausing means a remote picked this Mac; a stop means Spirc went inactive.
+fn owner_after(event: &PlayerEvent) -> Option<Role> {
+    match event {
+        PlayerEvent::Loading { .. } | PlayerEvent::Playing { .. } | PlayerEvent::Paused { .. } => {
+            Some(Role::Connect)
+        }
+        PlayerEvent::Stopped { .. } => Some(Role::Local),
+        _ => None,
+    }
+}
+
+/// Ends once the Connect link is retired or the local player is gone.
+async fn forward_connect_events(
+    mut events: PlayerEventChannel,
+    spot: Weak<SpotPlayer>,
+    epoch: Epoch,
+) {
+    while let Some(event) = events.recv().await {
+        let Some(spot) = spot.upgrade().filter(|_| epoch.is_current()) else {
+            return;
+        };
+        // This may hold the last reference, and dropping a player joins its thread.
+        let epoch = epoch.clone();
+        let _ = tokio::task::spawn_blocking(move || spot.on_connect_event(event, &epoch)).await;
     }
 }
 
@@ -597,7 +1054,8 @@ fn spawn_player(
     observer: &Arc<dyn PlayerObserver>,
     tuning: Tuning,
 ) -> Arc<Player> {
-    let epoch = sink.epoch.clone();
+    let epoch = sink.gate.epoch.clone();
+    let owner = sink.gate.owner.clone();
     let player = Player::new(
         player_config(tuning),
         link,
@@ -609,6 +1067,7 @@ fn spawn_player(
         player.get_player_event_channel(),
         Arc::downgrade(&player),
         epoch,
+        owner,
         Arc::clone(state),
         Arc::clone(observer),
     ));
@@ -617,13 +1076,18 @@ fn spawn_player(
 
 /// Which librespot player is live. `current` only moves while the state lock
 /// is held, so a check under that lock cannot race a rebuild.
-#[derive(Clone)]
-struct Epoch {
+#[derive(Clone, Default)]
+pub(crate) struct Epoch {
     current: Arc<AtomicU64>,
     mine: u64,
 }
 
 impl Epoch {
+    /// Makes this epoch and every earlier one stale without a successor.
+    pub(crate) fn retire(&self) {
+        self.current.fetch_add(1, SeqCst);
+    }
+
     fn next(&self) -> Self {
         Self {
             current: Arc::clone(&self.current),
@@ -631,35 +1095,142 @@ impl Epoch {
         }
     }
 
-    fn is_current(&self) -> bool {
+    pub(crate) fn is_current(&self) -> bool {
         self.current.load(SeqCst) == self.mine
     }
 }
 
-/// The one CoreAudio ring, shared by each rebuilt librespot player. A
-/// replaced player may run until its thread is joined; its output is dropped.
+/// The player feeding the sink: the local one, or Spirc's (ADR-009).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Local,
+    Connect,
+}
+
+/// Which role owns the sink; shared by every player on it.
+#[derive(Clone, Default)]
+struct Owner {
+    connect: Arc<AtomicBool>,
+    /// Serialises Connect handovers with link retirement.
+    handover: Arc<Mutex<()>>,
+    /// Another device plays (Remote mode); the sink stays Local but idle.
+    remote: Arc<AtomicBool>,
+}
+
+impl Owner {
+    fn get(&self) -> Role {
+        if self.connect.load(SeqCst) {
+            Role::Connect
+        } else {
+            Role::Local
+        }
+    }
+
+    /// Returns the previous owner, so exactly one caller sees a handover.
+    fn set(&self, role: Role) -> Role {
+        if self.connect.swap(role == Role::Connect, SeqCst) {
+            Role::Connect
+        } else {
+            Role::Local
+        }
+    }
+
+    fn set_remote(&self, remote: bool) {
+        self.remote.store(remote, SeqCst);
+    }
+
+    fn is_remote(&self) -> bool {
+        self.remote.load(SeqCst)
+    }
+
+    /// The local player's events reach the app only in Local mode; its stop
+    /// on entering Connect or Remote mode is not news.
+    fn shows_local_events(&self) -> bool {
+        self.get() == Role::Local && !self.remote.load(SeqCst)
+    }
+
+    /// Moves the sink for an event of the Connect link at `epoch`; None once
+    /// that link is retired, so a late event cannot take the sink back.
+    fn hand_over(&self, epoch: &Epoch, role: Role) -> Option<Role> {
+        let _handover = lock(&self.handover);
+        epoch.is_current().then(|| self.set(role))
+    }
+
+    /// Retires the Connect link at `epoch` and returns the sink to Local;
+    /// true if Connect held it.
+    fn retire(&self, epoch: &Epoch) -> bool {
+        let _handover = lock(&self.handover);
+        epoch.retire();
+        self.set(Role::Local) == Role::Connect
+    }
+}
+
+/// What a Spirc player event does to the app.
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    Drop,
+    /// Connect takes the sink: stop the local player, then forward.
+    Enter,
+    Forward,
+}
+
+/// `attached`: the `SpotConnect` handle is set, so Connect-mode commands
+/// reach Spirc; until then the sink stays Local.
+fn connect_step(owner: &Owner, epoch: &Epoch, attached: bool, event: &PlayerEvent) -> Step {
+    match owner_after(event) {
+        Some(Role::Connect) if !attached => Step::Drop,
+        Some(Role::Connect) => match owner.hand_over(epoch, Role::Connect) {
+            Some(Role::Local) => Step::Enter,
+            Some(Role::Connect) => Step::Forward,
+            None => Step::Drop,
+        },
+        Some(Role::Local) => match owner.hand_over(epoch, Role::Local) {
+            Some(Role::Connect) => Step::Forward,
+            _ => Step::Drop,
+        },
+        None if epoch.is_current() && owner.get() == Role::Connect => Step::Forward,
+        None => Step::Drop,
+    }
+}
+
+/// A player reaches the sink only while it is the live one of its role and
+/// its role owns the sink.
+struct Gate {
+    epoch: Epoch,
+    role: Role,
+    owner: Owner,
+}
+
+impl Gate {
+    fn is_open(&self) -> bool {
+        self.epoch.is_current() && self.owner.get() == self.role
+    }
+}
+
+/// The one CoreAudio ring, shared by each rebuilt librespot player and
+/// Spirc's. A player that is not let through has its output dropped.
 struct SharedSink {
     sink: Arc<Mutex<CoreAudioSink>>,
-    epoch: Epoch,
+    gate: Gate,
 }
 
 impl Sink for SharedSink {
     fn start(&mut self) -> SinkResult<()> {
-        if !self.epoch.is_current() {
+        if !self.gate.is_open() {
             return Ok(());
         }
         lock(&self.sink).start()
     }
 
     fn stop(&mut self) -> SinkResult<()> {
-        if !self.epoch.is_current() {
+        if !self.gate.is_open() {
             return Ok(());
         }
         lock(&self.sink).stop()
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
-        if !self.epoch.is_current() {
+        if !self.gate.is_open() {
             return Ok(());
         }
         lock(&self.sink).write(packet, converter)
@@ -722,7 +1293,7 @@ fn seed() -> u64 {
 }
 
 /// Up Next takes single items only, not contexts.
-fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
+pub(crate) fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
     match SpotifyUri::from_uri(uri) {
         Ok(uri @ (SpotifyUri::Track { .. } | SpotifyUri::Episode { .. })) => Ok(uri),
         Ok(other) => Err(PlayerError::InvalidUri {
@@ -776,6 +1347,7 @@ async fn forward_events(
     mut events: PlayerEventChannel,
     player: Weak<Player>,
     epoch: Epoch,
+    owner: Owner,
     state: Arc<Mutex<State>>,
     observer: Arc<dyn PlayerObserver>,
 ) {
@@ -836,9 +1408,11 @@ async fn forward_events(
                 }
                 state.clock.note(&event);
             }
-            observer.on_event(event);
+            if owner.shows_local_events() {
+                observer.on_event(event);
+            }
         }
-        if context_ended && !continue_with_radio(&session, &player, &state).await {
+        if context_ended && !continue_with_radio(&session, &player, &state, &owner).await {
             player.stop();
         }
     }
@@ -850,9 +1424,17 @@ async fn forward_events(
 /// Replaces the exhausted context with its autoplay radio and starts it.
 /// Returns false when autoplay is off, unavailable, or the user loaded
 /// something else while the radio was fetched.
-async fn continue_with_radio(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> bool {
+async fn continue_with_radio(
+    spot: &SpotSession,
+    player: &Player,
+    state: &Mutex<State>,
+    owner: &Owner,
+) -> bool {
     let (request, generation) = {
         let state = lock(state);
+        if owner.is_remote() {
+            return false;
+        }
         let Some(context) = state.context_uri.as_ref() else {
             return false;
         };
@@ -882,7 +1464,8 @@ async fn continue_with_radio(spot: &SpotSession, player: &Player, state: &Mutex<
         }
     };
     let mut state = lock(state);
-    if state.generation != generation || tracks.is_empty() {
+    // Entering Remote mode bumps the generation, so this also covers it.
+    if state.generation != generation || tracks.is_empty() || owner.is_remote() {
         return false;
     }
     state.queue.set_context(tracks, seed());
@@ -1102,6 +1685,210 @@ mod tests {
         assert!(!first.is_current());
         assert!(!second.is_current(), "a rebuild racing another loses");
         assert!(third.is_current());
+    }
+
+    #[test]
+    fn gate_lets_through_only_the_live_player_of_the_owning_role() {
+        let owner = Owner::default();
+        let local_epoch = Epoch::default();
+        let gate = |epoch: &Epoch, role| Gate {
+            epoch: epoch.clone(),
+            role,
+            owner: owner.clone(),
+        };
+        let local = gate(&local_epoch, Role::Local);
+        let connect_epoch = Epoch::default();
+        let connect = gate(&connect_epoch, Role::Connect);
+        assert!(local.is_open(), "Local owns the sink at launch");
+        assert!(!connect.is_open());
+
+        assert_eq!(owner.set(Role::Connect), Role::Local);
+        assert_eq!(owner.set(Role::Connect), Role::Connect, "one handover only");
+        assert!(
+            !local.is_open(),
+            "the local player is silenced in Connect mode"
+        );
+        assert!(connect.is_open());
+
+        connect_epoch.retire();
+        assert!(!connect.is_open(), "a retired Connect link stays silent");
+        owner.set(Role::Local);
+        let rebuilt = gate(&local_epoch.next(), Role::Local);
+        assert!(!local.is_open(), "a retuned-away player stays silent");
+        assert!(rebuilt.is_open());
+    }
+
+    #[test]
+    fn spirc_player_events_hand_the_sink_over() {
+        let uri = track(0);
+        let loading = PlayerEvent::Loading {
+            play_request_id: 1,
+            track_id: uri.clone(),
+            position_ms: 0,
+        };
+        let paused = PlayerEvent::Paused {
+            play_request_id: 1,
+            track_id: uri.clone(),
+            position_ms: 0,
+        };
+        let stopped = PlayerEvent::Stopped {
+            play_request_id: 1,
+            track_id: uri.clone(),
+        };
+        let position = PlayerEvent::PositionChanged {
+            play_request_id: 1,
+            track_id: uri,
+            position_ms: 0,
+        };
+        assert_eq!(owner_after(&loading), Some(Role::Connect));
+        assert_eq!(
+            owner_after(&paused),
+            Some(Role::Connect),
+            "a paused transfer"
+        );
+        assert_eq!(owner_after(&stopped), Some(Role::Local));
+        assert_eq!(owner_after(&position), None);
+        assert_eq!(owner_after(&PlayerEvent::VolumeChanged { volume: 1 }), None);
+    }
+
+    fn playing() -> PlayerEvent {
+        PlayerEvent::Playing {
+            play_request_id: 1,
+            track_id: track(0),
+            position_ms: 0,
+        }
+    }
+
+    #[test]
+    fn a_late_event_from_a_retired_link_cannot_take_the_sink_back() {
+        let owner = Owner::default();
+        let epoch = Epoch::default();
+        assert_eq!(connect_step(&owner, &epoch, true, &playing()), Step::Enter);
+
+        // The forwarder checked the epoch, then the link was retired before
+        // the event was applied.
+        assert!(epoch.is_current());
+        assert!(owner.retire(&epoch), "Connect held the sink");
+        assert_eq!(connect_step(&owner, &epoch, true, &playing()), Step::Drop);
+
+        assert_eq!(owner.get(), Role::Local, "the local player stays audible");
+    }
+
+    #[test]
+    fn connect_takes_the_sink_only_once_its_handle_is_attached() {
+        let owner = Owner::default();
+        let epoch = Epoch::default();
+        assert_eq!(connect_step(&owner, &epoch, false, &playing()), Step::Drop);
+        assert_eq!(
+            owner.get(),
+            Role::Local,
+            "commands would go to a muted player"
+        );
+        assert_eq!(connect_step(&owner, &epoch, true, &playing()), Step::Enter);
+        assert_eq!(owner.get(), Role::Connect);
+    }
+
+    #[test]
+    fn spirc_stop_returns_the_sink_once_and_idle_events_are_dropped() {
+        let owner = Owner::default();
+        let epoch = Epoch::default();
+        let stopped = PlayerEvent::Stopped {
+            play_request_id: 1,
+            track_id: track(0),
+        };
+        assert_eq!(connect_step(&owner, &epoch, true, &stopped), Step::Drop);
+        connect_step(&owner, &epoch, true, &playing());
+        assert_eq!(connect_step(&owner, &epoch, true, &stopped), Step::Forward);
+        assert_eq!(owner.get(), Role::Local);
+        let tick = PlayerEvent::PositionChanged {
+            play_request_id: 1,
+            track_id: track(0),
+            position_ms: 0,
+        };
+        assert_eq!(connect_step(&owner, &epoch, true, &tick), Step::Drop);
+    }
+
+    #[test]
+    fn the_local_players_stop_is_hidden_while_another_device_plays() {
+        let owner = Owner::default();
+        assert!(owner.shows_local_events());
+        owner.set_remote(true);
+        assert!(
+            !owner.shows_local_events(),
+            "it would blank the remote's track"
+        );
+        owner.set_remote(false);
+        assert!(owner.shows_local_events());
+        owner.set(Role::Connect);
+        assert!(!owner.shows_local_events());
+    }
+
+    fn followed(playing: bool) -> DeviceList {
+        DeviceList {
+            remote: Some(RemotePlayback {
+                device_id: "phone".to_owned(),
+                uri: canonical(&track(0)),
+                title: String::new(),
+                duration_ms: 0,
+                position_ms: 0,
+                playing,
+                volume: 0,
+                device_name: String::new(),
+            }),
+            ..DeviceList::default()
+        }
+    }
+
+    #[test]
+    fn remote_mode_follows_the_device_list_unless_this_mac_plays() {
+        assert_eq!(remote_for(Role::Local, &DeviceList::default()), None);
+        assert_eq!(
+            remote_for(Role::Local, &followed(false)).map(|r| r.device_id),
+            Some("phone".to_owned()),
+            "a followed remote stays in control while paused"
+        );
+        assert_eq!(remote_for(Role::Connect, &followed(true)), None);
+    }
+
+    #[test]
+    fn entering_remote_mode_stops_local_playback_and_retires_radio() {
+        let owner = Owner::default();
+        let mut state = state_playing(track(0));
+        state.clock.wants_play = true;
+        let generation = state.generation;
+
+        assert!(enter_remote(&owner, &mut state), "the local player stops");
+        assert!(owner.is_remote());
+        assert!(
+            state.generation > generation,
+            "an in-flight radio fetch cannot load"
+        );
+        assert!(!state.clock.wants_play);
+
+        owner.set(Role::Connect);
+        assert!(
+            !enter_remote(&owner, &mut state),
+            "Spirc's player is not stopped"
+        );
+    }
+
+    #[test]
+    fn calls_reach_the_local_player_only_when_no_other_device_plays() {
+        assert_eq!(route(Role::Local, false), Route::Local);
+        assert_eq!(
+            route(Role::Local, true),
+            Route::Remote,
+            "nothing loads or decodes locally while another device plays"
+        );
+        assert_eq!(route(Role::Connect, true), Route::Connect);
+        assert_eq!(route(Role::Connect, false), Route::Connect);
+    }
+
+    #[test]
+    fn spirc_repeat_maps_each_mode() {
+        assert_eq!(spirc_repeat(RepeatMode::Off), (false, false));
+        assert_eq!(spirc_repeat(RepeatMode::Context), (true, false));
+        assert_eq!(spirc_repeat(RepeatMode::Track), (true, true));
     }
 
     #[test]
