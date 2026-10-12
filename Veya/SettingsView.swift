@@ -1,5 +1,6 @@
 import SpotCoreKit
 import SwiftUI
+import UserNotifications
 
 /// The Settings window (⌘,). Playback changes reach the live player through
 /// the shared `PlaybackSettings`; nothing here needs a relaunch.
@@ -10,6 +11,8 @@ struct SettingsView: View {
 
     /// Written by other windows to open Settings on a given tab.
     static let tabKey = "settingsTab"
+    /// Off by default; read by `TrackNotifications` on each track change.
+    static let trackNotificationsKey = "notifications.trackChanged"
 
     let session: SessionModel
     let webAPI: WebAPIConnection
@@ -78,6 +81,8 @@ private struct GeneralSettingsTab: View {
     @AppStorage(ColorSource.key) private var source = ColorSource.artwork
     @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
+    @AppStorage(SettingsView.trackNotificationsKey) private var notifiesTrackChanges = false
+    @State private var notificationsDenied = false
     @Bindable var menuBar: MenuBarSettings
 
     var body: some View {
@@ -94,6 +99,20 @@ private struct GeneralSettingsTab: View {
                 }
                 .accessibilityLabel("Keep running in menu bar only")
                 .disabled(!menuBar.shown)
+            }
+            Section {
+                Toggle(isOn: $notifiesTrackChanges) {
+                    Text("Notify when the song changes")
+                    Text("Shows the song and its artwork while Veya is in the background.")
+                }
+                .accessibilityLabel("Notify when the song changes")
+                .onChange(of: notifiesTrackChanges) { _, on in
+                    if on { requestNotifications() }
+                }
+                if notificationsDenied {
+                    Text("Allow notifications for Veya in System Settings > Notifications.")
+                        .foregroundStyle(.secondary)
+                }
             }
             Section {
                 Picker("Window colors", selection: $source) {
@@ -118,6 +137,15 @@ private struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// A refusal turns the toggle back off, so it never claims banners that cannot show.
+    private func requestNotifications() {
+        Task {
+            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
+            notificationsDenied = !granted
+            if !granted { notifiesTrackChanges = false }
+        }
     }
 
     private var accent: Binding<Color> {

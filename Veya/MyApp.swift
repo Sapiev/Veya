@@ -54,10 +54,14 @@ import SwiftUI
             MainActor.assumeIsolated { session.shutdown() }
         }
         _session = State(initialValue: session)
-        _activeSession = State(initialValue: ActiveSession(
-            session: session,
-            controls: MediaControls(artworkLoader: dependencies.artworkLoader)
-        ) { handle in
+        let defaults = dependencies.defaults
+        let notifications = TrackNotifications { defaults.bool(forKey: SettingsView.trackNotificationsKey) }
+        let controls = MediaControls(artworkLoader: dependencies.artworkLoader) { info, image in
+            MediaControls.publishToSystem(info, image)
+            notifications.update(info, image)
+        }
+        AppDelegate.controls = controls
+        _activeSession = State(initialValue: ActiveSession(session: session, controls: controls) { handle in
             SessionScope(handle: handle, metadataStore: dependencies.metadataStore, settings: settings) {
                 session.attach($0, startedOn: handle)
             }
@@ -127,6 +131,11 @@ import SwiftUI
 /// Playback and the media keys outlive the window, as in Music.
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     static var quitRequested = false
+    static var controls: MediaControls?
+
+    func applicationDockMenu(_: NSApplication) -> NSMenu? {
+        Self.controls.map(DockMenu.make)
+    }
 
     /// SwiftUI answers AppKit's after-last-window-closed check with yes for a single
     /// `Window` app, without asking this delegate. Only the Quit command or a quit
