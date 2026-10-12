@@ -690,7 +690,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M3 · **Depends on:** PBI-304, PBI-403
 
-**Status:** In review (feat/pbi-702-playlist-editing)
+**Status:** Done (merged to develop)
 
 - [x] Create, rename, edit description, delete (unfollow), make public/private, create folders. (Not yet checked against a live account.)
 - [x] Add, remove and reorder tracks (drag and drop) with optimistic UI and conflict handling on revision mismatch. (Not yet checked against a live account.)
