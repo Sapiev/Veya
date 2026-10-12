@@ -332,7 +332,6 @@ struct PageHero<Subtitle: View>: View {
 /// The artist's picture full bleed (`.artist-hero`), darkening into the window's ambient color.
 private struct ArtistHero: View {
     let artist: ArtistMetadata
-    @Environment(\.palette) private var palette
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -348,32 +347,49 @@ private struct ArtistHero: View {
         .padding(.horizontal, Theme.s8)
         .padding(.bottom, Theme.s6)
         .frame(maxWidth: .infinity, minHeight: 400, alignment: .bottomLeading)
-        .background {
-            GeometryReader { proxy in
-                // Pulling past the top stretches the picture, so no gap opens above it.
-                let pull = max(0, proxy.frame(in: .scrollView).minY)
-                let height = proxy.size.height + pull
-                let side = max(proxy.size.width, height)
-                ZStack(alignment: .topLeading) {
-                    // Faces sit near the top of artist photos; keep the upper fifth in view.
-                    ArtworkView(artwork: artist.artwork, side: side)
-                        .offset(y: -(side - height) * 0.22)
-                    LinearGradient(
-                        stops: [
-                            .init(color: .black.opacity(0.12), location: 0),
-                            .init(color: .black.opacity(0.18), location: 0.45),
-                            .init(color: Color(palette.ambient).opacity(0.92), location: 1),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-                .frame(width: proxy.size.width, height: height, alignment: .topLeading)
-                .clipped()
-                .offset(y: -pull)
-            }
-            .accessibilityHidden(true)
+        // The shell draws the picture across the whole window, under the side panels too.
+        .anchorPreference(key: ArtistBackdropKey.self, value: .bounds) { ArtistBackdrop(artwork: artist.artwork, bounds: $0) }
+    }
+}
+
+/// The artist's picture, darkening into the window's ambient color.
+struct ArtistPicture: View {
+    let artwork: [Artwork]
+    let width: CGFloat
+    let height: CGFloat
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        let side = max(width, height)
+        ZStack(alignment: .topLeading) {
+            // Faces sit near the top of artist photos; keep the upper fifth in view.
+            ArtworkView(artwork: artwork, side: side)
+                .offset(y: -(side - height) * 0.22)
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.12), location: 0),
+                    .init(color: .black.opacity(0.18), location: 0.45),
+                    .init(color: Color(palette.ambient).opacity(0.92), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         }
+        .frame(width: width, height: height, alignment: .topLeading)
+        .clipped()
+    }
+}
+
+/// The full-bleed artist header on screen, so the shell can draw its picture across the window.
+struct ArtistBackdrop {
+    let artwork: [Artwork]
+    let bounds: Anchor<CGRect>
+}
+
+struct ArtistBackdropKey: PreferenceKey {
+    static let defaultValue: ArtistBackdrop? = nil
+    static func reduce(value: inout ArtistBackdrop?, nextValue: () -> ArtistBackdrop?) {
+        value = value ?? nextValue()
     }
 }
 

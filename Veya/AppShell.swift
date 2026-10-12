@@ -116,6 +116,19 @@ struct AppShell: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        // The artist header's picture spans the window, so the side panels' glass blurs the same image without a seam.
+        // Read as a background, not state, so scrolling the artist page doesn't re-evaluate the shell.
+        .backgroundPreferenceValue(ArtistBackdropKey.self) { backdrop in
+            if let backdrop {
+                GeometryReader { proxy in
+                    let hero = proxy[backdrop.bounds]
+                    let pull = max(0, hero.minY)
+                    ArtistPicture(artwork: backdrop.artwork, width: proxy.size.width, height: hero.height + pull)
+                        .offset(y: hero.minY - pull)
+                }
+                .accessibilityHidden(true)
+            }
+        }
         .background { AmbientBackground() }
         .background(TrafficLightInset())
         .ignoresSafeArea()
