@@ -56,6 +56,11 @@ public final class MediaControls {
         follow(binding)
     }
 
+    /// What Control Center shows right now; nil while nothing is loaded.
+    public var current: Info? {
+        Self.info(player: player, library: library, at: .now)
+    }
+
     @discardableResult
     public func perform(_ command: Command) -> Bool {
         guard let player else { return false }
