@@ -118,15 +118,23 @@ struct AppShell: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        // The artist header's picture spans the window, so the side panels' glass blurs the same image without a seam.
-        // Read as a background, not state, so scrolling the artist page doesn't re-evaluate the shell.
-        .backgroundPreferenceValue(ArtistBackdropKey.self) { backdrop in
+        // The page header's backdrop spans the window, so the side panels' glass blurs it without a seam.
+        // Read as a background, not state, so scrolling the page doesn't re-evaluate the shell.
+        .backgroundPreferenceValue(PageBackdropKey.self) { backdrop in
             if let backdrop {
                 GeometryReader { proxy in
                     let hero = proxy[backdrop.bounds]
                     let pull = max(0, hero.minY)
-                    ArtistPicture(artwork: backdrop.artwork, width: proxy.size.width, height: hero.height + pull)
-                        .offset(y: hero.minY - pull)
+                    let height = hero.height + pull
+                    Group {
+                        switch backdrop.fill {
+                        case let .picture(artwork):
+                            ArtistPicture(artwork: artwork, width: proxy.size.width, height: height)
+                        case .glow:
+                            GlowWash(width: proxy.size.width, height: height)
+                        }
+                    }
+                    .offset(y: hero.minY - pull)
                 }
                 .accessibilityHidden(true)
             }
@@ -139,6 +147,8 @@ struct AppShell: View {
         .overlay {
             if let nowPlayingTab, let player {
                 NowPlayingView(player: player, library: library, metadata: metadata, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
+                    // Covers the window up to its top edge, under the title bar.
+                    .ignoresSafeArea()
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }

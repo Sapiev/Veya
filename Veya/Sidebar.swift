@@ -60,14 +60,7 @@ struct Sidebar: View {
                     }
                 }
             } header: {
-                HStack {
-                    SidebarHeader(title: Text("Playlists"))
-                    Spacer()
-                    Button("New Playlist", systemImage: "plus", action: newPlaylist)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("New Playlist")
-                }
+                SidebarHeader(title: Text("Playlists"))
             }
             librarySection(.artists, title: Text("Artists"), route: .artists)
             librarySection(.albums, title: Text("Albums"), route: .albums)
