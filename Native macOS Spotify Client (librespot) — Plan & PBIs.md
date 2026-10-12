@@ -616,9 +616,11 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M1 · **Depends on:** PBI-202
 
-- [ ] `MPNowPlayingInfoCenter` shows title, artist, album, artwork, duration and elapsed time.
-- [ ] `MPRemoteCommandCenter` handles play/pause, next, previous, seek (change playback position) and like.
-- [ ] Works when the app is in the background or its window is closed.
+**Status:** Done (merged to develop)
+
+- [x] `MPNowPlayingInfoCenter` shows title, artist, album, artwork, duration and elapsed time.
+- [x] `MPRemoteCommandCenter` handles play/pause, next, previous, seek (change playback position) and like.
+- [ ] Works when the app is in the background or its window is closed. (implemented; `MediaControlsUITests/testClosingTheWindowKeepsPlaying` not yet green on the dev Mac, where a third-party auto-quit utility quits windowless apps)
 
 #### PBI-602 · Menu bar mini-player
 

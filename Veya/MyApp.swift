@@ -3,8 +3,10 @@ import SpotCoreKit
 import SwiftUI
 
 @main struct MyApp: App {
+    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     /// One window and one session per app, restored exactly once at launch.
     @State private var session: SessionModel
+    @State private var activeSession: ActiveSession
     @State private var signIn: SignInModel
     @State private var webAPI: WebAPIConnection
     @State private var systemEvents: SystemEvents
@@ -21,7 +23,8 @@ import SwiftUI
         let dependencies = AppDependencies.make()
         defaults = dependencies.defaults
         Diagnostics.startLogging(level: Diagnostics.savedLevel(in: dependencies.defaults))
-        _settings = State(initialValue: PlaybackSettings(defaults: dependencies.defaults))
+        let settings = PlaybackSettings(defaults: dependencies.defaults)
+        _settings = State(initialValue: settings)
         artworkLoader = dependencies.artworkLoader
         metadataStore = dependencies.metadataStore
         _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
@@ -49,6 +52,14 @@ import SwiftUI
             MainActor.assumeIsolated { session.shutdown() }
         }
         _session = State(initialValue: session)
+        _activeSession = State(initialValue: ActiveSession(
+            session: session,
+            controls: MediaControls(artworkLoader: dependencies.artworkLoader)
+        ) { handle in
+            SessionScope(handle: handle, metadataStore: dependencies.metadataStore, settings: settings) {
+                session.attach($0, startedOn: handle)
+            }
+        })
         _signIn = State(initialValue: SignInModel(browser: dependencies.browser, startFlow: dependencies.startFlow))
         _systemEvents = State(initialValue: SystemEvents(
             onWake: { session.systemDidWake() },
@@ -60,11 +71,11 @@ import SwiftUI
         Window("Veya", id: "main") {
             ContentView(
                 session: session,
+                activeSession: activeSession,
                 signIn: signIn,
                 webAPI: webAPI,
                 metadataStore: metadataStore,
                 recentSearches: recentSearches,
-                settings: settings,
                 episodeProgress: episodeProgress
             ) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
@@ -83,6 +94,8 @@ import SwiftUI
         .commands {
             AccountCommands(session: session, signOutFailed: $signOutFailed)
             NavigationCommands()
+            MainWindowCommands()
+            QuitCommand()
             CommandGroup(after: .help) {
                 Button("Export Diagnostics…") {
                     Task { await Diagnostics.export() }
@@ -95,6 +108,44 @@ import SwiftUI
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .defaultAppStorage(defaults)
+        }
+    }
+}
+
+/// Playback and the media keys outlive the window, as in Music.
+private final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var quitRequested = false
+
+    /// SwiftUI answers AppKit's after-last-window-closed check with yes for a single
+    /// `Window` app, without asking this delegate. Only the Quit command or a quit
+    /// event (Dock, logout, scripts) ends the app.
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let quitEvent = event?.eventClass == kCoreEventClass && event?.eventID == kAEQuitApplication
+        return Self.quitRequested || quitEvent ? .terminateNow : .terminateCancel
+    }
+}
+
+private struct QuitCommand: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appTermination) {
+            Button("Quit Veya") {
+                AppDelegate.quitRequested = true
+                NSApp.terminate(nil)
+            }
+            .keyboardShortcut("q")
+        }
+    }
+}
+
+/// Brings the window back once closed; its hidden title bar keeps it out of the Window menu's list.
+private struct MainWindowCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(before: .windowList) {
+            Button("Veya") { openWindow(id: "main") }
+                .keyboardShortcut("0")
         }
     }
 }

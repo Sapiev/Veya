@@ -192,11 +192,15 @@ public final class PlayerModel {
         return model
     }
 
+    /// The speed the current item plays at.
+    var rate: Float {
+        settings.rate(for: nowPlaying?.uri ?? "")
+    }
+
     /// Playback position at `date`, advanced from the last report while playing.
     public func position(at date: Date) -> UInt32 {
         guard isPlaying else { return positionMs }
-        let rate = Double(settings.rate(for: nowPlaying?.uri ?? ""))
-        let elapsed = max(0, date.timeIntervalSince(positionAnchor)) * 1000 * rate
+        let elapsed = max(0, date.timeIntervalSince(positionAnchor)) * 1000 * Double(rate)
         let advanced = UInt32(min(Double(positionMs) + elapsed, Double(UInt32.max)))
         return nowPlaying.map { min(advanced, $0.durationMs) } ?? advanced
     }

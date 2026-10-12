@@ -3,11 +3,11 @@ import SwiftUI
 
 struct ContentView: View {
     let session: SessionModel
+    let activeSession: ActiveSession
     let signIn: SignInModel
     let webAPI: WebAPIConnection
     let metadataStore: MetadataStore?
     let recentSearches: RecentSearches
-    let settings: PlaybackSettings
     let episodeProgress: any EpisodeProgressProvider
     let signOut: () -> Void
 
@@ -32,15 +32,13 @@ struct ContentView: View {
         case .signedOut:
             SignInView(model: signIn)
         case .ready:
-            if let handle = session.session {
+            if let handle = session.session, let scope = activeSession.scope, scope.handle === handle {
                 AppShell(
-                    session: handle,
+                    scope: scope,
                     webAPI: webAPI,
                     metadataStore: metadataStore,
                     recentSearches: recentSearches,
-                    settings: settings,
-                    episodeProgress: episodeProgress,
-                    attachPlayer: { session.attach($0, startedOn: handle) }
+                    episodeProgress: episodeProgress
                 )
                 .id(ObjectIdentifier(handle))
                 .overlay(alignment: .top) {
@@ -168,11 +166,16 @@ private struct ReconnectBanner: View {
 }
 
 #Preview {
+    let session = SessionModel(
+        store: KeychainCredentialStore(service: "preview", account: "preview"),
+        refreshTokenStore: KeychainCredentialStore(service: "preview", account: "preview-refresh")
+    )
+    let settings = PlaybackSettings(defaults: UserDefaults(suiteName: "preview")!)
     ContentView(
-        session: SessionModel(
-            store: KeychainCredentialStore(service: "preview", account: "preview"),
-            refreshTokenStore: KeychainCredentialStore(service: "preview", account: "preview-refresh")
-        ),
+        session: session,
+        activeSession: ActiveSession(session: session, controls: MediaControls(artworkLoader: nil, commands: nil)) {
+            SessionScope(handle: $0, metadataStore: nil, settings: settings) { _ in false }
+        },
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
         webAPI: WebAPIConnection(
             store: KeychainCredentialStore(service: "preview", account: "preview-refresh"),
@@ -181,7 +184,6 @@ private struct ReconnectBanner: View {
         ),
         metadataStore: nil,
         recentSearches: RecentSearches(defaults: UserDefaults(suiteName: "preview")!),
-        settings: PlaybackSettings(defaults: UserDefaults(suiteName: "preview")!),
         episodeProgress: WebAPIEpisodeProgress { "" },
         signOut: {}
     )
