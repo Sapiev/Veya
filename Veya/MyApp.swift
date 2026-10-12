@@ -18,10 +18,12 @@ import SwiftUI
     @State private var settings: PlaybackSettings
     private let defaults: UserDefaults
     private let episodeProgress: any EpisodeProgressProvider
+    @State private var menuBar: MenuBarSettings
 
     init() {
         let dependencies = AppDependencies.make()
         defaults = dependencies.defaults
+        _menuBar = State(initialValue: MenuBarSettings(defaults: dependencies.defaults))
         Diagnostics.startLogging(level: Diagnostics.savedLevel(in: dependencies.defaults))
         let settings = PlaybackSettings(defaults: dependencies.defaults)
         _settings = State(initialValue: settings)
@@ -82,6 +84,8 @@ import SwiftUI
             }
             .environment(\.artworkLoader, artworkLoader)
             .defaultAppStorage(defaults)
+            .onAppear { NSApp.setActivationPolicy(.regular) }
+            .onDisappear { menuBar.windowClosed() }
             .alert("Couldn't Sign Out Completely", isPresented: $signOutFailed) {
                 Button("Try Again") { AccountCommands.signOut(session, failed: $signOutFailed) }
                 Button("Cancel", role: .cancel) {}
@@ -104,11 +108,19 @@ import SwiftUI
         }
 
         Settings {
-            SettingsView(session: session, webAPI: webAPI, settings: settings) {
+            SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .defaultAppStorage(defaults)
         }
+
+        MenuBarExtra(isInserted: $menuBar.shown) {
+            MenuBarPlayer(activeSession: activeSession)
+                .environment(\.artworkLoader, artworkLoader)
+        } label: {
+            MenuBarLabel(activeSession: activeSession, showsTitle: menuBar.showsTitle)
+        }
+        .menuBarExtraStyle(.window)
     }
 }
 
@@ -120,6 +132,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `Window` app, without asking this delegate. Only the Quit command or a quit
     /// event (Dock, logout, scripts) ends the app.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+
         let event = NSAppleEventManager.shared().currentAppleEvent
         let quitEvent = event?.eventClass == kCoreEventClass && event?.eventID == kAEQuitApplication
         return Self.quitRequested || quitEvent ? .terminateNow : .terminateCancel

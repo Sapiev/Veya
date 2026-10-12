@@ -17,13 +17,6 @@ final class SettingsUITests: XCTestCase {
         app.toolbars.buttons[name]
     }
 
-    /// Grouped forms draw a toggle as a switch or a checkbox depending on the macOS version.
-    @MainActor private func toggle(_ app: XCUIApplication, _ label: String) -> XCUIElement {
-        let types = [XCUIElement.ElementType.checkBox, .switch].map(\.rawValue)
-        return app.descendants(matching: .any)
-            .matching(NSPredicate(format: "elementType IN %@ AND label BEGINSWITH %@", types, label)).firstMatch
-    }
-
     /// Checkboxes and switches report their state as 0 or 1.
     @MainActor private func isOn(_ element: XCUIElement) -> Bool {
         (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
@@ -44,7 +37,7 @@ final class SettingsUITests: XCTestCase {
         let name = app.textFields["Device name"]
         XCTAssertTrue(name.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertEqual(name.value as? String, SCDynamicStoreCopyComputerName(nil, nil) as String? ?? "Veya")
-        let zeroconf = toggle(app, "Discoverable on the local network")
+        let zeroconf = app.toggle("Discoverable on the local network")
         XCTAssertTrue(zeroconf.exists)
         XCTAssertFalse(isOn(zeroconf))
 
@@ -58,7 +51,7 @@ final class SettingsUITests: XCTestCase {
 
         XCTAssertTrue(name.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertEqual(name.value as? String, "Kitchen Mac")
-        XCTAssertTrue(isOn(toggle(app, "Discoverable on the local network")))
+        XCTAssertTrue(isOn(app.toggle("Discoverable on the local network")))
     }
 
     @MainActor func testPlaybackChoiceIsKeptAfterReopeningSettings() {
@@ -80,7 +73,7 @@ final class SettingsUITests: XCTestCase {
     @MainActor func testAutoplaySwitchIsKeptAfterReopeningSettings() {
         let app = openSettings()
         tab(app, "Playback").click()
-        let autoplay = toggle(app, "Autoplay")
+        let autoplay = app.toggle("Autoplay")
         XCTAssertTrue(autoplay.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(isOn(autoplay))
 
@@ -89,7 +82,7 @@ final class SettingsUITests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         tab(app, "Playback").click()
 
-        let reopened = toggle(app, "Autoplay")
+        let reopened = app.toggle("Autoplay")
         XCTAssertTrue(reopened.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(isOn(reopened))
     }
@@ -161,7 +154,7 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(loudness.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(loudness.isEnabled)
 
-        toggle(app, "Normalize volume").click()
+        app.toggle("Normalize volume").click()
         XCTAssertFalse(loudness.isEnabled)
 
         let output = app.popUpButtons["Output device"]

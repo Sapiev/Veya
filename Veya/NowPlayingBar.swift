@@ -58,17 +58,7 @@ struct NowPlayingBar: View {
                     playingOn
                 }
                 .lineLimit(1)
-                if nowPlaying.uri.hasPrefix("spotify:track:") {
-                    let saved = library.isSaved(nowPlaying.uri)
-                    Button(
-                        saved ? "Remove from Liked Songs" : "Save to Liked Songs",
-                        systemImage: saved ? "heart.fill" : "heart"
-                    ) {
-                        library.setSaved(nowPlaying.uri, !saved)
-                    }
-                    .buttonStyle(TransportButtonStyle(on: saved))
-                    .help(saved ? "Remove from Liked Songs" : "Save to Liked Songs")
-                }
+                LikeButton(uri: nowPlaying.uri, library: library)
             }
         } else {
             VStack(alignment: .leading, spacing: 0) {
@@ -131,6 +121,26 @@ struct NowPlayingBar: View {
                 .buttonStyle(TransportButtonStyle())
                 .disabled(player.nowPlaying == nil)
                 .help("Full-Window Now Playing")
+        }
+    }
+}
+
+/// Saves or removes a playing track from Liked Songs; episodes have no like.
+struct LikeButton: View {
+    let uri: String
+    let library: LibraryModel
+
+    var body: some View {
+        if uri.hasPrefix("spotify:track:") {
+            let saved = library.isSaved(uri)
+            Button(
+                saved ? "Remove from Liked Songs" : "Save to Liked Songs",
+                systemImage: saved ? "heart.fill" : "heart"
+            ) {
+                library.setSaved(uri, !saved)
+            }
+            .buttonStyle(TransportButtonStyle(on: saved))
+            .help(saved ? "Remove from Liked Songs" : "Save to Liked Songs")
         }
     }
 }
