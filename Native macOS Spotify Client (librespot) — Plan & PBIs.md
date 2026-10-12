@@ -639,8 +639,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 2 · **Milestone:** M3 · **Depends on:** PBI-202
 
-- [ ] Dock menu: now playing, play/pause, next, previous, like.
-- [ ] Optional `UserNotifications` banner with artwork on track change (off by default).
+**Status:** In review (feat/pbi-603-dock-menu-notifications)
+
+- [x] Dock menu: now playing, play/pause, next, previous, like.
+- [x] Optional `UserNotifications` banner with artwork on track change (off by default). ("Notify when the song changes" in General; banner delivery itself verified by unit test with a fake poster, not in UI tests)
 
 #### PBI-604 · Shortcuts and Siri (App Intents)
 
