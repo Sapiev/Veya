@@ -91,7 +91,7 @@ private final class Counter: @unchecked Sendable {
     func increment() { lock.withLock { count += 1 } }
 }
 
-private func png(side: Int) throws -> Data {
+func png(side: Int) throws -> Data {
     let context = CGContext(
         data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
