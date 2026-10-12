@@ -15,10 +15,8 @@ struct AppShell: View {
     private let metadata: any MetadataServiceProtocol
     @State private var history = NavigationHistory()
     @State private var playlists: PlaylistModel
-    @State private var library: LibraryModel
     @State private var podcast: PodcastModel
-    private let settings: PlaybackSettings
-    @State private var player: PlayerModel?
+    private let scope: SessionScope
     @State private var search: SearchModel
     @State private var home: HomeModel
     @State private var searchFocusRequest = 0
@@ -26,8 +24,6 @@ struct AppShell: View {
     @State private var searchFilter = SearchFilter.all
     private let recentSearches: RecentSearches
     private let webAPI: WebAPIConnection
-    /// Hands the started player to the session owner, which stops it on sign out; false drops it.
-    private let attachPlayer: @MainActor (PlayerModel) -> Bool
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @SceneStorage("queueVisible") private var queueVisible = false
     /// The full Now Playing view's open tab; nil while it is closed.
@@ -35,22 +31,20 @@ struct AppShell: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
-        session: any SessionHandle,
+        scope: SessionScope,
         webAPI: WebAPIConnection,
         metadataStore: MetadataStore?,
         recentSearches: RecentSearches,
-        settings: PlaybackSettings,
-        episodeProgress: any EpisodeProgressProvider,
-        attachPlayer: @escaping @MainActor (PlayerModel) -> Bool
+        episodeProgress: any EpisodeProgressProvider
     ) {
+        let session = scope.handle
         self.session = session
-        self.attachPlayer = attachPlayer
-        self.settings = settings
+        self.scope = scope
         self.recentSearches = recentSearches
         self.webAPI = webAPI
         let tokens = webAPI.tokens
         _search = State(initialValue: SearchModel(service: session.makeSearch { try await tokens.accessToken() }))
-        let metadata = session.makeMetadata(store: metadataStore)
+        let metadata = scope.metadata
         self.metadata = metadata
         let playlistService = session.makePlaylists(store: metadataStore)
         _playlists = State(initialValue: PlaylistModel(playlists: playlistService))
@@ -59,9 +53,11 @@ struct AppShell: View {
             playlists: playlistService,
             recentlyPlayed: session.makeRecentlyPlayed { try await tokens.accessToken() }
         ))
-        _library = State(initialValue: LibraryModel(library: session.makeLibrary(store: metadataStore), metadata: metadata))
         _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
     }
+
+    private var library: LibraryModel { scope.library }
+    private var player: PlayerModel? { scope.player }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -159,19 +155,6 @@ struct AppShell: View {
         .task {
             playlists.load()
             await playlists.watch()
-        }
-        .task {
-            library.load(.tracks)
-            await library.watch()
-        }
-        .task {
-            do {
-                let started = try await PlayerModel.start(session: session, metadata: metadata, settings: settings)
-                if attachPlayer(started) { player = started }
-            } catch {
-                // Type name only: messages may carry server text.
-                logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
-            }
         }
     }
 
