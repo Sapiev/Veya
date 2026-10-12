@@ -387,7 +387,6 @@ struct PageHero<Subtitle: View>: View {
     var round = false
     var description = ""
     @ViewBuilder let subtitle: () -> Subtitle
-    @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(alignment: .bottom, spacing: Theme.s6) {
@@ -431,10 +430,8 @@ struct PageHero<Subtitle: View>: View {
         .padding(.top, 56)
         .padding(.bottom, Theme.s6)
         .frame(maxWidth: .infinity, minHeight: 276, alignment: .bottomLeading)
-        .background {
-            LinearGradient(colors: [Color(palette.glow).opacity(0.9), .clear], startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea()
-        }
+        // The shell draws the wash across the whole window, under the side panels too.
+        .anchorPreference(key: PageBackdropKey.self, value: .bounds) { PageBackdrop(fill: .glow, bounds: $0) }
     }
 }
 
@@ -457,7 +454,7 @@ private struct ArtistHero: View {
         .padding(.bottom, Theme.s6)
         .frame(maxWidth: .infinity, minHeight: 400, alignment: .bottomLeading)
         // The shell draws the picture across the whole window, under the side panels too.
-        .anchorPreference(key: ArtistBackdropKey.self, value: .bounds) { ArtistBackdrop(artwork: artist.artwork, bounds: $0) }
+        .anchorPreference(key: PageBackdropKey.self, value: .bounds) { PageBackdrop(fill: .picture(artist.artwork), bounds: $0) }
     }
 }
 
@@ -489,15 +486,34 @@ struct ArtistPicture: View {
     }
 }
 
-/// The full-bleed artist header on screen, so the shell can draw its picture across the window.
-struct ArtistBackdrop {
-    let artwork: [Artwork]
+/// A detail page header's wash of the palette's glow, fading into the page.
+struct GlowWash: View {
+    let width: CGFloat
+    let height: CGFloat
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        LinearGradient(colors: [Color(palette.glow).opacity(0.9), .clear], startPoint: .top, endPoint: .bottom)
+            .frame(width: width, height: height)
+    }
+}
+
+/// The page header on screen, so the shell can draw its backdrop across the window.
+struct PageBackdrop {
+    enum Fill {
+        /// The artist's picture, full bleed.
+        case picture([Artwork])
+        /// The palette's glow washing down into the page.
+        case glow
+    }
+
+    let fill: Fill
     let bounds: Anchor<CGRect>
 }
 
-struct ArtistBackdropKey: PreferenceKey {
-    static let defaultValue: ArtistBackdrop? = nil
-    static func reduce(value: inout ArtistBackdrop?, nextValue: () -> ArtistBackdrop?) {
+struct PageBackdropKey: PreferenceKey {
+    static let defaultValue: PageBackdrop? = nil
+    static func reduce(value: inout PageBackdrop?, nextValue: () -> PageBackdrop?) {
         value = value ?? nextValue()
     }
 }

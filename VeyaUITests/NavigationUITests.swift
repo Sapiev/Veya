@@ -32,9 +32,9 @@ final class NavigationUITests: XCTestCase {
             XCTAssertTrue(app.sidebarItem(item).exists, item)
         }
         XCTAssertTrue(app.staticTexts["greeting"].exists)
-        for button in app.buttons.matching(identifier: "New Playlist").allElementsBoundByIndex {
-            XCTAssertTrue(button.isEnabled)
-        }
+        // One New Playlist button, at the sidebar's foot; the Playlists header has none.
+        XCTAssertEqual(app.buttons.matching(identifier: "New Playlist").count, 1)
+        XCTAssertTrue(app.buttons["New Playlist"].isEnabled)
     }
 
     /// The window buttons sit inside the floating sidebar panel, 20 pt in and 18 pt down as in the design.

@@ -15,6 +15,19 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Output Device"].exists)
     }
 
+    @MainActor func testFullViewCoversTheWindowToItsTopEdge() {
+        let app = XCUIApplication.launch(.signedIn)
+        let open = app.buttons["Full-Window Now Playing"]
+        XCTAssertTrue(open.waitForExistence(timeout: XCUIApplication.timeout))
+
+        open.click()
+        let close = app.buttons["Close Now Playing"]
+        XCTAssertTrue(close.waitForExistence(timeout: XCUIApplication.timeout))
+
+        // The close button sits 12 pt below the view's top; a title bar gap would push it further down.
+        XCTAssertEqual(close.frame.minY - app.windows.firstMatch.frame.minY, 12, accuracy: 1)
+    }
+
     @MainActor func testLyricsButtonOpensTheLyricsTab() {
         let app = XCUIApplication.launch(.signedIn)
         let lyrics = app.buttons["Lyrics"]
