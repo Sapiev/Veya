@@ -495,7 +495,7 @@ veya/
 
 - [x] Shows artwork, title, artists (each clickable), like button, play/pause, prev/next, shuffle, repeat, scrubber with elapsed/remaining, volume, queue and device buttons. (The queue button toggles a per-window flag that the PBI-406 inspector reads.)
 - [ ] Scrubber updates smoothly (interpolated between 1 s position events) and seeks on release. (Interpolation is unit-tested in `PlayerModelTests` and the slider seeks only on release; not yet watched against live playback.)
-- [x] Expanded "Now Playing" view with large artwork and lyrics tab (lyrics via PBI-701). (The tab shows an empty state until PBI-701.)
+- [x] Expanded "Now Playing" view with large artwork and lyrics tab (lyrics via PBI-701).
 
 #### PBI-403 · High-performance track list
 
@@ -679,8 +679,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-402
 
-- [ ] Lyrics fetched through librespot's spclient lyrics support; synced lines highlight and auto-scroll with playback.
-- [ ] Clicking a line seeks to it; unsynced lyrics show as static text; "No lyrics" state handled.
+**Status:** In review (feat/pbi-701-lyrics)
+
+- [x] Lyrics fetched through librespot's spclient lyrics support; synced lines highlight and auto-scroll with playback. (Not yet checked against a live account.)
+- [x] Clicking a line seeks to it; unsynced lyrics show as static text; "No lyrics" state handled.
 
 #### PBI-702 · Playlist editing
 
