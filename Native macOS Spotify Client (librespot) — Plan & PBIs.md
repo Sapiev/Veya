@@ -534,7 +534,8 @@ veya/
 
 - [x] ⌘F / ⌘L focuses the search field from anywhere. (Go > Search is ⌘F; ⌘L is a window shortcut; both open the Search route and focus its field.)
 - [x] Top result plus sections per type; keyboard navigation through results; Return plays. (Up/Down move the selection while the field keeps focus, Return or double-click plays tracks and episodes; albums, playlists, artists and shows open their page, which offers play once PBI-404 lands.)
-- [x] Recent searches stored locally and clearable. (SpotCoreKit `RecentSearches` in UserDefaults, newest first, de-duplicated, at most 10; recorded on Return or opening a result; cleared by the Clear button and on sign-out.)
+- [x] Recent searches stored locally and clearable. (SpotCoreKit `RecentSearches` in UserDefaults, newest first, de-duplicated, at most 6 per the design mockup; recorded on Return or opening a result; shown as chips, each removable, cleared by Clear all and on sign-out.)
+- [x] Search page rebuilt to the design mockup: idle page with recent chips, Artists you follow and Browse all genres; filter chips (All, Songs, Artists, Albums, Playlists) with server counts, empty ones disabled; top result picked by the mockup's rule (`SearchResults`, `swift test --filter SearchResultsTests`); no-results page with suggestions; clear button and Esc in the field; More Options menu in the top bar. (Genre cards carry no album art and artist/album/playlist top results open their page instead of playing; see `shortcut:` notes.)
 
 #### PBI-406 · Queue panel
 
