@@ -80,7 +80,7 @@ final class TrackListUITests: XCTestCase {
         for item in ["Play Next", "Add to Queue", "Add to Playlist", "Go to Album", "Go to Artist", "Copy Link", "Remove from Liked Songs"] {
             XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
         }
-        XCTAssertFalse(app.menuItems["Add to Playlist"].isEnabled)
+        XCTAssertTrue(app.menuItems["Add to Playlist"].isEnabled)
     }
 
     @MainActor func testRowHeartRemovesTheSongFromLikedSongs() {

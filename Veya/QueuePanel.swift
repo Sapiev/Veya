@@ -119,7 +119,7 @@ struct QueuePanel: View {
     }
 
     private func contextName(_ uri: String) -> String? {
-        for case let .playlist(playlistURI, name, _, _, _) in playlists.rootlist where playlistURI == uri {
+        for case let .playlist(playlistURI, name, _, _, _, _, _) in playlists.rootlist where playlistURI == uri {
             return name
         }
         return switch library.metadata[uri] {

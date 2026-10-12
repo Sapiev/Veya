@@ -12,6 +12,7 @@ import SwiftUI
     @State private var systemEvents: SystemEvents
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
+    private let choosePhoto: (@MainActor () async -> URL?)?
     private let metadataStore: MetadataStore?
     @State private var recentSearches: RecentSearches
     /// One instance, so Settings window edits reach the live player.
@@ -28,6 +29,7 @@ import SwiftUI
         let settings = PlaybackSettings(defaults: dependencies.defaults)
         _settings = State(initialValue: settings)
         artworkLoader = dependencies.artworkLoader
+        choosePhoto = dependencies.choosePhoto
         metadataStore = dependencies.metadataStore
         _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
         let session = SessionModel(
@@ -87,6 +89,7 @@ import SwiftUI
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
+            .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = choosePhoto } }
             .defaultAppStorage(defaults)
             .onAppear { NSApp.setActivationPolicy(.regular) }
             .onDisappear { menuBar.windowClosed() }

@@ -7,6 +7,8 @@ extension FocusedValues {
     @Entry var navigationHistory: NavigationHistory?
     @Entry var queueVisible: Binding<Bool>?
     @Entry var sidebarVisible: Binding<Bool>?
+    @Entry var newPlaylist: (() -> Void)?
+    @Entry var newFolder: (() -> Void)?
 }
 
 /// The signed-in main window: sidebar of destinations, detail for the current route.
@@ -28,6 +30,7 @@ struct AppShell: View {
     @SceneStorage("queueVisible") private var queueVisible = false
     /// The full Now Playing view's open tab; nil while it is closed.
     @State private var nowPlayingTab: NowPlayingView.Tab?
+    @State private var creatingPlaylist = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
@@ -62,7 +65,10 @@ struct AppShell: View {
     var body: some View {
         HStack(spacing: 0) {
             if sidebarVisible {
-                Sidebar(selection: selection, playlists: playlists, library: library, player: player)
+                Sidebar(
+                    selection: selection, playlists: playlists, library: library, player: player,
+                    newPlaylist: newPlaylist, newFolder: newFolder
+                )
                     .frame(width: Theme.sidebarWidth)
                     .glassPanel(cornerRadius: Theme.panelRadius)
                     .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
@@ -141,6 +147,26 @@ struct AppShell: View {
         .focusedSceneValue(\.queueVisible, $queueVisible)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
         .focusedSceneValue(\.focusSearch, focusSearch)
+        .focusedSceneValue(\.newPlaylist, newPlaylist)
+        .focusedSceneValue(\.newFolder, newFolder)
+        .sheet(isPresented: $creatingPlaylist) {
+            PlaylistDetailsSheet(title: "New Playlist", confirm: "Create") { name, description, _ in
+                Task {
+                    if let uri = await playlists.createPlaylist(named: name, description: description) {
+                        history.navigate(to: .playlist(uri: uri))
+                    }
+                }
+            }
+        }
+        .alert("Couldn't Change Playlist", isPresented: editErrorShown, presenting: playlists.editError) { _ in
+            Button("OK") {}
+        } message: { error in
+            switch error {
+            case .conflict: Text("This playlist changed somewhere else. Your change was undone.")
+            case .invalidImage: Text("Choose a photo in a common image format, such as JPEG or PNG.")
+            case .failed: Text("Check your connection and try again.")
+            }
+        }
         .background {
             // ⌘F is in the Go menu; ⌘L is the browser habit, ⌘K the design's hint.
             Button("Search", action: focusSearch)
@@ -189,6 +215,18 @@ struct AppShell: View {
     private func focusSearch() {
         history.navigate(to: .search)
         searchFocusRequest += 1
+    }
+
+    private func newPlaylist() {
+        creatingPlaylist = true
+    }
+
+    private func newFolder() {
+        Task { await playlists.createFolder(named: String(localized: "Untitled Folder")) }
+    }
+
+    private var editErrorShown: Binding<Bool> {
+        Binding(get: { playlists.editError != nil }, set: { if !$0 { playlists.editError = nil } })
     }
 
     private var selection: Binding<Route?> {
@@ -513,14 +551,23 @@ private struct CapsuleIconButton: View {
     }
 }
 
-/// Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
+/// File menu: new playlists and folders; Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
 struct NavigationCommands: Commands {
     @FocusedValue(\.navigationHistory) private var history
     @FocusedValue(\.focusSearch) private var focusSearch
     @FocusedValue(\.queueVisible) private var queueVisible
     @FocusedValue(\.sidebarVisible) private var sidebarVisible
+    @FocusedValue(\.newPlaylist) private var newPlaylist
+    @FocusedValue(\.newFolder) private var newFolder
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Playlist") { newPlaylist?() }
+                .keyboardShortcut("n")
+                .disabled(newPlaylist == nil)
+            Button("New Folder") { newFolder?() }
+                .disabled(newFolder == nil)
+        }
         CommandGroup(after: .sidebar) {
             // The sidebar is a custom panel, so the system's Toggle Sidebar item never appears.
             Button(sidebarVisible?.wrappedValue == false ? "Show Sidebar" : "Hide Sidebar") {

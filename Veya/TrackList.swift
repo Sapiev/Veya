@@ -19,9 +19,13 @@ struct TrackList: View {
     let history: NavigationHistory
     /// Album pages leave out the album column and the row artwork.
     var showsAlbum = true
+    /// The playlist these entries are, all and in order, when the user can edit it.
+    var editablePlaylist: String?
+    @Environment(\.undoManager) private var undoManager
     @State private var selection: Set<Row.ID> = []
     @State private var sortOrder = [KeyPathComparator(\Row.number)]
     @State private var hover = RowHover()
+    @State private var drag = DragSource()
 
     /// Rows resolve metadata in batches of this size as they scroll in.
     private static let resolveAhead = 50
@@ -94,8 +98,17 @@ struct TrackList: View {
             }
             .width(36)
         } rows: {
-            ForEach(rows) { row in
-                TableRow(row).draggable(row.uri)
+            if let playlist = editablePlaylist, sortOrder == [KeyPathComparator(\Row.number)] {
+                ForEach(rows) { row in
+                    TableRow(row).draggable(drag.payload(row, selection: selection))
+                }
+                .dropDestination(for: String.self) { index, uris in
+                    move(uris, to: index, in: playlist)
+                }
+            } else {
+                ForEach(rows) { row in
+                    TableRow(row).draggable(row.uri)
+                }
             }
         }
         .alternatingRowBackgrounds(.disabled)
@@ -106,9 +119,15 @@ struct TrackList: View {
         } primaryAction: { ids in
             play(ids, in: rows)
         }
-        .background(ReturnKeyMonitor {
+        .background(KeyMonitor(keyCodes: KeyMonitor.returnKeys) {
             guard !selection.isEmpty else { return false }
             play(selection, in: sortedRows)
+            return true
+        })
+        .background(ClickEndsTextEditing())
+        .background(KeyMonitor(keyCodes: KeyMonitor.deleteKeys) {
+            guard let editablePlaylist, !selection.isEmpty else { return false }
+            remove(selection, from: editablePlaylist)
             return true
         })
         .onChange(of: sortOrder) {
@@ -126,9 +145,12 @@ struct TrackList: View {
         if !rows.isEmpty {
             Button("Play Next") { player?.playNext(uris) }
             Button("Add to Queue") { player?.addToQueue(uris) }
-            // shortcut: spotcore has no playlist write API yet, enable once it does.
-            Button("Add to Playlist") {}
-                .disabled(true)
+            Menu("Add to Playlist") {
+                ForEach(playlists.editablePlaylists) { playlist in
+                    Button(playlist.name) { playlists.addTracks(uris, to: playlist.id) }
+                }
+            }
+            .disabled(playlists.editablePlaylists.isEmpty)
             Divider()
             if rows.count == 1, let row = rows.first {
                 if let album = row.album {
@@ -144,7 +166,26 @@ struct TrackList: View {
                     library.setSaved(uri, !allSaved)
                 }
             }
+            if let editablePlaylist {
+                Button("Remove from This Playlist") { remove(Set(rows.map(\.id)), from: editablePlaylist) }
+            }
         }
+    }
+
+    /// Row ids are 1-based positions in `entries`, which is the whole playlist.
+    private func remove(_ ids: Set<Row.ID>, from playlist: String) {
+        playlists.removeTracks(at: IndexSet(ids.map { $0 - 1 }), from: playlist, undoManager: undoManager)
+        selection = []
+    }
+
+    /// Reorders only a drag that started in this table; other drops are ignored.
+    private func move(_ uris: [String], to index: Int, in playlist: String) {
+        let dragged = drag.rows
+        drag.rows = []
+        let rows = sortedRows.filter { dragged.contains($0.id) }
+        guard !rows.isEmpty, rows.map(\.uri) == uris else { return }
+        playlists.moveTracks(fromOffsets: IndexSet(rows.map { $0.number - 1 }), toOffset: index, in: playlist, undoManager: undoManager)
+        selection = []
     }
 
     private var sortedRows: [Row] {
@@ -256,12 +297,19 @@ extension Playability {
     }
 }
 
-/// Return plays the selection unless a text field is editing or a list has focus.
+/// Return plays the selection and Delete removes it, unless a text field is
+/// editing or a list has focus.
 ///
 /// NSTableView swallows Return before `onKeyPress`, and a SwiftUI `Table` leaves
-/// the window as first responder after a row click, so focus can't scope this;
-/// the monitor checks the window and what is first responder instead.
-private struct ReturnKeyMonitor: NSViewRepresentable {
+/// the window as first responder after a row click, so neither focus nor
+/// `onDeleteCommand` can scope this; the monitor checks the window and what is
+/// first responder instead.
+private struct KeyMonitor: NSViewRepresentable {
+    static let returnKeys: Set<UInt16> = [36, 76]
+    /// Delete and Forward Delete.
+    static let deleteKeys: Set<UInt16> = [51, 117]
+
+    let keyCodes: Set<UInt16>
     /// Returns whether it handled the key.
     let action: () -> Bool
 
@@ -270,10 +318,12 @@ private struct ReturnKeyMonitor: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MonitorView, context _: Context) {
+        view.keyCodes = keyCodes
         view.action = action
     }
 
     final class MonitorView: NSView {
+        var keyCodes: Set<UInt16> = []
         var action: () -> Bool = { false }
         private var monitor: Any?
 
@@ -283,22 +333,62 @@ private struct ReturnKeyMonitor: NSViewRepresentable {
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === window, Self.isPlainReturn(event),
-                      !Self.takesReturn(event.window?.firstResponder), action() else { return event }
+                guard let self, event.window === window, isPlain(event),
+                      !Self.takesKeys(event.window?.firstResponder), action() else { return event }
                 return nil
             }
         }
 
-        private static func isPlainReturn(_ event: NSEvent) -> Bool {
+        private func isPlain(_ event: NSEvent) -> Bool {
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
-            return (event.keyCode == 36 || event.keyCode == 76) && modifiers.isEmpty
+            return keyCodes.contains(event.keyCode) && modifiers.isEmpty
         }
 
         /// Text fields edit through an NSText field editor; one-column lists
-        /// (sidebar, search results) are tables that handle Return themselves.
-        private static func takesReturn(_ responder: NSResponder?) -> Bool {
+        /// (sidebar, search results) are tables that handle these keys themselves.
+        private static func takesKeys(_ responder: NSResponder?) -> Bool {
             responder is NSText || (responder as? NSTableView).map { $0.numberOfColumns <= 1 } == true
         }
+    }
+}
+
+/// A click in the table ends text editing, as clicking an AppKit table does;
+/// a SwiftUI `Table` leaves the field editor first responder, so a Filter or
+/// search field would otherwise keep taking Delete and Return.
+private struct ClickEndsTextEditing: NSViewRepresentable {
+    func makeNSView(context _: Context) -> MonitorView {
+        MonitorView()
+    }
+
+    func updateNSView(_: MonitorView, context _: Context) {}
+
+    final class MonitorView: NSView {
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self, let window, event.window === window, window.firstResponder is NSText,
+                      bounds.contains(convert(event.locationInWindow, from: nil)) else { return event }
+                window.makeFirstResponder(nil)
+                return event
+            }
+        }
+    }
+}
+
+/// The rows of the drag that started in this table, so a drop can tell a
+/// reorder from tracks dragged in from elsewhere.
+private final class DragSource {
+    var rows: Set<TrackList.Row.ID> = []
+
+    /// SwiftUI builds the payload when the drag starts, once per dragged row.
+    func payload(_ row: TrackList.Row, selection: Set<TrackList.Row.ID>) -> String {
+        rows = selection.contains(row.id) ? selection : [row.id]
+        return row.uri
     }
 }
 
@@ -451,3 +541,5 @@ private struct ArtistMenu: View {
         }
     }
 }
+
+
