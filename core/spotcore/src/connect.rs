@@ -448,7 +448,20 @@ impl SpotConnect {
             devices: Arc::clone(&devices),
             previous: Mutex::default(),
         };
-        let link = connector.connect(stored.clone()).await?;
+        // UniFFI polls this constructor on a Swift concurrency thread, whose
+        // 512 KiB stack Spirc's connect future overflows; a tokio worker's does not.
+        let (connector, link) = tokio::spawn({
+            let stored = stored.clone();
+            async move {
+                let link = connector.connect(stored).await;
+                (connector, link)
+            }
+        })
+        .await
+        .map_err(|e| SessionError::Internal {
+            message: format!("connect task failed: {e}"),
+        })?;
+        let link = link?;
         let zeroconf = zeroconf
             .then(|| {
                 let main = session.current_session();
