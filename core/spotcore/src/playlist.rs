@@ -3,8 +3,9 @@
 //! dealer pushes that report changes made on other devices. Root lists and
 //! fetched pages persist in the metadata store.
 
+use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
@@ -23,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::library::decode_fields;
 use crate::metadata::{Artwork, ArtworkSize, image_url_template};
+use crate::player::lock;
 use crate::push::PushWatch;
 use crate::session::SpotSession;
 use crate::store::MetadataStore;
@@ -124,7 +126,11 @@ pub struct PlaylistPage {
     pub revision: String,
     pub name: String,
     pub description: String,
+    /// The owner's username, which is an account id for most users.
     pub owner: String,
+    /// The owner's display name; `owner` when it can't be looked up.
+    #[serde(default)]
+    pub owner_name: String,
     pub collaborative: bool,
     /// Owned by the user or collaborative.
     #[serde(default)]
@@ -151,6 +157,8 @@ pub struct PlaylistService {
     session: Arc<SpotSession>,
     store: Option<Arc<MetadataStore>>,
     push: PushWatch,
+    /// Display names by username; they rarely change, so one lookup per run.
+    owner_names: Mutex<HashMap<String, String>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -161,6 +169,7 @@ impl PlaylistService {
             session,
             store,
             push: PushWatch::new(PUSH_URI),
+            owner_names: Mutex::default(),
         })
     }
 
@@ -204,12 +213,13 @@ impl PlaylistService {
         let endpoint = format!("/playlist/v2/playlist/{id}?from={from}&length={length}");
         let bytes = get(&session, &endpoint).await?;
         let content = SelectedListContent::parse_from_bytes(&bytes)?;
-        let page = page_of(
+        let mut page = page_of(
             uri,
             &content,
             &image_url_template(&session),
             &session.username(),
         );
+        page.owner_name = self.owner_name(&session, &page.owner).await;
         if let Some(store) = &self.store {
             persist_page(store, generation, &page);
         }
@@ -376,6 +386,30 @@ impl PlaylistService {
 }
 
 impl PlaylistService {
+    /// Falls back to the username when the profile can't be read; a failure isn't remembered.
+    async fn owner_name(&self, session: &Session, owner: &str) -> String {
+        if let Some(name) = lock(&self.owner_names).get(owner) {
+            return name.clone();
+        }
+        if !is_username(owner) {
+            return owner.to_owned();
+        }
+        let name = match session.spclient().get_user_profile(owner, Some(0), Some(0)).await {
+            Ok(bytes) => profile_name(&bytes),
+            Err(error) => {
+                log::debug!("owner profile lookup failed: {error}");
+                None
+            }
+        };
+        match name {
+            Some(name) => {
+                lock(&self.owner_names).insert(owner.to_owned(), name.clone());
+                name
+            }
+            None => owner.to_owned(),
+        }
+    }
+
     fn generation(&self) -> u64 {
         self.store.as_ref().map_or(0, |store| store.generation())
     }
@@ -789,8 +823,12 @@ fn persist_page(store: &MetadataStore, generation: u64, page: &PlaylistPage) {
 /// Some only when the playlist is stored with every position in
 /// `[from, min(from + length, total))`.
 fn cached_page(store: &MetadataStore, uri: String, from: u32, length: u32) -> Option<PlaylistPage> {
-    let (attributes, tracks): (PlaylistPage, Vec<(u32, PlaylistTrack)>) =
+    let (mut attributes, tracks): (PlaylistPage, Vec<(u32, PlaylistTrack)>) =
         store.playlist(&uri, from..from.saturating_add(length))?;
+    // Pages stored before display names have none.
+    if attributes.owner_name.is_empty() {
+        attributes.owner_name = attributes.owner.clone();
+    }
     let end = from.saturating_add(length).min(attributes.total);
     // Positions are unique and in range, so a full count means no gaps.
     let tracks: Vec<_> = tracks
@@ -811,6 +849,25 @@ async fn get(session: &Session, endpoint: &str) -> Result<Vec<u8>, PlaylistError
         .request(&Method::GET, endpoint, None, None)
         .await?;
     Ok(response.to_vec())
+}
+
+/// Usernames land in a path; real ones are ids or legacy names of these characters.
+fn is_username(owner: &str) -> bool {
+    !owner.is_empty()
+        && owner
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The `name` of a `user-profile-view` response, when present and not blank.
+fn profile_name(json: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Profile {
+        name: Option<String>,
+    }
+    let name = serde_json::from_slice::<Profile>(json).ok()?.name?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
 }
 
 /// Rejects anything that is not a bare base62 id, since it lands in a path.
@@ -877,6 +934,7 @@ fn page_of(
         name: attributes.name().to_owned(),
         description: attributes.description().to_owned(),
         owner: content.owner_username().to_owned(),
+        owner_name: content.owner_username().to_owned(),
         collaborative: attributes.collaborative(),
         editable: content.owner_username() == username || attributes.collaborative(),
         artwork: artwork(attributes.picture(), &attributes.picture_size, image_url),
@@ -1151,6 +1209,27 @@ mod tests {
         assert!(decode_popcount(&[0x08]).is_err());
     }
 
+    #[test]
+    fn profile_name_reads_a_non_blank_name() {
+        assert_eq!(
+            profile_name(br#"{"uri":"spotify:user:31abc","name":"Jakub"}"#).as_deref(),
+            Some("Jakub")
+        );
+        assert_eq!(profile_name(br#"{"name":"  "}"#), None);
+        assert_eq!(profile_name(br#"{"uri":"spotify:user:31abc"}"#), None);
+        assert_eq!(profile_name(b"not json"), None);
+    }
+
+    #[test]
+    fn only_plain_usernames_are_looked_up() {
+        for owner in ["31abcdefghijklmnopqrstuvwxyz", "spotify", "first.last_1-2"] {
+            assert!(is_username(owner), "{owner}");
+        }
+        for owner in ["", "../me", "a/b", "a?b=c", "a b", "jos\u{e9}"] {
+            assert!(!is_username(owner), "{owner}");
+        }
+    }
+
     fn stored_page(revision: &str, total: u32, offset: u32, uris: &[&str]) -> PlaylistPage {
         PlaylistPage {
             uri: format!("{PLAYLIST_PREFIX}{ID}"),
@@ -1158,6 +1237,7 @@ mod tests {
             name: "List".into(),
             description: String::new(),
             owner: "o".into(),
+            owner_name: "Owner".into(),
             collaborative: false,
             editable: false,
             artwork: Vec::new(),
@@ -1197,6 +1277,19 @@ mod tests {
         let tail = cached_page(&store, uri.clone(), 3, 10).unwrap();
         assert_eq!(tail, stored_page("r", 5, 3, &["d", "e"]));
         assert_eq!(cached_page(&store, uri, 5, 10).unwrap().tracks, vec![]);
+    }
+
+    #[test]
+    fn page_stored_without_a_display_name_shows_the_username() {
+        let store = crate::store::tests::temp_store("playlist-owner-name");
+        let uri = format!("{PLAYLIST_PREFIX}{ID}");
+        let old = PlaylistPage {
+            owner_name: String::new(),
+            ..stored_page("r", 1, 0, &["a"])
+        };
+        persist_page(&store, store.generation(), &old);
+
+        assert_eq!(cached_page(&store, uri, 0, 1).unwrap().owner_name, "o");
     }
 
     #[test]

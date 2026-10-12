@@ -625,7 +625,7 @@
             }
             return PlaylistPage(
                 uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
-                owner: playlist.owner, collaborative: false, editable: editable,
+                owner: playlist.owner, ownerName: "UI Test", collaborative: false, editable: editable,
                 artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
                 total: UInt32(playlist.songs.count), offset: from, tracks: tracks
             )

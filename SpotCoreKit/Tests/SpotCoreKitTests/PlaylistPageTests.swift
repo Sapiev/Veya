@@ -215,7 +215,7 @@ final class PushedPlaylists: PlaylistServiceProtocol {
 
 func playlistPage(_ uri: String, tracks: [PlaylistTrack], total: Int, offset: UInt32 = 0, name: String = "Mix") -> PlaylistPage {
     PlaylistPage(
-        uri: uri, revision: "r", name: name, description: "", owner: "me", collaborative: false, editable: false,
+        uri: uri, revision: "r", name: name, description: "", owner: "me", ownerName: "Me", collaborative: false, editable: false,
         artwork: [], total: UInt32(total), offset: offset, tracks: tracks
     )
 }

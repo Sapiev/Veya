@@ -237,7 +237,7 @@ struct PlaylistPageView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHero(kind: "Playlist", title: page.name, artwork: page.artwork, description: page.description) {
                 HStack(spacing: 0) {
-                    Text("By \(page.owner) · \(page.total) songs")
+                    Text("By \(page.ownerName) · \(page.total) songs")
                     if page.editable {
                         Dot()
                         Text(playlists.isPublic(page.uri) ? "Public" : "Private")

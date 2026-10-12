@@ -107,7 +107,7 @@ private let albumItem = MetadataItem.album(album: AlbumMetadata(
 
 private func page(_ uri: String, owner: String = "spotify") -> PlaylistPage {
     PlaylistPage(
-        uri: uri, revision: "r", name: uri, description: "", owner: owner, collaborative: false, editable: false,
+        uri: uri, revision: "r", name: uri, description: "", owner: owner, ownerName: owner, collaborative: false, editable: false,
         artwork: [], total: 30, offset: 0, tracks: []
     )
 }
