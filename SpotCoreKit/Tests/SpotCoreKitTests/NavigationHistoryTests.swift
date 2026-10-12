@@ -57,8 +57,8 @@ struct NavigationHistoryTests {
 
 @MainActor
 struct PlaylistModelTests {
-    private let mine = RootlistEntry.playlist(uri: "spotify:playlist:a", name: "Mine", owner: "me", trackCount: 3, parent: nil)
-    private let cached = RootlistEntry.playlist(uri: "spotify:playlist:b", name: "Old", owner: "me", trackCount: 1, parent: nil)
+    private let mine = RootlistEntry.playlist(uri: "spotify:playlist:a", name: "Mine", owner: "me", trackCount: 3, parent: nil, editable: false, public: false)
+    private let cached = RootlistEntry.playlist(uri: "spotify:playlist:b", name: "Old", owner: "me", trackCount: 1, parent: nil, editable: false, public: false)
 
     @Test func showsTheCachedListThenTheServerList() async {
         let model = PlaylistModel(playlists: StubPlaylists(rootlist: .success([mine]), pages: [], cached: [cached]))

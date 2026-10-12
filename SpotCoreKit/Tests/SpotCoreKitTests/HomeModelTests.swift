@@ -107,13 +107,13 @@ private let albumItem = MetadataItem.album(album: AlbumMetadata(
 
 private func page(_ uri: String, owner: String = "spotify") -> PlaylistPage {
     PlaylistPage(
-        uri: uri, revision: "r", name: uri, description: "", owner: owner, collaborative: false,
+        uri: uri, revision: "r", name: uri, description: "", owner: owner, collaborative: false, editable: false,
         artwork: [], total: 30, offset: 0, tracks: []
     )
 }
 
 private func entry(_ uri: String, owner: String) -> RootlistEntry {
-    .playlist(uri: uri, name: uri, owner: owner, trackCount: 30, parent: nil)
+    .playlist(uri: uri, name: uri, owner: owner, trackCount: 30, parent: nil, editable: false, public: false)
 }
 
 private let rootlist: [RootlistEntry] = [

@@ -110,7 +110,7 @@ public final class HomeModel {
     private func loadMadeForYou(_ mine: Int) async -> Bool {
         do {
             let uris = try await playlists.rootlist().compactMap { entry -> String? in
-                guard case let .playlist(uri, _, owner, _, _) = entry, owner == Self.spotifyOwner
+                guard case let .playlist(uri, _, owner, _, _, _, _) = entry, owner == Self.spotifyOwner
                 else { return nil }
                 return uri
             }
