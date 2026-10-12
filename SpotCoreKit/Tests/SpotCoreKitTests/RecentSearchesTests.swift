@@ -36,15 +36,24 @@ struct RecentSearchesTests {
         #expect(recent.queries.isEmpty)
     }
 
-    @Test func keepsOnlyTheNewestTen() {
+    @Test func keepsOnlyTheNewestSix() {
         let recent = RecentSearches(defaults: defaults)
-        for n in 1 ... 12 {
+        for n in 1 ... 8 {
             recent.add("query \(n)")
         }
 
-        #expect(recent.queries.count == RecentSearches.limit)
-        #expect(recent.queries.first == "query 12")
-        #expect(recent.queries.last == "query 3")
+        #expect(recent.queries == (3 ... 8).reversed().map { "query \($0)" })
+    }
+
+    @Test func removingOneQueryKeepsTheRestAndPersists() {
+        let recent = RecentSearches(defaults: defaults)
+        recent.add("bonobo")
+        recent.add("Daft Punk")
+
+        recent.remove("Daft Punk")
+
+        #expect(recent.queries == ["bonobo"])
+        #expect(RecentSearches(defaults: defaults).queries == ["bonobo"])
     }
 
     @Test func persistsAcrossLaunchesUntilCleared() {

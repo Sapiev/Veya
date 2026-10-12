@@ -7,7 +7,7 @@ import Observation
 public final class RecentSearches {
     public private(set) var queries: [String]
 
-    public static let limit = 10
+    public static let limit = 6
 
     @ObservationIgnored private let defaults: UserDefaults
     private static let key = "recentSearches"
@@ -24,6 +24,11 @@ public final class RecentSearches {
         queries.removeAll { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
         queries.insert(trimmed, at: 0)
         queries = Array(queries.prefix(Self.limit))
+        defaults.set(queries, forKey: Self.key)
+    }
+
+    public func remove(_ query: String) {
+        queries.removeAll { $0 == query }
         defaults.set(queries, forKey: Self.key)
     }
 
