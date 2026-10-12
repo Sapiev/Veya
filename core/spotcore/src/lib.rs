@@ -13,6 +13,7 @@ mod devices;
 mod home;
 mod library;
 mod logging;
+mod lyrics;
 mod metadata;
 mod player;
 mod playlist;
@@ -35,6 +36,7 @@ pub use devices::{ConnectDevice, ConnectError, DeviceKind};
 pub use home::{HomeError, HomeService, RecentlyPlayed, recently_played};
 pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryObserver, LibraryService};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
+pub use lyrics::{Lyrics, LyricsLine};
 pub use metadata::{
     AlbumMetadata, ArtistMetadata, Artwork, ArtworkSize, EpisodeMetadata, ItemError, ItemRef,
     MetadataError, MetadataItem, MetadataService, Playability, ShowMetadata, TrackMetadata,

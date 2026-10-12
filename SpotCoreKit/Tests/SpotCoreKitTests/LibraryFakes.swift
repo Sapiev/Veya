@@ -116,6 +116,8 @@ final class FakeLibrary: LibraryServiceProtocol {
 }
 
 final class FakeMetadata: MetadataServiceProtocol {
+    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+
     private let requests = OSAllocatedUnfairLock<[[String]]>(initialState: [])
     private let held = OSAllocatedUnfairLock<[CheckedContinuation<Void, Never>]>(initialState: [])
     private let failure = OSAllocatedUnfairLock(initialState: false)

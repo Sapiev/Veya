@@ -20,7 +20,7 @@ final class NavigationUITests: XCTestCase {
         app.menuButtons["More Options"].click()
         app.menuItems["Full-Window Now Playing"].click()
 
-        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testSidebarListsDestinationsAndPlaylists() {

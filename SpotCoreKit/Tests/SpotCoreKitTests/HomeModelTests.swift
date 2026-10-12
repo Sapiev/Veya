@@ -51,6 +51,8 @@ final class SupersededRecentlyPlayed: RecentlyPlayedProvider {
 }
 
 final class FailingMetadata: MetadataServiceProtocol {
+    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+
     func items(uris _: [String]) async throws -> [MetadataItem] {
         throw MetadataError.Request(message: "down")
     }

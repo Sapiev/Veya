@@ -22,7 +22,7 @@ final class NowPlayingUITests: XCTestCase {
 
         lyrics.click()
 
-        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testMuteSilencesAndRestoresTheVolume() {
@@ -71,9 +71,9 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(lyrics.waitForExistence(timeout: XCUIApplication.timeout))
         lyrics.click()
 
-        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
         app.buttons["Close Now Playing"].click()
-        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testExpandedViewShowsTheQueueAndClosesWithEscape() {

@@ -652,6 +652,19 @@
     }
 
     private final nonisolated class ScenarioMetadata: MetadataServiceProtocol {
+        /// Test Track has synced lyrics, Song 5 unsynced ones, and every other track none.
+        func lyrics(trackUri: String) async throws -> Lyrics? {
+            switch trackUri {
+            case scenarioTrackURI:
+                Lyrics(synced: true, lines: [
+                    LyricsLine(startMs: 0, words: "Hello from the first line"),
+                    LyricsLine(startMs: 60000, words: "Here comes the second line"),
+                ])
+            case likedSongURI(5): Lyrics(synced: false, lines: [LyricsLine(startMs: 0, words: "Words without timing")])
+            default: nil
+            }
+        }
+
         func items(uris: [String]) async throws -> [MetadataItem] {
             uris.map { uri -> MetadataItem in
                 if uri == scenarioAlbum.uri { return .album(album: scenarioAlbum) }
