@@ -679,7 +679,7 @@ veya/
 
 **Priority:** Should · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-402
 
-**Status:** In review (feat/pbi-701-lyrics)
+**Status:** Done (merged to develop)
 
 - [x] Lyrics fetched through librespot's spclient lyrics support; synced lines highlight and auto-scroll with playback. (Not yet checked against a live account.)
 - [x] Clicking a line seeks to it; unsynced lyrics show as static text; "No lyrics" state handled.
