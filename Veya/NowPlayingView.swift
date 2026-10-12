@@ -5,6 +5,7 @@ import SwiftUI
 struct NowPlayingView: View {
     let player: PlayerModel
     let library: LibraryModel
+    let metadata: any MetadataServiceProtocol
     let history: NavigationHistory
     @State var tab: Tab
     let close: () -> Void
@@ -122,12 +123,7 @@ struct NowPlayingView: View {
                     .padding(Theme.s2)
                     .glassPanel(cornerRadius: Theme.panelRadius)
             case .lyrics:
-                ContentUnavailableView(
-                    "No Lyrics",
-                    systemImage: "quote.bubble",
-                    description: Text("Lyrics aren't available yet.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LyricsPane(player: player, metadata: metadata)
             }
         }
     }

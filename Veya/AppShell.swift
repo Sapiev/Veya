@@ -132,7 +132,7 @@ struct AppShell: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
         .overlay {
             if let nowPlayingTab, let player {
-                NowPlayingView(player: player, library: library, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
+                NowPlayingView(player: player, library: library, metadata: metadata, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }

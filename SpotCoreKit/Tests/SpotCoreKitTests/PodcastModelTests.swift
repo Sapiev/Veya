@@ -5,6 +5,8 @@ import Testing
 
 /// Answers from `items`, unknown URIs as not found; a request for `held` waits for `release`.
 final class StubMetadata: MetadataServiceProtocol {
+    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+
     private struct Box {
         var held: String?
         var waiters: [CheckedContinuation<Void, Never>] = []
