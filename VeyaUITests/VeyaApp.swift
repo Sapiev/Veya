@@ -13,6 +13,8 @@ enum Scenario: String {
     case libraryFails
     case recentlyPlayedNeedsSignIn
     case webAPINotConnected
+    case connectDevices
+    case remoteControl
 }
 
 @MainActor

@@ -1,8 +1,10 @@
 import Foundation
 import Observation
+import SystemConfiguration
 
 /// App volume, loudness normalisation, output device, streaming quality,
-/// audio cache size, episode speed and autoplay, persisted across launches.
+/// audio cache size, episode speed, autoplay and the Spotify Connect device,
+/// persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -57,12 +59,32 @@ public final class PlaybackSettings {
 
     private var storedEpisodeSpeed: Float
 
+    /// What phones list this Mac as; a blank name falls back to the Mac's name.
+    public var connectDeviceName: String {
+        get { storedConnectDeviceName ?? macName }
+        set {
+            let name = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            storedConnectDeviceName = name.isEmpty ? nil : name
+            defaults.set(storedConnectDeviceName, forKey: Key.connectDeviceName)
+        }
+    }
+
+    private var storedConnectDeviceName: String?
+
+    /// Advertises the Connect device to other Spotify apps on the local network.
+    public var zeroconf: Bool {
+        didSet { defaults.set(zeroconf, forKey: Key.zeroconf) }
+    }
+
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let macName: String
 
     /// Defaults to full volume, which leaves the signal unchanged, Normal
-    /// loudness as Spotify does, 320 kbps, a 1 GB cache and autoplay on.
-    public init(defaults: UserDefaults = .standard) {
+    /// loudness as Spotify does, 320 kbps, a 1 GB cache, autoplay on, the
+    /// Mac's name as the Connect device name and zeroconf off.
+    public init(defaults: UserDefaults = .standard, macName: String? = PlaybackSettings.computerName()) {
         self.defaults = defaults
+        self.macName = macName ?? "Veya"
         storedVolume = Self.clamped(defaults.object(forKey: Key.volume) as? Double ?? 1)
         normalises = defaults.object(forKey: Key.normalises) as? Bool ?? true
         loudness = defaults.string(forKey: Key.loudness).flatMap(LoudnessPreset.init(storedName:)) ?? .normal
@@ -72,6 +94,13 @@ public final class PlaybackSettings {
         audioCacheLimitBytes = defaults.string(forKey: Key.audioCacheLimit).flatMap(UInt64.init)
             ?? Self.defaultAudioCacheLimitBytes
         storedEpisodeSpeed = AudioEngine.clamped(rate: defaults.object(forKey: Key.episodeSpeed) as? Float ?? 1)
+        storedConnectDeviceName = defaults.string(forKey: Key.connectDeviceName)
+        zeroconf = defaults.object(forKey: Key.zeroconf) as? Bool ?? false
+    }
+
+    /// The Mac's localized name from Sharing settings.
+    public nonisolated static func computerName() -> String? {
+        SCDynamicStoreCopyComputerName(nil, nil) as String?
     }
 
     /// What `AudioEngine.rate` should be while `uri` plays.
@@ -104,6 +133,8 @@ public final class PlaybackSettings {
         // A string: UserDefaults has no UInt64 and Int64 would admit negatives.
         static let audioCacheLimit = "playback.audioCacheLimit"
         static let episodeSpeed = "playback.episodeSpeed"
+        static let connectDeviceName = "connect.deviceName"
+        static let zeroconf = "connect.zeroconf"
     }
 }
 

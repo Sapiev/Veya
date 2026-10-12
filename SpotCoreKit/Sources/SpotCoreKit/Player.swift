@@ -1,14 +1,19 @@
 import Foundation
 import Observation
 
-/// A player and the engine that renders its output; `engine` is nil only in fakes.
+/// Registers the player as a Spotify Connect device with a name and zeroconf choice.
+public typealias ConnectStarter = @MainActor (_ name: String, _ zeroconf: Bool) async throws -> any SpotConnectProtocol
+
+/// A player and the engine that renders its output; `engine` and `startConnect` are nil only in fakes.
 public struct PlayerConnection {
     public let player: any SpotPlayerProtocol
     public let engine: AudioEngine?
+    public let startConnect: ConnectStarter?
 
-    public init(player: any SpotPlayerProtocol, engine: AudioEngine?) {
+    public init(player: any SpotPlayerProtocol, engine: AudioEngine?, startConnect: ConnectStarter? = nil) {
         self.player = player
         self.engine = engine
+        self.startConnect = startConnect
     }
 }
 
@@ -27,7 +32,9 @@ extension SpotSession {
             normalisation: settings.normalisation,
             bitrate: settings.bitrate
         )
-        return PlayerConnection(player: player, engine: engine)
+        return PlayerConnection(player: player, engine: engine) { [self] name, zeroconf in
+            try await SpotConnect.start(session: self, player: player, name: name, zeroconf: zeroconf)
+        }
     }
 }
 
@@ -66,6 +73,23 @@ public final class PlayerModel {
     /// Tracks the user queued; they play before the rest of the context.
     public private(set) var upNext: [String] = []
     public private(set) var nextFromContext: [String] = []
+    /// The account's Spotify Connect devices, this Mac first.
+    public private(set) var devices: [ConnectDevice] = []
+    /// A Connect device is running, so playback can move between devices.
+    public private(set) var hasConnect = false
+    /// A transfer is in flight; one runs at a time.
+    public private(set) var transferring = false
+    /// Why the last transfer failed, until the next one starts.
+    public private(set) var transferFailed = false
+
+    /// The device this Mac controls in Remote mode (PBI-503). Set by the core's
+    /// Remote mode, not the device list: a paused active phone does not count.
+    public private(set) var playingOn: String?
+
+    /// Whether choosing a device now moves playback.
+    public var canTransfer: Bool {
+        hasConnect && !transferring
+    }
     /// What Veya last started playback from; the player itself doesn't report it.
     public private(set) var context: String?
     private(set) var positionMs: UInt32 = 0
@@ -84,6 +108,10 @@ public final class PlayerModel {
     @ObservationIgnored private var applied: Applied
     /// Async setters run in order, so the last change wins.
     @ObservationIgnored private(set) var settingsApply: Task<Void, Never>?
+    @ObservationIgnored private let startConnect: ConnectStarter?
+    /// Restarts run in order, so the last name and zeroconf choice win.
+    @ObservationIgnored private(set) var connectStart: Task<Void, Never>?
+    @ObservationIgnored private var connectDevice: (any SpotConnectProtocol)?
 
     private struct Applied: Equatable {
         var volume: UInt16
@@ -92,6 +120,8 @@ public final class PlayerModel {
         var outputDeviceUID: String?
         var rate: Float
         var autoplay: Bool
+        var connectName: String
+        var zeroconf: Bool
     }
 
     init(
@@ -99,10 +129,12 @@ public final class PlayerModel {
         engine: AudioEngine?,
         metadata: any MetadataServiceProtocol,
         settings: PlaybackSettings,
+        startConnect: ConnectStarter? = nil,
         clock: @escaping () -> Date = Date.init,
         log: @escaping PlayerLog = { logMessage(level: $0, category: "player", message: $1) }
     ) {
         self.player = player
+        self.startConnect = startConnect
         self.engine = engine
         self.metadata = metadata
         self.settings = settings
@@ -120,14 +152,21 @@ public final class PlayerModel {
             normalisation: settings.normalisation,
             outputDeviceUID: settings.outputDeviceUID,
             rate: 1,
-            autoplay: queue.autoplay
+            autoplay: queue.autoplay,
+            connectName: settings.connectDeviceName,
+            zeroconf: settings.zeroconf
         )
         followSettings()
+        restartConnect()
     }
 
     isolated deinit {
         events?.cancel()
-        player.stop()
+        connectStart?.cancel()
+        if let connectDevice {
+            Task { await connectDevice.shutdown() }
+        }
+        player.stopLocal()
     }
 
     /// Creates the session's player and applies its events until the model is released.
@@ -138,7 +177,13 @@ public final class PlayerModel {
     ) async throws -> PlayerModel {
         let (stream, continuation) = AsyncStream.makeStream(of: PlaybackEvent.self)
         let connection = try await session.makePlayer(observer: PlaybackEventRelay(continuation), settings: settings)
-        let model = PlayerModel(player: connection.player, engine: connection.engine, metadata: metadata, settings: settings)
+        let model = PlayerModel(
+            player: connection.player,
+            engine: connection.engine,
+            metadata: metadata,
+            settings: settings,
+            startConnect: connection.startConnect
+        )
         model.events = Task { [weak model] in
             for await event in stream {
                 model?.apply(event)
@@ -183,6 +228,21 @@ public final class PlayerModel {
             nowPlaying = nil
             report(0)
             refreshQueue()
+        case let .volumeChanged(volume):
+            // Recorded as applied first, so the remote's volume is not sent back.
+            applied.volume = volume
+            settings.volume = Double(volume) / Double(UInt16.max)
+        case let .remoteChanged(deviceName, volume):
+            playingOn = deviceName
+            remoteVolume = volume.map { Double($0) / Double(UInt16.max) }
+        case let .devicesChanged(devices):
+            self.devices = devices
+        case .queueChanged:
+            let queue = player.queue()
+            shuffle = queue.shuffle
+            repeatMode = queue.repeat
+            upNext = queue.upNext
+            nextFromContext = queue.nextFromContext
         }
     }
 
@@ -288,6 +348,13 @@ public final class PlayerModel {
         }
     }
 
+    /// For sign-out and quit: stops only this Mac's playback and never
+    /// commands a device it is controlling. Safe to repeat.
+    public func teardown() {
+        player.stopLocal()
+        apply(.stopped)
+    }
+
     /// Safe to repeat.
     public func stop() {
         player.stop()
@@ -336,13 +403,23 @@ public final class PlayerModel {
     }
 
     /// 0...1, persisted.
+    /// 0...1, persisted; in Remote mode the remote device's, which is sent
+    /// to it but never saved.
     public var volume: Double {
-        get { settings.volume }
+        get { remoteVolume ?? settings.volume }
         set {
+            if remoteVolume != nil {
+                remoteVolume = newValue
+                player.setRemoteVolume(volume: UInt16((min(max(newValue, 0), 1) * Double(UInt16.max)).rounded()))
+                return
+            }
             settings.volume = newValue
             applySettings()
         }
     }
+
+    /// The remote device's volume while this Mac controls it (PBI-503).
+    private var remoteVolume: Double?
 
     /// Nil follows the system default; persisted.
     public var outputDeviceUID: String? {
@@ -369,11 +446,16 @@ public final class PlayerModel {
             normalisation: settings.normalisation,
             outputDeviceUID: settings.outputDeviceUID,
             rate: settings.rate(for: nowPlaying?.uri ?? ""),
-            autoplay: settings.autoplay
+            autoplay: settings.autoplay,
+            connectName: settings.connectDeviceName,
+            zeroconf: settings.zeroconf
         )
         let previous = applied
         guard target != previous else { return }
         applied = target
+        if target.connectName != previous.connectName || target.zeroconf != previous.zeroconf {
+            restartConnect()
+        }
         if target.volume != previous.volume {
             player.setVolume(volume: target.volume)
         }
@@ -389,13 +471,59 @@ public final class PlayerModel {
         guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation else { return }
         let player = player
         let pending = settingsApply
-        settingsApply = Task {
+        settingsApply = Task { [weak self] in
             await pending?.value
             if target.bitrate != previous.bitrate {
                 await player.setBitrate(bitrate: target.bitrate)
             }
             if target.normalisation != previous.normalisation {
                 await player.setNormalisation(normalisation: target.normalisation)
+            }
+            // Spirc's player takes the tuning when it starts.
+            self?.restartConnect()
+        }
+    }
+
+    /// Moves playback, with its position and queue, to the Connect device `id`.
+    /// Nil when it is already playing there or another transfer is in flight.
+    @discardableResult
+    public func transfer(to id: String) -> Task<Void, Never>? {
+        guard let connectDevice, canTransfer, devices.first(where: { $0.id == id })?.isActive != true else { return nil }
+        transferring = true
+        transferFailed = false
+        return Task {
+            defer { transferring = false }
+            do {
+                try await connectDevice.transfer(deviceId: id)
+            } catch {
+                transferFailed = true
+                // Type name only: messages may carry server text.
+                log(.warn, "Couldn't move playback: \(String(describing: type(of: error)))")
+            }
+        }
+    }
+
+    /// Replaces the Connect device, as librespot fixes its name, zeroconf and tuning at start.
+    /// The old device is unregistered first, so its late unregister cannot remove the new one.
+    private func restartConnect() {
+        guard let startConnect else { return }
+        let name = settings.connectDeviceName
+        let zeroconf = settings.zeroconf
+        let pending = connectStart
+        connectStart = Task { [weak self] in
+            await pending?.value
+            guard let self, !Task.isCancelled else { return }
+            await connectDevice?.shutdown()
+            connectDevice = nil
+            hasConnect = false
+            do {
+                let device = try await startConnect(name, zeroconf)
+                guard !Task.isCancelled else { return await device.shutdown() }
+                connectDevice = device
+                hasConnect = true
+            } catch {
+                // Type name only: messages may carry server text.
+                log(.warn, "Couldn't start Spotify Connect: \(String(describing: type(of: error)))")
             }
         }
     }

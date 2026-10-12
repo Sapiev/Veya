@@ -134,7 +134,8 @@ struct SessionSignOutTests {
         try model.signOut()
 
         withExtendedLifetime(player) {
-            #expect(session.player.recorded.filter { $0 == "stop" }.count == 1)
+            #expect(session.player.recorded.filter { $0 == "stopLocal" }.count == 1)
+            #expect(!session.player.recorded.contains("stop"), "PBI-503: teardown never commands a remote")
         }
         #expect(connector.audioClears == 2)
         #expect(connector.metadataClears == 2)
@@ -148,7 +149,8 @@ struct SessionSignOutTests {
 
         #expect(!model.attach(player, startedOn: session))
         withExtendedLifetime(player) {
-            #expect(session.player.recorded.contains("stop"))
+            #expect(session.player.recorded.contains("stopLocal"))
+            #expect(!session.player.recorded.contains("stop"), "PBI-503: teardown never commands a remote")
         }
     }
 

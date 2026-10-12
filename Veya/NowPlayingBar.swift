@@ -55,6 +55,7 @@ struct NowPlayingBar: View {
                     ArtistLinks(artists: nowPlaying.artists) { history.navigate(to: .artist(uri: $0)) }
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                    playingOn
                 }
                 .lineLimit(1)
                 if nowPlaying.uri.hasPrefix("spotify:track:") {
@@ -70,8 +71,22 @@ struct NowPlayingBar: View {
                 }
             }
         } else {
-            Text("Not Playing")
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Not Playing")
+                    .foregroundStyle(.secondary)
+                playingOn
+            }
+        }
+    }
+
+    /// PBI-503: the controls command this device while another one plays.
+    @ViewBuilder private var playingOn: some View {
+        if let device = player.playingOn {
+            Label("Playing on \(device)", systemImage: "hifispeaker.2")
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .lineLimit(1)
         }
     }
 
@@ -81,7 +96,7 @@ struct NowPlayingBar: View {
         }
     }
 
-    /// Lyrics, queue, mute, volume and full-window Now Playing (`.p-right`); the output device is in Settings.
+    /// Lyrics, queue, devices, mute, volume and full-window Now Playing (`.p-right`); the output device is in Settings.
     private var accessories: some View {
         HStack(spacing: 2) {
             Button("Lyrics", systemImage: "text.bubble") { expanded = .lyrics }
@@ -94,6 +109,7 @@ struct NowPlayingBar: View {
             .toggleStyle(.button)
             .buttonStyle(TransportButtonStyle(on: queueVisible))
             .help("Queue")
+            DevicesButton(player: player)
             let muted = player.volume == 0
             Button(muted ? "Unmute" : "Mute", systemImage: muted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
                 if muted {
