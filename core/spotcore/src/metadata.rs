@@ -21,6 +21,7 @@ use librespot_protocol::extension_kind::ExtensionKind;
 use protobuf::{EnumOrUnknown, Message};
 use serde::{Deserialize, Serialize};
 
+use crate::lyrics::Lyrics;
 use crate::session::SpotSession;
 use crate::store::MetadataStore;
 
@@ -240,6 +241,11 @@ impl MetadataService {
             .into_iter()
             .map(|item| found[&item.key].clone())
             .collect())
+    }
+
+    /// Lyrics of the track at `track_uri`, or `None` when it has none. Not cached.
+    pub async fn lyrics(&self, track_uri: String) -> Result<Option<Lyrics>, MetadataError> {
+        crate::lyrics::fetch(&self.session.current_session(), &track_uri).await
     }
 }
 
