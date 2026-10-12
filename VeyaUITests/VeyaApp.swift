@@ -59,6 +59,13 @@ extension XCUIApplication {
             .waitForExistence(timeout: Self.timeout)
     }
 
+    /// Grouped forms draw a toggle as a switch or a checkbox depending on the macOS version.
+    func toggle(_ label: String) -> XCUIElement {
+        let types = [XCUIElement.ElementType.checkBox, .switch].map(\.rawValue)
+        return descendants(matching: .any)
+            .matching(NSPredicate(format: "elementType IN %@ AND label BEGINSWITH %@", types, label)).firstMatch
+    }
+
     func menuItem(_ menu: String, _ item: String) -> XCUIElement {
         menuBars.menuBarItems[menu].click()
         return menuBars.menuItems[item]

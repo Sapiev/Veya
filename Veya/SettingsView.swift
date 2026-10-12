@@ -14,12 +14,13 @@ struct SettingsView: View {
     let session: SessionModel
     let webAPI: WebAPIConnection
     let settings: PlaybackSettings
+    let menuBar: MenuBarSettings
     let signOut: () -> Void
     @AppStorage(Self.tabKey) private var tab = Tab.general
 
     var body: some View {
         TabView(selection: $tab) {
-            GeneralSettingsTab()
+            GeneralSettingsTab(menuBar: menuBar)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)
             PlaybackSettingsTab(settings: settings)
@@ -72,32 +73,48 @@ private struct ConnectSettingsTab: View {
     }
 }
 
-/// The window's colors: from the artwork, a fixed accent, or the accent cycling at a chosen speed.
+/// The menu bar mini-player, and the window colors: from the artwork, a fixed accent, or the accent cycling at a chosen speed.
 private struct GeneralSettingsTab: View {
     @AppStorage(ColorSource.key) private var source = ColorSource.artwork
     @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
+    @Bindable var menuBar: MenuBarSettings
 
     var body: some View {
         Form {
-            Picker("Window colors", selection: $source) {
-                Text("From the Playing Artwork").tag(ColorSource.artwork)
-                Text("Accent Color").tag(ColorSource.accent)
-                Text("Cycle Through Colors").tag(ColorSource.cycle)
-            }
-            .accessibilityLabel("Window colors")
-            ColorPicker(selection: accent, supportsOpacity: false) {
-                Text("Accent color")
-                Text(source == .cycle ? "Where the cycle starts." : "Also used while nothing is playing.")
-            }
-            .accessibilityLabel("Accent color")
-            if source == .cycle {
-                Picker("Cycle speed", selection: $cycleSeconds) {
-                    Text("Slow (5 min)").tag(300.0)
-                    Text("Medium (1 min)").tag(60.0)
-                    Text("Fast (15 s)").tag(15.0)
+            Section {
+                Toggle("Show mini player in menu bar", isOn: $menuBar.shown)
+                    .accessibilityLabel("Show mini player in menu bar")
+                Toggle("Show song title in menu bar", isOn: $menuBar.showsTitle)
+                    .accessibilityLabel("Show song title in menu bar")
+                    .disabled(!menuBar.shown)
+                Toggle(isOn: $menuBar.hidesDockIcon) {
+                    Text("Keep running in menu bar only")
+                    Text("Closing the window removes Veya from the Dock; playback continues.")
                 }
-                .accessibilityLabel("Cycle speed")
+                .accessibilityLabel("Keep running in menu bar only")
+                .disabled(!menuBar.shown)
+            }
+            Section {
+                Picker("Window colors", selection: $source) {
+                    Text("From the Playing Artwork").tag(ColorSource.artwork)
+                    Text("Accent Color").tag(ColorSource.accent)
+                    Text("Cycle Through Colors").tag(ColorSource.cycle)
+                }
+                .accessibilityLabel("Window colors")
+                ColorPicker(selection: accent, supportsOpacity: false) {
+                    Text("Accent color")
+                    Text(source == .cycle ? "Where the cycle starts." : "Also used while nothing is playing.")
+                }
+                .accessibilityLabel("Accent color")
+                if source == .cycle {
+                    Picker("Cycle speed", selection: $cycleSeconds) {
+                        Text("Slow (5 min)").tag(300.0)
+                        Text("Medium (1 min)").tag(60.0)
+                        Text("Fast (15 s)").tag(15.0)
+                    }
+                    .accessibilityLabel("Cycle speed")
+                }
             }
         }
         .formStyle(.grouped)
