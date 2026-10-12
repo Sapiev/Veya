@@ -67,19 +67,55 @@ final class PagedPlaylists: PlaylistServiceProtocol {
     }
 }
 
-/// Serves the root list set last and empty playlists; `push` delivers a dealer change.
+/// Serves the root list set last and in-memory playlists that take writes
+/// against their revision; `push` delivers a dealer change, `holdWrites()`
+/// parks writes until `releaseWrites()`, and `failNextWrite` fails one.
 final class PushedPlaylists: PlaylistServiceProtocol {
     private struct Box {
         var rootlist: [RootlistEntry] = []
         var pageRequests: [String] = []
         var changeWaiters: [CheckedContinuation<PlaylistChange, Never>] = []
+        var tracks: [String: [PlaylistTrack]] = [:]
+        var revisions: [String: Int] = [:]
+        /// Each write as "<kind> <revision sent>".
+        var writes: [String] = []
+        var failNextWrite: PlaylistError?
+        var holdingWrites = false
+        var writeWaiters: [CheckedContinuation<Void, Never>] = []
+        /// The last picture set on each playlist.
+        var pictures: [String: Data] = [:]
+        var created: [String: String] = [:]
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
 
     var pageRequests: [String] { box.withLock { $0.pageRequests } }
     var changeWaiters: Int { box.withLock { $0.changeWaiters.count } }
+    var writes: [String] { box.withLock { $0.writes } }
+    var parkedWrites: Int { box.withLock { $0.writeWaiters.count } }
+    var pictures: [String: Data] { box.withLock { $0.pictures } }
+    /// Each created playlist's description by URI.
+    var createdDescriptions: [String: String] { box.withLock { $0.created } }
     func setRootlist(_ entries: [RootlistEntry]) { box.withLock { $0.rootlist = entries } }
+    func setTracks(_ tracks: [PlaylistTrack], of uri: String) { box.withLock { $0.tracks[uri] = tracks } }
+    /// Another client's edit: new tracks under a new revision.
+    func changeElsewhere(_ tracks: [PlaylistTrack], of uri: String) {
+        box.withLock { box in
+            box.tracks[uri] = tracks
+            box.revisions[uri, default: 0] += 1
+        }
+    }
+    func tracks(of uri: String) -> [PlaylistTrack] { box.withLock { $0.tracks[uri] ?? [] } }
+    func failNextWrite(_ error: PlaylistError) { box.withLock { $0.failNextWrite = error } }
+    func holdWrites() { box.withLock { $0.holdingWrites = true } }
+    func releaseWrites() {
+        let waiters = box.withLock { box in
+            box.holdingWrites = false
+            defer { box.writeWaiters = [] }
+            return box.writeWaiters
+        }
+        waiters.forEach { $0.resume() }
+    }
 
     func push(_ change: PlaylistChange) {
         let waiters = box.withLock { box in
@@ -89,9 +125,18 @@ final class PushedPlaylists: PlaylistServiceProtocol {
         waiters.forEach { $0.resume(returning: change) }
     }
 
-    func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
-        box.withLock { $0.pageRequests.append(uri) }
-        return playlistPage(uri, tracks: [], total: 0, offset: from)
+    func page(uri: String, from: UInt32, length: UInt32) async throws -> PlaylistPage {
+        let (all, revision) = box.withLock { box in
+            box.pageRequests.append(uri)
+            return (box.tracks[uri] ?? [], box.revisions[uri, default: 0])
+        }
+        let start = min(Int(from), all.count)
+        var page = playlistPage(uri, tracks: Array(all[start ..< min(start + Int(length), all.count)]), total: all.count, offset: from)
+        page.revision = "r\(revision)"
+        if box.withLock({ $0.pictures[uri] }) != nil {
+            page.artwork = [Artwork(url: "https://i.scdn.co/image/\(uri)", size: .large, width: 640, height: 640)]
+        }
+        return page
     }
 
     func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
@@ -103,11 +148,74 @@ final class PushedPlaylists: PlaylistServiceProtocol {
             box.withLock { $0.changeWaiters.append(continuation) }
         }
     }
+
+    func addTracks(uri: String, trackUris: [String], revision: String) async throws -> String {
+        try await write("add", uri, revision) { tracks in
+            tracks += trackUris.map { PlaylistTrack(uri: $0, addedBy: "me", addedAt: 0) }
+        }
+    }
+
+    func removeTracks(uri: String, from: UInt32, trackUris: [String], revision: String) async throws -> String {
+        try await write("remove", uri, revision) { tracks in
+            let range = Int(from) ..< Int(from) + trackUris.count
+            guard range.upperBound <= tracks.count, tracks[range].map(\.uri) == trackUris else { throw PlaylistError.Conflict }
+            tracks.removeSubrange(range)
+        }
+    }
+
+    func moveTracks(uri: String, from: UInt32, length: UInt32, to: UInt32, revision: String) async throws -> String {
+        try await write("move", uri, revision) { tracks in
+            let range = Int(from) ..< Int(from + length)
+            let block = tracks[range]
+            tracks.removeSubrange(range)
+            tracks.insert(contentsOf: block, at: to > from ? Int(to - length) : Int(to))
+        }
+    }
+
+    func createPlaylist(name: String, description: String, folder: String?) async throws -> String {
+        let uri = "spotify:playlist:\(name)"
+        box.withLock {
+            $0.rootlist.insert(.playlist(uri: uri, name: name, owner: "me", trackCount: 0, parent: folder, editable: true, public: false), at: 0)
+            $0.created[uri] = description
+        }
+        return uri
+    }
+
+    /// Takes JPEG only, as the service does.
+    func setPicture(uri: String, jpeg: Data) async throws {
+        guard jpeg.starts(with: [0xFF, 0xD8, 0xFF]), jpeg.count <= 256 * 1024 else { throw PlaylistError.InvalidImage }
+        box.withLock { $0.pictures[uri] = jpeg }
+    }
+
+    private func write(
+        _ kind: String, _ uri: String, _ revision: String, _ change: @Sendable (inout [PlaylistTrack]) throws -> Void
+    ) async throws -> String {
+        await withCheckedContinuation { continuation in
+            let held = box.withLock { box in
+                if box.holdingWrites { box.writeWaiters.append(continuation) }
+                return box.holdingWrites
+            }
+            if !held { continuation.resume() }
+        }
+        return try box.withLock { box in
+            box.writes.append("\(kind) \(revision)")
+            if let error = box.failNextWrite {
+                box.failNextWrite = nil
+                throw error
+            }
+            guard revision == "r\(box.revisions[uri, default: 0])" else { throw PlaylistError.Conflict }
+            var tracks = box.tracks[uri] ?? []
+            try change(&tracks)
+            box.tracks[uri] = tracks
+            box.revisions[uri, default: 0] += 1
+            return "r\(box.revisions[uri]!)"
+        }
+    }
 }
 
 func playlistPage(_ uri: String, tracks: [PlaylistTrack], total: Int, offset: UInt32 = 0, name: String = "Mix") -> PlaylistPage {
     PlaylistPage(
-        uri: uri, revision: "r", name: name, description: "", owner: "me", collaborative: false,
+        uri: uri, revision: "r", name: name, description: "", owner: "me", collaborative: false, editable: false,
         artwork: [], total: UInt32(total), offset: offset, tracks: tracks
     )
 }
@@ -116,7 +224,7 @@ private let mix = "spotify:playlist:37i9dQZF1E35AAAAAAAAAA"
 private let other = "spotify:playlist:2222222222222222222222"
 
 private func playlist(_ uri: String, _ name: String, in folder: String? = nil) -> RootlistEntry {
-    .playlist(uri: uri, name: name, owner: "me", trackCount: 1, parent: folder)
+    .playlist(uri: uri, name: name, owner: "me", trackCount: 1, parent: folder, editable: false, public: false)
 }
 
 private func tracks(_ count: Int) -> [PlaylistTrack] {
@@ -247,8 +355,9 @@ struct PlaylistPageTests {
         try await waitUntil { service.pageRequests.count == 2 }
         #expect(service.pageRequests == [mix, mix])
 
-        watcher.cancel()
+        // Cancelling before the watcher waits again would let it start one more wait.
         try await waitUntil { service.changeWaiters == 1 }
+        watcher.cancel()
         service.push(.resync)
         await watcher.value
     }

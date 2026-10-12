@@ -33,7 +33,7 @@ final class NavigationUITests: XCTestCase {
         }
         XCTAssertTrue(app.staticTexts["greeting"].exists)
         for button in app.buttons.matching(identifier: "New Playlist").allElementsBoundByIndex {
-            XCTAssertFalse(button.isEnabled)
+            XCTAssertTrue(button.isEnabled)
         }
     }
 

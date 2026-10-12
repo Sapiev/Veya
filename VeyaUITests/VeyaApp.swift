@@ -15,6 +15,7 @@ enum Scenario: String {
     case webAPINotConnected
     case connectDevices
     case remoteControl
+    case playlistConflict
 }
 
 @MainActor

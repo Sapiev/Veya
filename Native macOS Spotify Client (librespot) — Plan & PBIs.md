@@ -690,9 +690,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M3 · **Depends on:** PBI-304, PBI-403
 
-- [ ] Create, rename, edit description, delete (unfollow), make public/private, create folders.
-- [ ] Add, remove and reorder tracks (drag and drop) with optimistic UI and conflict handling on revision mismatch.
-- [ ] Undo (⌘Z) for track removal and reorder.
+**Status:** Done (merged to develop)
+
+- [x] Create, rename, edit description, delete (unfollow), make public/private, create folders. (Not yet checked against a live account.)
+- [x] Add, remove and reorder tracks (drag and drop) with optimistic UI and conflict handling on revision mismatch. (Not yet checked against a live account.)
+- [x] Undo (⌘Z) for track removal and reorder.
+- [x] New playlists ask for a name and optional description first; private playlists show a lock; the playlist photo can be changed. (Photo upload not yet checked against a live account.)
 
 #### PBI-703 · Local files
 

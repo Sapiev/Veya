@@ -1,5 +1,7 @@
+import AppKit
 import SpotCoreKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension LibraryModel {
     /// One item's lookup as a load state: failed only when nothing was found.
@@ -183,6 +185,7 @@ struct PlaylistPageView: View {
     let playlists: PlaylistModel
     let history: NavigationHistory
     @State private var filter = ""
+    @State private var editingDetails = false
 
     var body: some View {
         let page = playlists.pages[uri]
@@ -201,12 +204,28 @@ struct PlaylistPageView: View {
                 if entries.isEmpty {
                     ContentUnavailableView.search(text: filter)
                 } else {
-                    TrackList(entries: entries, context: uri, library: library, player: player, playlists: playlists, history: history)
-                        .scrollContentBackground(.hidden)
+                    TrackList(
+                        entries: entries, context: uri, library: library, player: player, playlists: playlists, history: history,
+                        // A filtered list's rows aren't the playlist's positions.
+                        editablePlaylist: page?.editable == true && filter.isEmpty ? uri : nil
+                    )
+                    .scrollContentBackground(.hidden)
                 }
             }
         }
         .navigationTitle(page?.name ?? String(localized: "Playlist"))
+        .sheet(isPresented: $editingDetails) {
+            if let page {
+                PlaylistDetailsSheet(
+                    title: "Edit Details", confirm: "Save", name: page.name, description: page.description, artwork: page.artwork
+                ) { name, description, photo in
+                    Task {
+                        await playlists.updateDetails(of: page.uri, name: name, description: description)
+                        if let photo { await playlists.setPicture(of: page.uri, imageData: photo) }
+                    }
+                }
+            }
+        }
         .task(id: uri) { playlists.loadPage(uri) }
         .onChange(of: filter) {
             // Filtering matches titles, artists and albums, so every row needs its metadata.
@@ -219,6 +238,10 @@ struct PlaylistPageView: View {
             PageHero(kind: "Playlist", title: page.name, artwork: page.artwork, description: page.description) {
                 HStack(spacing: 0) {
                     Text("By \(page.owner) · \(page.total) songs")
+                    if page.editable {
+                        Dot()
+                        Text(playlists.isPublic(page.uri) ? "Public" : "Private")
+                    }
                     if let followers = playlists.followers[page.uri], followers > 0 {
                         Dot()
                         Text("\(followers.formatted()) followers")
@@ -226,6 +249,9 @@ struct PlaylistPageView: View {
                 }
             }
             PageActions(uris: page.tracks.map(\.uri), context: page.uri, player: player) {
+                if page.editable {
+                    IconButton(label: "Edit Details…", systemImage: "pencil") { editingDetails = true }
+                }
                 Spacer()
                 TextField("Filter", text: $filter)
                     .textFieldStyle(.roundedBorder)
@@ -241,6 +267,86 @@ struct PlaylistPageView: View {
         return entries.filter { entry in
             guard case let .track(track) = library.metadata[entry.uri] else { return false }
             return ([track.title, track.album.name] + track.artists.map(\.name)).contains { $0.localizedStandardContains(query) }
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Asks for an image file; UI test scenarios supply one without the panel.
+    @Entry var choosePhoto: @MainActor () async -> URL? = choosePhotoWithPanel
+}
+
+@MainActor private func choosePhotoWithPanel() async -> URL? {
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = [.image]
+    panel.allowsMultipleSelection = false
+    return panel.runModal() == .OK ? panel.url : nil
+}
+
+/// A playlist's name, description and, once it exists, photo; the name can't be empty.
+struct PlaylistDetailsSheet: View {
+    let title: LocalizedStringKey
+    let confirm: LocalizedStringKey
+    var name = ""
+    var description = ""
+    /// The current photo; nil while creating, which has none to change.
+    var artwork: [Artwork]?
+    /// The trimmed name and description, and the chosen photo file's bytes if any.
+    let save: (String, String, Data?) -> Void
+    @State private var draftName = ""
+    @State private var draftDescription = ""
+    @State private var photo: Data?
+    @Environment(\.choosePhoto) private var choosePhoto
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            Text(title)
+                .font(.headline)
+            if let artwork {
+                HStack(spacing: Theme.s4) {
+                    Group {
+                        if let image = photo.flatMap(NSImage.init(data:)) {
+                            Image(nsImage: image).resizable().scaledToFill()
+                        } else {
+                            ArtworkView(artwork: artwork, side: 64)
+                        }
+                    }
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .accessibilityHidden(true)
+                    Button("Choose Photo…") {
+                        Task {
+                            guard let url = await choosePhoto() else { return }
+                            // An unreadable file goes on as empty data, which the model reports as not an image.
+                            photo = (try? Data(contentsOf: url)) ?? Data()
+                        }
+                    }
+                }
+            }
+            Form {
+                TextField("Name", text: $draftName)
+                TextField("Description", text: $draftDescription, axis: .vertical)
+                    .lineLimit(3 ... 6)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(confirm) {
+                    save(trimmed, draftDescription.trimmingCharacters(in: .whitespacesAndNewlines), photo)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmed.isEmpty)
+            }
+        }
+        .padding(Theme.s5)
+        .frame(width: 420)
+        .onAppear {
+            draftName = name
+            draftDescription = description
         }
     }
 }
@@ -295,7 +401,10 @@ struct PageHero<Subtitle: View>: View {
                 }
                 .clipShape(round ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: Theme.cardRadius)))
                 .shadow(color: .black.opacity(0.4), radius: 25, y: 18)
-                .accessibilityHidden(true)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Artwork"))
+                .accessibilityAddTraits(.isImage)
+                .accessibilityHidden(artwork.isEmpty)
             VStack(alignment: .leading, spacing: 0) {
                 Text(kind)
                     .font(.system(size: 12, weight: .semibold))

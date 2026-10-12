@@ -17,6 +17,8 @@ struct AppDependencies {
     var defaults: UserDefaults = .standard
     /// `nil` reads episode progress from the Web API with the session's tokens.
     var episodeProgress: (any EpisodeProgressProvider)?
+    /// `nil` asks with an open panel.
+    var choosePhoto: (@MainActor () async -> URL?)?
 
     static func make() -> AppDependencies {
         #if DEBUG

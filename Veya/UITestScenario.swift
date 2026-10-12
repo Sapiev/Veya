@@ -1,7 +1,10 @@
 #if DEBUG
+    import CoreGraphics
     import Foundation
+    import ImageIO
     import os
     import SpotCoreKit
+    import UniformTypeIdentifiers
 
     /// Picked by VeyaUITests through the environment, so no UI test reaches
     /// Spotify or the user's Keychain. Raw values are mirrored in VeyaUITests.
@@ -32,6 +35,8 @@
         case connectDevices
         /// Signed in; the phone is playing, so the bar is its remote control.
         case remoteControl
+        /// Signed in; the next track edit to a playlist reports it changed elsewhere.
+        case playlistConflict
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -60,7 +65,7 @@
             case .largeLibrary: .liked(10000)
             case .emptyLibrary: .empty
             case .libraryFails: .failing
-            default: .liked(5)
+            default: .liked(5, playlistConflict: self == .playlistConflict)
             }
         }
 
@@ -86,8 +91,29 @@
                 tokenRefresher: ScenarioRefresher(),
                 artworkLoader: nil,
                 defaults: Self.freshDefaults(clientID: webAPIConnected ? Self.clientID : nil),
-                episodeProgress: ScenarioEpisodeProgress()
+                episodeProgress: ScenarioEpisodeProgress(),
+                choosePhoto: { Self.photo() }
             )
+        }
+
+        /// Stands in for the open panel: a 1600 x 1200 PNG, larger than a
+        /// playlist picture may be, so the app must scale and re-encode it.
+        private static func photo() -> URL? {
+            let width = 1600, height = 1200
+            guard let context = CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            ) else { return nil }
+            context.setFillColor(CGColor(red: 0.9, green: 0.3, blue: 0.2, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.setFillColor(CGColor(red: 0.1, green: 0.4, blue: 0.8, alpha: 1))
+            context.fillEllipse(in: CGRect(x: 400, y: 200, width: 800, height: 800))
+            let url = FileManager.default.temporaryDirectory.appending(path: "ui-test-photo.png")
+            guard let image = context.makeImage(),
+                  let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)
+            else { return nil }
+            CGImageDestinationAddImage(destination, image, nil)
+            return CGImageDestinationFinalize(destination) ? url : nil
         }
     }
 
@@ -116,7 +142,7 @@
     /// What the signed-in library and playlists hold.
     private enum LibraryFill {
         /// Liked songs "Song 1"... plus one album, one artist, one show and one playlist.
-        case liked(Int)
+        case liked(Int, playlistConflict: Bool = false)
         case empty
         case failing
     }
@@ -501,7 +527,7 @@
         }
 
         func cached(kind: LibraryKind) -> [LibraryItem] {
-            guard case let .liked(likedSongs) = fill else { return [] }
+            guard case let .liked(likedSongs, _) = fill else { return [] }
             let newest: Int64 = 1_760_000_000
             switch kind {
             case .tracks:
@@ -531,23 +557,51 @@
         }
     }
 
-    /// "Road Trip" and Spotify's "Daily Mix 1" when the library is filled; they never change.
+    /// "Road Trip" (the user's, editable) and Spotify's "Daily Mix 1" when the
+    /// library is filled; edits change them in memory.
     private final nonisolated class ScenarioPlaylists: PlaylistServiceProtocol {
-        private let fill: LibraryFill
+        private struct Playlist {
+            var name: String
+            var description: String
+            var owner: String
+            var songs: [Int]
+            var revision = 0
+            var hasPicture = false
+        }
 
+        private struct State {
+            var rootlist: [RootlistEntry] = []
+            var playlists: [String: Playlist] = [:]
+            var conflictNext = false
+            var created = 0
+        }
+
+        private let fill: LibraryFill
+        private let state: OSAllocatedUnfairLock<State>
+
+        /// Road Trip has songs 1, 2 and 5, Daily Mix 1 songs 4 and 6.
         init(fill: LibraryFill) {
             self.fill = fill
+            var state = State()
+            if case let .liked(_, conflict) = fill {
+                let folder = "spotify:user:ui-test:folder:mixes"
+                state.rootlist = [
+                    .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil, editable: true, public: false),
+                    .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil, editable: false, public: false),
+                    .folder(uri: folder, name: "Mixes", parent: nil),
+                    .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder, editable: false, public: false),
+                ]
+                state.playlists = [
+                    scenarioPlaylistURI: Playlist(name: "Road Trip", description: "Songs for the road", owner: "ui-test", songs: [1, 2, 5]),
+                    scenarioMixURI: Playlist(name: "Daily Mix 1", description: "Made for you", owner: "spotify", songs: [4, 6]),
+                ]
+                state.conflictNext = conflict
+            }
+            self.state = OSAllocatedUnfairLock(initialState: state)
         }
 
         func cachedRootlist() -> [RootlistEntry] {
-            guard case .liked = fill else { return [] }
-            let folder = "spotify:user:ui-test:folder:mixes"
-            return [
-                .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil),
-                .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil),
-                .folder(uri: folder, name: "Mixes", parent: nil),
-                .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder),
-            ]
+            state.withLock { $0.rootlist }
         }
 
         func rootlist() async throws -> [RootlistEntry] {
@@ -559,25 +613,120 @@
             nil
         }
 
-        /// Road Trip has songs 1, 2 and 5, Daily Mix 1 songs 4 and 6, each on one page.
+        /// Each playlist on one page.
         func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
-            guard case .liked = fill, [scenarioPlaylistURI, scenarioMixURI].contains(uri) else {
-                throw PlaylistError.Request(message: "ui-test")
+            let (playlist, entry) = state.withLock { state in
+                (state.playlists[uri], state.rootlist.first { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } })
             }
-            let mix = uri == scenarioMixURI
-            let songs = mix ? [4, 6] : [1, 2, 5]
-            let tracks = from > 0 ? [] : songs.map {
+            guard let playlist else { throw PlaylistError.Request(message: "ui-test") }
+            let editable = if case .playlist(_, _, _, _, _, true, _) = entry { true } else { false }
+            let tracks = from > 0 ? [] : playlist.songs.map {
                 PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
             }
             return PlaylistPage(
-                uri: uri, revision: "ui-test", name: mix ? "Daily Mix 1" : "Road Trip",
-                description: mix ? "Made for you" : "Songs for the road", owner: mix ? "spotify" : "ui-test",
-                collaborative: false, artwork: [], total: UInt32(songs.count), offset: from, tracks: tracks
+                uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
+                owner: playlist.owner, collaborative: false, editable: editable,
+                artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
+                total: UInt32(playlist.songs.count), offset: from, tracks: tracks
             )
         }
 
         func followerCount(uri _: String) async throws -> UInt64 {
             1234
+        }
+
+        func addTracks(uri: String, trackUris: [String], revision: String) async throws -> String {
+            try editTracks(uri, revision) { $0 += trackUris.compactMap(Self.songNumber) }
+        }
+
+        func removeTracks(uri: String, from: UInt32, trackUris: [String], revision: String) async throws -> String {
+            try editTracks(uri, revision) { $0.removeSubrange(Int(from) ..< Int(from) + trackUris.count) }
+        }
+
+        func moveTracks(uri: String, from: UInt32, length: UInt32, to: UInt32, revision: String) async throws -> String {
+            try editTracks(uri, revision) { songs in
+                let range = Int(from) ..< Int(from + length)
+                let block = songs[range]
+                songs.removeSubrange(range)
+                songs.insert(contentsOf: block, at: to > from ? Int(to - length) : Int(to))
+            }
+        }
+
+        func updateDetails(uri: String, name: String, description: String) async throws {
+            state.withLock { state in
+                state.playlists[uri]?.name = name
+                state.playlists[uri]?.description = description
+                state.rootlist = state.rootlist.map { entry in
+                    guard case let .playlist(entryURI, _, owner, count, parent, editable, isPublic) = entry, entryURI == uri else { return entry }
+                    return .playlist(uri: uri, name: name, owner: owner, trackCount: count, parent: parent, editable: editable, public: isPublic)
+                }
+            }
+        }
+
+        func createPlaylist(name: String, description: String, folder: String?) async throws -> String {
+            state.withLock { state in
+                state.created += 1
+                let uri = "spotify:playlist:ui-test-new-\(state.created)"
+                state.playlists[uri] = Playlist(name: name, description: description, owner: "ui-test", songs: [])
+                state.rootlist.insert(
+                    .playlist(uri: uri, name: name, owner: "ui-test", trackCount: 0, parent: folder, editable: true, public: false), at: 0
+                )
+                return uri
+            }
+        }
+
+        func createFolder(name: String, folder: String?) async throws -> String {
+            state.withLock { state in
+                state.created += 1
+                let uri = "spotify:user:ui-test:folder:new-\(state.created)"
+                state.rootlist.insert(.folder(uri: uri, name: name, parent: folder), at: 0)
+                return uri
+            }
+        }
+
+        func deletePlaylist(uri: String) async throws {
+            state.withLock { state in
+                state.rootlist.removeAll { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } }
+            }
+        }
+
+        /// Takes only what Spotify takes: a JPEG of at most 256 KiB and 640 px a side.
+        func setPicture(uri: String, jpeg: Data) async throws {
+            guard jpeg.starts(with: [0xFF, 0xD8, 0xFF]), jpeg.count <= 256 * 1024,
+                  let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  max(width, height) <= 640
+            else { throw PlaylistError.InvalidImage }
+            state.withLock { $0.playlists[uri]?.hasPicture = true }
+        }
+
+        func setPublic(uri: String, public isPublic: Bool) async throws {
+            state.withLock { state in
+                state.rootlist = state.rootlist.map { entry in
+                    guard case let .playlist(entryURI, name, owner, count, parent, editable, _) = entry, entryURI == uri else { return entry }
+                    return .playlist(uri: uri, name: name, owner: owner, trackCount: count, parent: parent, editable: editable, public: isPublic)
+                }
+            }
+        }
+
+        private func editTracks(_ uri: String, _ revision: String, _ change: @Sendable (inout [Int]) -> Void) throws -> String {
+            try state.withLock { state in
+                guard var playlist = state.playlists[uri] else { throw PlaylistError.Request(message: "ui-test") }
+                if state.conflictNext {
+                    state.conflictNext = false
+                    throw PlaylistError.Conflict
+                }
+                guard revision == "\(playlist.revision)" else { throw PlaylistError.Conflict }
+                change(&playlist.songs)
+                playlist.revision += 1
+                state.playlists[uri] = playlist
+                return "\(playlist.revision)"
+            }
+        }
+
+        private static func songNumber(_ uri: String) -> Int? {
+            uri.split(separator: "-").last.flatMap { Int($0) }
         }
 
         func waitForChange() async -> PlaylistChange {

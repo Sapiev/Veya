@@ -7,8 +7,13 @@ struct Sidebar: View {
     let playlists: PlaylistModel
     let library: LibraryModel
     let player: PlayerModel?
+    let newPlaylist: () -> Void
+    let newFolder: () -> Void
     /// Expanded folder URIs, one per line.
     @SceneStorage("expandedFolders") private var expandedFolders = ""
+    @State private var renaming: String?
+    @State private var newName = ""
+    @State private var deleting: String?
     @Environment(\.palette) private var palette
 
     /// Rows per library section; its header opens the full page.
@@ -20,15 +25,12 @@ struct Sidebar: View {
                 // Clears the traffic lights, which sit inside the panel.
                 .padding(.top, 40)
             Divider()
-            // shortcut: spotcore has no create-playlist API yet, so New Playlist stays disabled until it does.
-            Button {} label: {
+            Button(action: newPlaylist) {
                 Label("New Playlist", systemImage: "plus")
                     .font(.system(size: 13))
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .disabled(true)
-            .help("Creating playlists isn't available yet.")
             .padding(.horizontal, Theme.s4)
             .padding(.vertical, Theme.s2)
         }
@@ -61,11 +63,10 @@ struct Sidebar: View {
                 HStack {
                     SidebarHeader(title: Text("Playlists"))
                     Spacer()
-                    Button("New Playlist", systemImage: "plus") {}
+                    Button("New Playlist", systemImage: "plus", action: newPlaylist)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .disabled(true)
-                        .help("Creating playlists isn't available yet.")
+                        .help("New Playlist")
                 }
             }
             librarySection(.artists, title: Text("Artists"), route: .artists)
@@ -74,6 +75,27 @@ struct Sidebar: View {
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
+        .contextMenu(forSelectionType: Route.self) { routes in
+            menu(routes)
+        }
+        .alert("Rename Playlist", isPresented: isPresent($renaming)) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                if let uri = renaming { Task { await playlists.rename(uri, to: trimmedName) } }
+            }
+            .disabled(trimmedName.isEmpty)
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert(Text("Delete “\(deleting.map(name) ?? "")”?"), isPresented: isPresent($deleting)) {
+            Button("Delete", role: .destructive) {
+                guard let uri = deleting else { return }
+                if selection == .playlist(uri: uri) { selection = .home }
+                Task { await playlists.delete(uri) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The playlist is removed from your library.")
+        }
         .task {
             for kind in [LibraryKind.albums, .artists, .shows] {
                 library.load(kind)
@@ -82,9 +104,39 @@ struct Sidebar: View {
         .task(id: visibleLibraryURIs) { library.resolve(visibleLibraryURIs) }
         .task(id: playlists.rootlist) {
             await playlists.loadArtwork(playlists.rootlist.compactMap {
-                if case let .playlist(uri, _, _, _, _) = $0 { uri } else { nil }
+                if case let .playlist(uri, _, _, _, _, _, _) = $0 { uri } else { nil }
             })
         }
+    }
+
+    /// Edits for one editable playlist, then the create commands.
+    @ViewBuilder private func menu(_ routes: Set<Route>) -> some View {
+        if routes.count == 1, case let .playlist(uri)? = routes.first, playlists.isEditable(uri) {
+            Button("Rename…") {
+                newName = name(uri)
+                renaming = uri
+            }
+            let isPublic = playlists.isPublic(uri)
+            Button(isPublic ? "Make Private" : "Make Public") {
+                Task { await playlists.setPublic(uri, !isPublic) }
+            }
+            Button("Delete Playlist", role: .destructive) { deleting = uri }
+            Divider()
+        }
+        Button("New Playlist", action: newPlaylist)
+        Button("New Folder", action: newFolder)
+    }
+
+    private var trimmedName: String {
+        newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func name(_ uri: String) -> String {
+        playlists.editablePlaylists.first { $0.id == uri }?.name ?? ""
+    }
+
+    private func isPresent(_ uri: Binding<String?>) -> Binding<Bool> {
+        Binding(get: { uri.wrappedValue != nil }, set: { if !$0 { uri.wrappedValue = nil } })
     }
 
     private var nowPlaying: String? {
@@ -148,7 +200,10 @@ private struct PlaylistRows: View {
                 }
             } else {
                 let route = Route.playlist(uri: node.id)
-                SidebarRow(title: Text(node.name), selected: selection == route, playing: node.id == nowPlaying, thumb: thumb(node.id))
+                SidebarRow(
+                    title: Text(node.name), selected: selection == route, playing: node.id == nowPlaying, thumb: thumb(node.id),
+                    isPrivate: playlists.isEditable(node.id) && !playlists.isPublic(node.id)
+                )
                     .tag(route)
             }
         }
@@ -176,6 +231,7 @@ private struct SidebarRow<Thumb: View>: View {
     let selected: Bool
     let playing: Bool
     let thumb: Thumb
+    var isPrivate = false
 
     var body: some View {
         HStack(spacing: Theme.s2) {
@@ -183,6 +239,12 @@ private struct SidebarRow<Thumb: View>: View {
             title
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
                 .lineLimit(1)
+            if isPrivate {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(Text("Private"))
+            }
             Spacer(minLength: 0)
             if playing {
                 Equalizer(animating: true)
