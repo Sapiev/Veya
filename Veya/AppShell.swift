@@ -23,6 +23,7 @@ struct AppShell: View {
     @State private var home: HomeModel
     @State private var searchFocusRequest = 0
     @State private var searchSelection: SearchResultID?
+    @State private var searchFilter = SearchFilter.all
     private let recentSearches: RecentSearches
     private let webAPI: WebAPIConnection
     /// Hands the started player to the session owner, which stops it on sign out; false drops it.
@@ -79,13 +80,14 @@ struct AppShell: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .safeAreaPadding(.top, 64)
                     .safeAreaPadding(.bottom, player == nil ? Theme.s8 : Theme.playerHeight + Theme.s8)
-                TopBar(history: history, queueVisible: $queueVisible) {
+                TopBar(history: history, queueVisible: $queueVisible, nowPlayingTab: player?.nowPlaying == nil ? nil : $nowPlayingTab) {
                     SearchField(
                         search: search,
                         recent: recentSearches,
                         player: player,
                         history: history,
                         selection: $searchSelection,
+                        filter: searchFilter,
                         focusRequest: searchFocusRequest
                     )
                 }
@@ -165,7 +167,10 @@ struct AppShell: View {
         case .home:
             HomeView(home: home, library: library, player: player, history: history)
         case .search:
-            SearchView(search: search, webAPI: webAPI, recent: recentSearches, player: player, history: history, selection: $searchSelection)
+            SearchView(
+                search: search, webAPI: webAPI, recent: recentSearches, library: library, player: player, history: history,
+                selection: $searchSelection, filter: $searchFilter
+            )
         case .likedSongs:
             LikedSongs(library: library, player: player, playlists: playlists, history: history)
         case .albums:
@@ -364,7 +369,11 @@ private struct SwipeNavigation: View {
 private struct TopBar<Search: View>: View {
     let history: NavigationHistory
     @Binding var queueVisible: Bool
+    /// Nil while nothing plays, which disables Full-Window Now Playing.
+    let nowPlayingTab: Binding<NowPlayingView.Tab?>?
     @ViewBuilder let search: () -> Search
+    @AppStorage(SettingsView.tabKey) private var settingsTab = SettingsView.Tab.general
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: Theme.s2) {
@@ -381,12 +390,29 @@ private struct TopBar<Search: View>: View {
             .glassPanel(cornerRadius: 18)
             search()
             Spacer(minLength: 0)
-            Toggle(isOn: $queueVisible) {
-                Label("Queue", systemImage: "sidebar.right")
+            HStack(spacing: 0) {
+                // The design's "More options" menu (`moreMenu`).
+                Menu {
+                    Button("Adaptive Color…") {
+                        settingsTab = .general
+                        openSettings()
+                    }
+                    Divider()
+                    Button("Full-Window Now Playing") { nowPlayingTab?.wrappedValue = .lyrics }
+                        .disabled(nowPlayingTab == nil)
+                } label: {
+                    Label("More Options", systemImage: "ellipsis")
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .help("More Options")
+                Toggle(isOn: $queueVisible) {
+                    Label("Queue", systemImage: "sidebar.right")
+                }
+                .toggleStyle(.button)
+                .buttonStyle(CapsuleIconButtonStyle(on: queueVisible))
+                .help(queueVisible ? "Hide Queue" : "Show Queue")
             }
-            .toggleStyle(.button)
-            .buttonStyle(CapsuleIconButtonStyle(on: queueVisible))
-            .help(queueVisible ? "Hide Queue" : "Show Queue")
             .padding(.horizontal, Theme.s1)
             .frame(height: 36)
             .glassPanel(cornerRadius: 18)

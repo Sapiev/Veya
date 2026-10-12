@@ -175,12 +175,13 @@ struct PlayFab: View {
 /// A section title in the 22 pt display weight with the design's top spacing.
 struct SectionHeader: View {
     let title: LocalizedStringKey
+    var top = Theme.s8
 
     var body: some View {
         Text(title)
             .font(Theme.sectionTitle)
             .accessibilityAddTraits(.isHeader)
-            .padding(.top, Theme.s8)
+            .padding(.top, top)
             .padding(.bottom, Theme.s3)
     }
 }

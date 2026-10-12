@@ -1,7 +1,28 @@
 import XCTest
 
 /// PBI-401: sidebar destinations and back/forward history; PBI-304: playlist folders.
+/// PBI-405: the top bar's More Options menu.
 final class NavigationUITests: XCTestCase {
+    @MainActor func testMoreOptionsOpensAdaptiveColorSettings() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.menuButtons["More Options"].click()
+        app.menuItems["Adaptive Color…"].click()
+
+        XCTAssertTrue(app.popUpButtons["Window colors"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    @MainActor func testMoreOptionsOpensTheFullWindowPlayer() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.staticTexts["Test Track"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.menuButtons["More Options"].click()
+        app.menuItems["Full-Window Now Playing"].click()
+
+        XCTAssertTrue(app.staticTexts["Lyrics aren't available yet."].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
     @MainActor func testSidebarListsDestinationsAndPlaylists() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
