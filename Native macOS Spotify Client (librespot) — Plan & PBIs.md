@@ -672,8 +672,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 2 · **Milestone:** M2 · **Depends on:** PBI-401
 
-- [ ] Space play/pause, ⌘→/← next/previous, ⌘↑/↓ volume, ⌘S shuffle, ⌘R repeat, ⌘L search; listed in the Help menu.
-- [ ] Registers a custom URL scheme; File › Open Link accepts `open.spotify.com` and `spotify:` URIs (the app does not claim the `spotify:` scheme by default to avoid hijacking the official app).
+**Status:** Done (merged to develop)
+
+- [x] Space play/pause, ⌘→/← next/previous, ⌘↑/↓ volume, ⌘S shuffle, ⌘R repeat, ⌘L search; listed in the Help menu.
+- [x] Registers a custom URL scheme; File › Open Link accepts `open.spotify.com` and `spotify:` URIs (the app does not claim the `spotify:` scheme by default to avoid hijacking the official app). (`veya://<type>/<id>`; not yet checked against a live account.)
 
 ### E7 · Extra features
 

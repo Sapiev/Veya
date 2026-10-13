@@ -59,3 +59,17 @@ or grant it later in System Settings > Privacy & Security > Automation.
 |--------|---------|
 | -10000 | Veya isn't signed in or couldn't start playback. |
 | -10000 | That isn't a Spotify URI, such as spotify:track:… |
+
+## Links
+
+Veya opens `veya://<type>/<id>` links (PBI-606), where `<type>` is `track`,
+`episode`, `album`, `artist`, `playlist` or `show` and `<id>` is the Spotify ID:
+
+```sh
+open veya://album/4aawyAB9vmqN3uQ7FjRGTy
+```
+
+Albums, artists, playlists and shows open their page; tracks and episodes play.
+File > Open Link (⌘O) takes the same items as an `open.spotify.com` link or a
+`spotify:` URI. Veya never registers the `spotify:` scheme, so links elsewhere
+keep opening the official app.
