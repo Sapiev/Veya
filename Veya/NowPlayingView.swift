@@ -11,6 +11,7 @@ struct NowPlayingView: View {
     let close: () -> Void
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
 
     enum Tab {
         case queue, lyrics
@@ -80,20 +81,20 @@ struct NowPlayingView: View {
                 ArtworkView(artwork: nowPlaying.artwork, side: side)
                     .clipShape(.rect(cornerRadius: 12))
                     .shadow(color: .black.opacity(0.55), radius: 40, y: 30)
-                    .scaleEffect(player.isPlaying ? 1 : 0.92)
+                    .scaleEffect(player.isPlaying || reduceMotion ? 1 : 0.92)
                     .animation(
                         reduceMotion ? nil : .timingCurve(0.2, 0.8, 0.2, 1, duration: 0.4),
                         value: player.isPlaying
                     )
                 VStack(alignment: .leading, spacing: 0) {
                     Text(nowPlaying.title)
-                        .font(.system(size: 22, weight: .bold))
+                        .scaledFont(size: 22, weight: .bold)
                     ArtistLinks(artists: nowPlaying.artists) { uri in
                         close()
                         history.navigate(to: .artist(uri: uri))
                     }
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.74))
+                    .scaledFont(size: 15)
+                    .foregroundStyle(.white.opacity(contrast.opacity(0.74)))
                 }
                 .lineLimit(1)
                 .frame(width: side, alignment: .leading)
@@ -145,6 +146,8 @@ struct NowPlayingView: View {
                     rows(player.nextFromContext, ids: { -1 - $0 })
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Upcoming Songs")
         }
         .accessibilityIdentifier("nowPlayingQueue")
     }

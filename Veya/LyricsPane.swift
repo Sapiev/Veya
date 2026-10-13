@@ -69,6 +69,8 @@ private struct LyricsLines: View {
     let active: Int?
     let seek: (UInt32) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+    @FocusState private var focused: Int?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -81,6 +83,9 @@ private struct LyricsLines: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Theme.s4)
             }
+            .arrowKeyList(lyrics.synced ? Array(lyrics.lines.indices) : [], focus: $focused) {
+                seek(lyrics.lines[$0].startMs)
+            }
             .onChange(of: active, initial: true) { _, active in
                 guard let active else { return }
                 withAnimation(reduceMotion ? nil : .smooth) { proxy.scrollTo(active, anchor: .center) }
@@ -92,13 +97,16 @@ private struct LyricsLines: View {
         let line = lyrics.lines[index]
         // Spotify sends instrumental breaks as empty lines.
         let text = Text(line.words.isEmpty ? "♪" : line.words)
-            .font(.system(size: 24, weight: .bold))
+            .scaledFont(size: 24, weight: .bold)
             .multilineTextAlignment(.leading)
         if lyrics.synced {
             Button { seek(line.startMs) } label: { text }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(index == active ? 1 : 0.45))
+                .foregroundStyle(.white.opacity(index == active ? 1 : contrast.opacity(0.45)))
+                .focusable()
+                .focused($focused, equals: index)
                 .accessibilityAddTraits(index == active ? .isSelected : [])
+                .accessibilityHint("Plays from this line")
         } else {
             text
                 .foregroundStyle(.white.opacity(0.85))

@@ -128,12 +128,16 @@ import SwiftUI
             SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
+            .modifier(ConcreteInk())
             .defaultAppStorage(defaults)
         }
 
         MenuBarExtra(isInserted: $menuBar.shown) {
             MenuBarPlayer(activeSession: activeSession)
+                .modifier(ScalesText())
+                .modifier(ConcreteInk())
                 .environment(\.artworkLoader, artworkLoader)
+                .defaultAppStorage(defaults)
         } label: {
             MenuBarLabel(activeSession: activeSession, showsTitle: menuBar.showsTitle)
         }

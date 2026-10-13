@@ -27,7 +27,7 @@ struct Sidebar: View {
             Divider()
             Button(action: newPlaylist) {
                 Label("New Playlist", systemImage: "plus")
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             }
             .buttonStyle(.plain)
@@ -60,11 +60,11 @@ struct Sidebar: View {
                     }
                 }
             } header: {
-                SidebarHeader(title: Text("Playlists"))
+                SidebarHeader(title: "Playlists")
             }
-            librarySection(.artists, title: Text("Artists"), route: .artists)
-            librarySection(.albums, title: Text("Albums"), route: .albums)
-            librarySection(.shows, title: Text("Podcasts"), route: .podcasts)
+            librarySection(.artists, title: "Artists", route: .artists)
+            librarySection(.albums, title: "Albums", route: .albums)
+            librarySection(.shows, title: "Podcasts", route: .podcasts)
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
@@ -140,7 +140,7 @@ struct Sidebar: View {
         [LibraryKind.albums, .artists, .shows].flatMap { (library.items[$0] ?? []).prefix(Self.sectionLimit).map(\.uri) }
     }
 
-    private func librarySection(_ kind: LibraryKind, title: Text, route: Route) -> some View {
+    private func librarySection(_ kind: LibraryKind, title: LocalizedStringResource, route: Route) -> some View {
         Section {
             ForEach((library.items[kind] ?? []).prefix(Self.sectionLimit), id: \.uri) { item in
                 row(Text(library.sidebarName(item.uri)), kind.route(item.uri)) {
@@ -153,6 +153,7 @@ struct Sidebar: View {
                 SidebarHeader(title: title, selected: selection == route)
             }
             .buttonStyle(.plain)
+            .accessibilityHint("Shows all of them")
         }
     }
 
@@ -230,11 +231,11 @@ private struct SidebarRow<Thumb: View>: View {
         HStack(spacing: Theme.s2) {
             thumb.frame(width: 24, height: 24)
             title
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .scaledFont(size: 13, weight: selected ? .semibold : .regular)
                 .lineLimit(1)
             if isPrivate {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .scaledFont(size: 10)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(Text("Private"))
             }
@@ -248,13 +249,15 @@ private struct SidebarRow<Thumb: View>: View {
 }
 
 private struct SidebarHeader: View {
-    let title: Text
+    let title: LocalizedStringResource
     var selected = false
 
     var body: some View {
-        title
-            .font(.system(size: 11, weight: .semibold))
+        Text(title)
+            .scaledFont(size: 11, weight: .semibold)
             .foregroundStyle(selected ? .primary : .secondary)
+            .accessibilityAddTraits(.isHeader)
+            .background(HostingGroupLabel(label: String(localized: title)))
     }
 }
 
@@ -269,7 +272,7 @@ private struct SymbolTile: View {
             .fill(fill)
             .overlay {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
+                    .scaledFont(size: 11, weight: .semibold)
                     .foregroundStyle(ink)
             }
             .accessibilityHidden(true)

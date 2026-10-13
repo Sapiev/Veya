@@ -14,11 +14,74 @@ nonisolated enum Theme {
     static let standard = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.24)
     static let themeChange = Animation.easeInOut(duration: 0.4)
 
-    static let greeting = Font.system(size: 28, weight: .bold)
-    static let sectionTitle = Font.system(size: 22, weight: .bold)
-    static let heroTitle = Font.system(size: 56, weight: .heavy)
-    static let cardTitle = Font.system(size: 13, weight: .semibold)
-    static let cardSubtitle = Font.system(size: 12)
+    @MainActor static let greeting = ScaledFont(size: 28, weight: .bold)
+    @MainActor static let sectionTitle = ScaledFont(size: 22, weight: .bold)
+    @MainActor static let heroTitle = ScaledFont(size: 56, weight: .heavy)
+    @MainActor static let cardTitle = ScaledFont(size: 13, weight: .semibold)
+    @MainActor static let cardSubtitle = ScaledFont(size: 12)
+}
+
+/// Settings > General > Text size. macOS has no Dynamic Type for SwiftUI, so Veya scales its own fonts.
+/// Stored as a percentage: `@AppStorage` keeps only Int or String raw values.
+enum TextSize: Int, CaseIterable {
+    case standard = 100, large = 115, larger = 130, largest = 150
+
+    static let key = "textSize"
+
+    var scale: CGFloat { CGFloat(rawValue) / 100 }
+}
+
+extension EnvironmentValues {
+    @Entry var textScale: CGFloat = 1
+}
+
+/// The system font at `size` points times the chosen text size; every font in the app goes through it.
+struct ScaledFont: ViewModifier {
+    let size: CGFloat
+    var weight: Font.Weight = .regular
+    var design: Font.Design = .default
+    @Environment(\.textScale) private var scale
+
+    func body(content: Content) -> some View {
+        // swiftlint:disable:next unscaled_font
+        content.font(.system(size: size * scale, weight: weight, design: design))
+    }
+}
+
+/// Publishes the chosen text size to a window and scales the text that sets no font of its own.
+struct ScalesText: ViewModifier {
+    @AppStorage(TextSize.key) private var size = TextSize.standard
+
+    func body(content: Content) -> some View {
+        content
+            // swiftlint:disable:next unscaled_font
+            .font(.system(size: NSFont.systemFontSize * size.scale))
+            .environment(\.textScale, size.scale)
+    }
+}
+
+/// Pins `.primary`, `.secondary` and `.tertiary` to opaque inks for the window's scheme.
+/// Assistive tech reads text color from the accessibility attributes, not the screen: the system
+/// label color arrives as dark ink over Veya's dark wash, and `.secondary` as 50% white with no
+/// background, which the audit cannot judge. Opaque greys keep the hierarchy and read as drawn.
+struct ConcreteInk: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark, increased = contrast == .increased
+        content.foregroundStyle(
+            Color(white: dark ? 1 : 0),
+            Color(white: dark ? (increased ? 0.9 : 0.78) : (increased ? 0.15 : 0.3)),
+            Color(white: dark ? (increased ? 0.8 : 0.62) : (increased ? 0.25 : 0.42))
+        )
+    }
+}
+
+extension View {
+    func scaledFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: design))
+    }
 }
 
 extension Color {
@@ -142,10 +205,28 @@ struct AmbientBackground: View {
 extension View {
     /// A translucent panel with the design's hairline edge (`.glass`, `.glass-strong`).
     func glassPanel(cornerRadius: CGFloat, strong: Bool = false) -> some View {
-        background(strong ? .regularMaterial : .ultraThinMaterial, in: .rect(cornerRadius: cornerRadius))
+        modifier(GlassPanel(cornerRadius: cornerRadius, strong: strong))
+    }
+}
+
+/// Increase Contrast swaps the see-through glass for a solid panel with a visible edge.
+private struct GlassPanel: ViewModifier {
+    let cornerRadius: CGFloat
+    let strong: Bool
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let increased = contrast == .increased
+        let fill: AnyShapeStyle = increased ? AnyShapeStyle(.windowBackground)
+            : strong ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.ultraThinMaterial)
+        content
+            .background(fill, in: .rect(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+                    .strokeBorder(
+                        increased ? AnyShapeStyle(.primary.opacity(0.6)) : AnyShapeStyle(.white.opacity(0.14)),
+                        lineWidth: increased ? 1 : 0.5
+                    )
             }
     }
 }
@@ -162,7 +243,7 @@ struct PlayFab: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: large ? 22 : 17, weight: .semibold))
+                .scaledFont(size: large ? 22 : 17, weight: .semibold)
                 .foregroundStyle(Color(palette.tintInk))
                 .frame(width: large ? 56 : 44, height: large ? 56 : 44)
                 .background(Color(palette.tint), in: .circle)
@@ -184,9 +265,34 @@ struct SectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(Theme.sectionTitle)
+            .modifier(Theme.sectionTitle)
             .accessibilityAddTraits(.isHeader)
             .padding(.top, top)
             .padding(.bottom, Theme.s3)
+    }
+}
+
+extension ColorSchemeContrast {
+    /// A faded foreground that carries meaning moves halfway to opaque under Increase Contrast.
+    func opacity(_ base: Double) -> Double {
+        self == .increased ? base + (1 - base) / 2 : base
+    }
+}
+
+extension View {
+    /// Up and Down move focus through `ids` and Return runs `activate` on the focused one.
+    /// Arrows and Return reach a focused button as AppKit commands, which `onKeyPress` never sees.
+    func arrowKeyList<ID: Hashable>(
+        _ ids: [ID], focus: FocusState<ID?>.Binding, activate: @escaping (ID) -> Void
+    ) -> some View {
+        onMoveCommand { direction in
+            guard direction == .up || direction == .down else { return }
+            let index = focus.wrappedValue.flatMap(ids.firstIndex) ?? (direction == .up ? ids.count : -1)
+            let next = index + (direction == .up ? -1 : 1)
+            if ids.indices.contains(next) { focus.wrappedValue = ids[next] }
+        }
+        .onCommand(#selector(NSResponder.insertNewline(_:))) {
+            if let current = focus.wrappedValue, ids.contains(current) { activate(current) }
+        }
     }
 }

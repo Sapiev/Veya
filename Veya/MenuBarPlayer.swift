@@ -85,9 +85,9 @@ private struct MenuBarNowPlaying: View {
                         .clipShape(.rect(cornerRadius: Theme.cardRadius))
                     VStack(alignment: .leading, spacing: 0) {
                         Text(nowPlaying.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                         Text(nowPlaying.artists.map(\.name).formatted(.list(type: .and)))
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                             .foregroundStyle(.secondary)
                     }
                     .lineLimit(1)

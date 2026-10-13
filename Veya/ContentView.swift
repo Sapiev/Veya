@@ -10,11 +10,15 @@ struct ContentView: View {
     let signOut: () -> Void
     /// Held until the signed-in window can open it; a cold launch from a link restores the session first.
     @State private var openedLink: SpotifyLink?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         content
-            .animation(Theme.themeChange, value: session.state)
+            .animation(reduceMotion ? nil : Theme.themeChange, value: session.state)
             .frame(minWidth: 900, minHeight: 600)
+            .background(HostingGroupLabel(label: "Veya"))
+            .modifier(ScalesText())
+            .modifier(ConcreteInk())
             .onOpenURL { url in
                 if let link = SpotifyLink(url.absoluteString) { openedLink = link }
             }
@@ -61,11 +65,11 @@ private struct NotPremiumView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "music.note.house")
-                .font(.system(size: 40))
+                .scaledFont(size: 40)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             Text("Veya Needs Spotify Premium")
-                .font(.title2)
+                .scaledFont(size: 17)
             Text("Playback through Veya works only with a Premium account. Upgrade your plan with Spotify, or sign out and use a Premium account.")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 360)
@@ -157,7 +161,7 @@ private struct ReconnectBanner: View {
                 }
             }
         }
-        .font(.callout)
+        .scaledFont(size: 12)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.regularMaterial, in: Capsule())

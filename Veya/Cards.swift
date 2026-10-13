@@ -25,6 +25,7 @@ struct MediaCard: View {
                 face
                     .onTapGesture(perform: open)
                     .accessibilityElement(children: .contain)
+                    .accessibilityLabel(subtitle.map { "\(title), \($0)" } ?? title)
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { open() }
             } else {
@@ -50,12 +51,12 @@ struct MediaCard: View {
                 .clipShape(round ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: Theme.smallRadius)))
                 .shadow(color: .black.opacity(0.25), radius: 9, y: 6)
             Text(title)
-                .font(Theme.cardTitle)
+                .modifier(Theme.cardTitle)
                 .lineLimit(1)
                 .padding(.top, Theme.s2)
             if let subtitle {
                 Text(subtitle)
-                    .font(Theme.cardSubtitle)
+                    .modifier(Theme.cardSubtitle)
                     .foregroundStyle(.secondary)
                     .lineLimit(subtitleLines)
             }

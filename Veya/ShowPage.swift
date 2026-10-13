@@ -101,11 +101,11 @@ private struct EpisodeRow: View {
         VStack(alignment: .leading, spacing: 4) {
             if let published = episode.publishedAt {
                 Text(Date(timeIntervalSince1970: TimeInterval(published)).formatted(date: .abbreviated, time: .omitted))
-                    .font(.caption)
+                    .scaledFont(size: 10)
                     .foregroundStyle(.secondary)
             }
             Text(episode.title)
-                .font(.headline)
+                .scaledFont(size: 13, weight: .bold)
                 .foregroundStyle(isCurrent ? AnyShapeStyle(Color(palette.tintText)) : played ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .lineLimit(isSelected ? nil : 2)
             status
@@ -142,7 +142,7 @@ private struct EpisodeRow: View {
                 Text(Self.length(episode.durationMs))
             }
         }
-        .font(.callout)
+        .scaledFont(size: 12)
         .foregroundStyle(.secondary)
     }
 

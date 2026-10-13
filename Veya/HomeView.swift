@@ -25,7 +25,7 @@ struct HomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(Self.greeting(at: .now))
-                            .font(Theme.greeting)
+                            .modifier(Theme.greeting)
                             .foregroundStyle(.primary)
                             .accessibilityIdentifier("greeting")
                             .padding(.horizontal, Theme.s8)
@@ -118,6 +118,8 @@ private struct QuickAccess: View {
                     QuickTile(tile: tile) { activate(tile) }
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Jump back in")
             .padding(.horizontal, Theme.s8)
             .padding(.top, Theme.s4)
         }
@@ -135,7 +137,7 @@ private struct QuickTile: View {
                 ArtworkView(artwork: tile.artwork, side: 56)
                     .clipShape(tile.round ? AnyShape(Circle()) : AnyShape(Rectangle()))
                 Text(tile.title)
-                    .font(Theme.cardTitle)
+                    .modifier(Theme.cardTitle)
                     .lineLimit(1)
                 Spacer(minLength: Theme.s2)
             }

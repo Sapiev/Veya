@@ -7,6 +7,9 @@ struct QueuePanel: View {
     let library: LibraryModel
     let playlists: PlaylistModel
     let close: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
+    /// The upcoming row the arrow keys are on, by its index in `upNext` then `nextFromContext`.
+    @FocusState private var focused: Int?
 
     /// Rows resolve metadata in batches of this size as they scroll in.
     private static let resolveAhead = 50
@@ -15,11 +18,11 @@ struct QueuePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Queue")
-                    .font(.system(size: 20, weight: .bold))
+                    .scaledFont(size: 20, weight: .bold)
                 Spacer()
                 Button("Close Queue", systemImage: "xmark", action: close)
                     .labelStyle(.iconOnly)
-                    .font(.system(size: 16, weight: .medium))
+                    .scaledFont(size: 16, weight: .medium)
                     .frame(width: 28, height: 28)
                     .contentShape(.circle)
                     .buttonStyle(.plain)
@@ -38,6 +41,7 @@ struct QueuePanel: View {
             }
         }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("Queue Panel")
         .accessibilityIdentifier("queue")
         // Track list rows drag their URIs.
         .dropDestination(for: String.self) { uris, _ in
@@ -63,7 +67,7 @@ struct QueuePanel: View {
                         Spacer()
                         Button("Clear queue", action: player.clearUpNext)
                             .buttonStyle(.plain)
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                             .foregroundStyle(.secondary)
                             .padding(.trailing, Theme.s5)
                     }
@@ -85,6 +89,15 @@ struct QueuePanel: View {
                 }
             }
             .padding(.bottom, Theme.s3)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Upcoming Songs")
+        }
+        .arrowKeyList(Array(0 ..< player.upNext.count + player.nextFromContext.count), focus: $focused) { skip in
+            let uri = (player.upNext + player.nextFromContext)[skip]
+            // The same rule as clicking: a row that cannot play stays put.
+            if TrackList.Row(number: 0, entry: TrackEntry(uri: uri), item: library.metadata[uri]).playable {
+                player.skip(to: skip)
+            }
         }
         // A new track starts the list over from the top.
         .id(player.nowPlaying?.uri)
@@ -95,6 +108,8 @@ struct QueuePanel: View {
 
     private func row(_ uri: String, in uris: [String], at offset: Int, skip: Int, player: PlayerModel) -> some View {
         QueueRow(uri: uri, library: library) { player.skip(to: skip) }
+            .focusable()
+            .focused($focused, equals: skip)
             .padding(.horizontal, Theme.s2)
             .task(id: uri) { Self.resolve(uris, from: offset, in: library) }
     }
@@ -102,8 +117,8 @@ struct QueuePanel: View {
     /// A section title (`.q-label`); the first sits under the header, the rest get room above.
     private func label(_ title: Text, first: Bool) -> some View {
         title
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.primary.opacity(0.65))
+            .scaledFont(size: 14, weight: .semibold)
+            .foregroundStyle(.primary.opacity(contrast.opacity(0.65)))
             .padding(.horizontal, Theme.s5)
             .padding(.top, first ? 0 : 28)
             .padding(.bottom, 10)
@@ -137,8 +152,8 @@ struct QueueLabel: View {
 
     var body: some View {
         title
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.tertiary)
+            .scaledFont(size: 12, weight: .semibold)
+            .foregroundStyle(.primary)
     }
 }
 
@@ -151,6 +166,8 @@ struct QueueRow: View {
     var onArtwork = false
     var play: (() -> Void)?
     @Environment(\.palette) private var palette
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -162,7 +179,7 @@ struct QueueRow: View {
                 .overlay {
                     if hovering, play != nil {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(.black.opacity(0.45), in: .rect(cornerRadius: 4))
@@ -170,11 +187,13 @@ struct QueueRow: View {
                 }
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
-                    .font(.system(size: 15, weight: current && onArtwork ? .bold : .medium))
+                    .scaledFont(size: 15, weight: current && onArtwork ? .bold : .medium)
                     .foregroundStyle(titleColor)
-                Text(row.artists.map(\.name).formatted(.list(type: .and)))
-                    .font(.system(size: 14))
-                    .foregroundStyle(onArtwork ? .white.opacity(0.7) : .primary.opacity(0.6))
+                Text(artistNames(row))
+                    .scaledFont(size: 14)
+                    .foregroundStyle(
+                        onArtwork ? .white.opacity(contrast.opacity(0.7)) : .primary.opacity(contrast.opacity(0.75))
+                    )
             }
             .lineLimit(1)
             Spacer(minLength: 0)
@@ -184,13 +203,20 @@ struct QueueRow: View {
         .background(hovering ? (onArtwork ? .white.opacity(0.1) : .fill) : .clear, in: .rect(cornerRadius: Theme.smallRadius))
         .contentShape(.rect)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
         .onTapGesture { if row.playable { play?() } }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(row.title.isEmpty ? Text("Loading…") : Text("\(row.title), \(artistNames(row))"))
+        .accessibilityValue(current ? Text("Now playing") : Text(row.unavailableHelp ?? ""))
+        .accessibilityHint(play == nil || !row.playable ? Text("") : Text("Plays this song"))
         .accessibilityAddTraits(play == nil ? [] : .isButton)
         .accessibilityAction { if row.playable { play?() } }
         .accessibilityAction(named: "Play") { if row.playable { play?() } }
-        .opacity(row.playable ? 1 : 0.4)
+        .opacity(row.playable ? 1 : contrast.opacity(0.7))
+    }
+
+    private func artistNames(_ row: TrackList.Row) -> String {
+        row.artists.map(\.name).formatted(.list(type: .and))
     }
 
     private var titleColor: Color {

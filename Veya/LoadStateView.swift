@@ -59,11 +59,11 @@ struct EmptyStateView<Actions: View>: View {
     var body: some View {
         VStack(spacing: Theme.s3) {
             Image(systemName: systemImage)
-                .font(.system(size: 40))
+                .scaledFont(size: 40)
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
+                .scaledFont(size: 17, weight: .semibold)
                 .accessibilityAddTraits(.isHeader)
             Text(message)
                 .foregroundStyle(.secondary)

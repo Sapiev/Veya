@@ -25,6 +25,8 @@ struct ArtworkView: View {
         }
         .frame(width: side, height: side)
         .clipped()
+        // Every cover sits beside its title, so VoiceOver skips it.
+        .accessibilityHidden(true)
         .task(id: [artwork.first?.url, String(pixels)]) {
             image = await loader?.image(for: artwork, pixels: pixels)
         }

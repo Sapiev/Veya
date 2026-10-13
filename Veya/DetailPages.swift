@@ -67,7 +67,7 @@ struct AlbumPage: View {
             .scrollContentBackground(.hidden)
             if !album.copyrights.isEmpty {
                 Text(album.copyrights.joined(separator: "\n"))
-                    .font(.caption)
+                    .scaledFont(size: 10)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Theme.s8)
                     .padding(.vertical, Theme.s3)
@@ -312,7 +312,7 @@ struct PlaylistDetailsSheet: View {
         let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         VStack(alignment: .leading, spacing: Theme.s4) {
             Text(title)
-                .font(.headline)
+                .scaledFont(size: 13, weight: .bold)
             if let artwork {
                 HStack(spacing: Theme.s4) {
                     Group {
@@ -336,6 +336,8 @@ struct PlaylistDetailsSheet: View {
             }
             Form {
                 TextField("Name", text: $draftName)
+                    // A form field keeps Return to itself, so it confirms here as the default button would.
+                    .onSubmit { if !trimmed.isEmpty { confirmSheet(trimmed) } }
                 TextField("Description", text: $draftDescription, axis: .vertical)
                     .lineLimit(3 ... 6)
             }
@@ -343,10 +345,7 @@ struct PlaylistDetailsSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(confirm) {
-                    save(trimmed, draftDescription.trimmingCharacters(in: .whitespacesAndNewlines), photo)
-                    dismiss()
-                }
+                Button(confirm) { confirmSheet(trimmed) }
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmed.isEmpty)
             }
@@ -358,6 +357,11 @@ struct PlaylistDetailsSheet: View {
             draftDescription = description
         }
     }
+
+    private func confirmSheet(_ name: String) {
+        save(name, draftDescription.trimmingCharacters(in: .whitespacesAndNewlines), photo)
+        dismiss()
+    }
 }
 
 struct PageHeading: View {
@@ -365,7 +369,7 @@ struct PageHeading: View {
 
     var body: some View {
         Text(title)
-            .font(Theme.heroTitle)
+            .modifier(Theme.heroTitle)
             .tracking(-1.7)
             .lineLimit(2)
             .minimumScaleFactor(0.5)
@@ -380,7 +384,7 @@ struct PageSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             Text(title)
-                .font(Theme.sectionTitle)
+                .modifier(Theme.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
             content()
         }
@@ -403,7 +407,7 @@ struct PageHero<Subtitle: View>: View {
                 .overlay {
                     if artwork.isEmpty {
                         Image(systemName: "music.note")
-                            .font(.system(size: 64))
+                            .scaledFont(size: 64)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -415,21 +419,21 @@ struct PageHero<Subtitle: View>: View {
                 .accessibilityHidden(artwork.isEmpty)
             VStack(alignment: .leading, spacing: 0) {
                 Text(kind)
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(size: 12, weight: .semibold)
                     .foregroundStyle(.secondary)
                 PageHeading(title: title)
                     .padding(.top, Theme.s1)
                     .padding(.bottom, Theme.s3)
                 if !description.isEmpty {
                     Text(description)
-                        .font(.system(size: 14))
+                        .scaledFont(size: 14)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
                         .frame(maxWidth: 560, alignment: .leading)
                         .padding(.bottom, Theme.s2)
                 }
                 subtitle()
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -453,7 +457,7 @@ private struct ArtistHero: View {
         let dark = scheme == .dark
         VStack(alignment: .leading, spacing: Theme.s1) {
             Text("Artist")
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(size: 12, weight: .semibold)
                 .opacity(0.9)
             PageHeading(title: artist.name)
         }
@@ -586,7 +590,7 @@ private struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 20))
+                .scaledFont(size: 20)
                 .frame(width: 40, height: 40)
                 .background(hovering ? Color.fill : .clear, in: .circle)
                 .contentShape(.circle)
@@ -609,7 +613,7 @@ private struct PillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let color = isOn ? Color(palette.tintText) : Color.primary
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
+            .scaledFont(size: 13, weight: .semibold)
             .foregroundStyle(color)
             .padding(.horizontal, Theme.s4)
             .frame(height: 32)
@@ -678,13 +682,13 @@ private struct TopTrackRow: View {
                 ArtworkView(artwork: track?.artwork ?? [], side: 40)
                     .clipShape(.rect(cornerRadius: 4))
                 Text(track?.title ?? String(localized: "Loading…"))
-                    .font(.system(size: 14, weight: .medium))
+                    .scaledFont(size: 14, weight: .medium)
                     .foregroundStyle(playing ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.primary))
                     .lineLimit(1)
                 Spacer()
                 if let track {
                     Text(Duration.milliseconds(Int(track.durationMs)).formatted(.time(pattern: .minuteSecond)))
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
@@ -742,7 +746,7 @@ struct Card: View {
                     .lineLimit(1)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.callout)
+                        .scaledFont(size: 12)
                         .foregroundStyle(.secondary)
                 }
             }

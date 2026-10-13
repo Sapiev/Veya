@@ -71,7 +71,7 @@ struct AppShell: View {
                     .glassPanel(cornerRadius: Theme.panelRadius)
                     .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
                     .padding([.leading, .vertical], Theme.s2)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
             }
             // Pages scroll under the floating top bar and player; the insets keep their ends reachable.
             // The bar is a sibling, not an overlay on `page`, so the search field survives route changes.
@@ -113,7 +113,7 @@ struct AppShell: View {
                     .clipShape(.rect(cornerRadius: Theme.panelRadius))
                     .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
                     .padding([.trailing, .vertical], Theme.s2)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
             }
         }
         // The page header's backdrop spans the window, so the side panels' glass blurs it without a seam.
@@ -147,6 +147,8 @@ struct AppShell: View {
                 NowPlayingView(player: player, library: library, metadata: metadata, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
                     // Covers the window up to its top edge, under the title bar.
                     .ignoresSafeArea()
+                    // It covers the whole shell, so VoiceOver must not reach what lies beneath.
+                    .accessibilityAddTraits(.isModal)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -381,7 +383,7 @@ struct PageTitle: View {
 
     var body: some View {
         Text(title)
-            .font(Theme.greeting)
+            .modifier(Theme.greeting)
             .accessibilityIdentifier("routeTitle")
             .padding(.horizontal, Theme.s8)
             .padding(.top, Theme.s5)
@@ -502,6 +504,35 @@ private struct TopBar<Search: View>: View {
     }
 }
 
+/// Names the unlabeled group AppKit hosts SwiftUI content in (a window's content, a sidebar section header);
+/// no SwiftUI modifier reaches it, and the accessibility audit flags it.
+struct HostingGroupLabel: NSViewRepresentable {
+    let label: String
+
+    func makeNSView(context _: Context) -> NSView { Anchor(label: label) }
+    func updateNSView(_: NSView, context _: Context) {}
+
+    private final class Anchor: NSView {
+        let label: String
+
+        init(label: String) {
+            self.label = label
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable) required init?(coder _: NSCoder) { nil }
+
+        override func hitTest(_: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            sequence(first: self as NSView, next: \.superview).dropFirst()
+                .first { $0.isAccessibilityElement() && $0.accessibilityRole() == .group }?
+                .setAccessibilityLabel(label)
+        }
+    }
+}
+
 /// Moves the window buttons inside the sidebar panel, where the design draws them (`.traffic`: 20 pt in, 18 pt down).
 /// AppKit lays the titlebar out again on resize and full screen, so the position is reapplied after each.
 private struct TrafficLightInset: NSViewRepresentable {
@@ -585,7 +616,7 @@ private struct CapsuleIconButton: View {
 
     var body: some View {
         configuration.label
-            .font(.system(size: 15, weight: .medium))
+            .scaledFont(size: 15, weight: .medium)
             .foregroundStyle(isEnabled ? AnyShapeStyle(on ? Color(palette.tintText) : .primary) : AnyShapeStyle(.tertiary))
             .frame(width: 32, height: 32)
             .background((hovering && isEnabled) || on ? Color.fillStrong : .clear, in: .circle)
@@ -655,11 +686,11 @@ private struct OpenLinkSheet: View {
         let link = SpotifyLink(text)
         VStack(alignment: .leading, spacing: Theme.s4) {
             Text("Open Link")
-                .font(.headline)
+                .scaledFont(size: 13, weight: .bold)
             TextField("Link", text: $text, prompt: Text(verbatim: "https://open.spotify.com/…"))
                 .textFieldStyle(.roundedBorder)
             Text("Paste a link from open.spotify.com or a spotify: URI.")
-                .font(.callout)
+                .scaledFont(size: 12)
                 .foregroundStyle(.secondary)
             HStack {
                 Spacer()
