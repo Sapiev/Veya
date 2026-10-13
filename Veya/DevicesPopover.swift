@@ -55,8 +55,7 @@ private struct DeviceList: View {
                     DeviceRow(device: device)
                 }
                 .buttonStyle(.plain)
-                .focusable()
-                .focused($focused, equals: device.id)
+                .focusRing($focused, equals: device.id)
                 .accessibilityAddTraits(device.isActive ? .isSelected : [])
                 .disabled(!player.canTransfer)
             }

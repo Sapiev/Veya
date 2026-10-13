@@ -108,8 +108,7 @@ struct QueuePanel: View {
 
     private func row(_ uri: String, in uris: [String], at offset: Int, skip: Int, player: PlayerModel) -> some View {
         QueueRow(uri: uri, library: library) { player.skip(to: skip) }
-            .focusable()
-            .focused($focused, equals: skip)
+            .focusRing($focused, equals: skip)
             .padding(.horizontal, Theme.s2)
             .task(id: uri) { Self.resolve(uris, from: offset, in: library) }
     }
