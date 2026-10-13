@@ -12,7 +12,7 @@ public final class MediaControls {
     }
 
     /// What Control Center shows; `rate` is 0 while paused so the system clock holds still.
-    public struct Info: Equatable {
+    public struct Info: Equatable, Sendable {
         public var title: String
         public var artist: String
         public var album: String?
@@ -64,6 +64,10 @@ public final class MediaControls {
     @discardableResult
     public func perform(_ command: Command) -> Bool {
         guard let player else { return false }
+        return Self.perform(command, player: player, library: library)
+    }
+
+    static func perform(_ command: Command, player: PlayerModel, library: LibraryModel?) -> Bool {
         switch command {
         case .play: if !player.isPlaying { player.togglePlayPause() }
         case .pause: if player.isPlaying { player.togglePlayPause() }
