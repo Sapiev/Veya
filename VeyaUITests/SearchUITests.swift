@@ -119,7 +119,7 @@ final class SearchUITests: XCTestCase {
         searchFor("test", in: app)
         let songs = app.searchResults.buttons["Songs, 4 results"]
         XCTAssertTrue(songs.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.searchResults.buttons["Artists, 1 results"].isEnabled)
+        XCTAssertTrue(app.searchResults.buttons["Artists, 1 result"].isEnabled)
         XCTAssertFalse(app.searchResults.buttons["Playlists, 0 results"].isEnabled)
 
         songs.click()

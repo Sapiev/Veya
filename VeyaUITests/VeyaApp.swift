@@ -26,9 +26,13 @@ extension XCUIApplication {
     static let timeout: TimeInterval = 5
 
     /// Launches Veya against in-memory fakes; it never reaches Spotify or the Keychain.
-    static func launch(_ scenario: Scenario) -> XCUIApplication {
+    /// `locale` ("pl_PL") runs the app in that language and region's formats instead of the Mac's.
+    static func launch(_ scenario: Scenario, locale: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["VEYA_UI_TEST_SCENARIO"] = scenario.rawValue
+        if let locale, let language = locale.split(separator: "_").first {
+            app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
+        }
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         // Tests share the app's defaults, so pin the main window over any frame a user saved; AppKit fits it to the screen.
         app.launchArguments += ["-NSWindow Frame main", "0 0 1200 2000"]

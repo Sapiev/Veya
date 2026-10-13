@@ -53,6 +53,15 @@ into `project.pbxproj`, where it overrides every contributor's
 5. Update docs and CHANGELOG, and add an ADR under `docs/adr/` for any
    architectural decision.
 
+## Translations
+
+Veya ships in English and Polish. All UI text lives in String Catalogs
+(`Veya/Localizable.xcstrings`, `Veya/InfoPlist.xcstrings`); pass text to
+SwiftUI as a literal or `String(localized:)`, never as a plain `String`, and
+format dates, durations and numbers with `.formatted()`. Building in Xcode
+adds new strings to the catalog. `scripts/check-localizations.sh` (run in CI)
+fails while any string lacks a reviewed Polish translation.
+
 ## Pull requests
 
 - Fill in the PR template, including the Definition of Done checklist.

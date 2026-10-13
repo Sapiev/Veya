@@ -735,8 +735,10 @@ veya/
 
 **Priority:** Should · **Estimate:** 3 · **Milestone:** M4 · **Depends on:** PBI-401
 
-- [ ] All strings in a String Catalog; no hard-coded UI text; dates, durations and numbers use locale formatters.
-- [ ] English and Polish shipped at 1.0; Weblate or Crowdin project open for community languages.
+**Status:** In progress - merged to develop; Weblate/Crowdin project pending.
+
+- [x] All strings in a String Catalog; no hard-coded UI text; dates, durations and numbers use locale formatters.
+- [ ] English and Polish shipped at 1.0; Weblate or Crowdin project open for community languages. (English and Polish done; the Weblate/Crowdin project needs the maintainer's account)
 
 #### PBI-803 · Performance budget and profiling
 

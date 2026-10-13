@@ -60,7 +60,7 @@ struct KeyboardShortcutsView: View {
 
     private static let sections: [(title: LocalizedStringKey, rows: [(keys: String, action: LocalizedStringKey)])] = [
         ("Playback", [
-            ("Space", "Play or Pause"),
+            (String(localized: "Space", comment: "Space bar key"), "Play or Pause"),
             ("⌘→", "Next"),
             ("⌘←", "Previous"),
             ("⌘↑", "Volume Up"),

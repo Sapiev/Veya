@@ -195,7 +195,7 @@ struct SearchView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var width: CGFloat = 0
 
-    private static let suggestions = ["Radiohead", "Currents", "Espresso", "Hip-hop"]
+    private static let suggestions = ["Radiohead", "Currents", "Espresso", String(localized: "Hip-hop")]
     /// Below this content width the top result stacks above the songs and genres take two columns.
     private static let narrow: CGFloat = 700
 
@@ -826,12 +826,12 @@ private struct Genre {
     let dominant: RGB
 
     static let all = [
-        ("Pop", "#4a7bd0", "#2a5098"),
-        ("Hip-hop", "#a4a8b4", "#2a2b30"),
-        ("R&B", "#3a6ea8", "#02152d"),
-        ("Electronic", "#c9b27c", "#090d0e"),
-        ("Alternative", "#e69131", "#0b0a0b"),
-        ("Psychedelic", "#9a6ab0", "#65516a"),
+        (String(localized: "Pop"), "#4a7bd0", "#2a5098"),
+        (String(localized: "Hip-hop"), "#a4a8b4", "#2a2b30"),
+        (String(localized: "R&B"), "#3a6ea8", "#02152d"),
+        (String(localized: "Electronic"), "#c9b27c", "#090d0e"),
+        (String(localized: "Alternative"), "#e69131", "#0b0a0b"),
+        (String(localized: "Psychedelic"), "#9a6ab0", "#65516a"),
     ].map { Genre(name: $0, accent: RGB(hex: $1)!, dominant: RGB(hex: $2)!) }
 }
 
