@@ -6,9 +6,7 @@ struct ContentView: View {
     let activeSession: ActiveSession
     let signIn: SignInModel
     let webAPI: WebAPIConnection
-    let metadataStore: MetadataStore?
     let recentSearches: RecentSearches
-    let episodeProgress: any EpisodeProgressProvider
     let signOut: () -> Void
 
     var body: some View {
@@ -32,18 +30,12 @@ struct ContentView: View {
         case .signedOut:
             SignInView(model: signIn)
         case .ready:
-            if let handle = session.session, let scope = activeSession.scope, scope.handle === handle {
-                AppShell(
-                    scope: scope,
-                    webAPI: webAPI,
-                    metadataStore: metadataStore,
-                    recentSearches: recentSearches,
-                    episodeProgress: episodeProgress
-                )
-                .id(ObjectIdentifier(handle))
-                .overlay(alignment: .top) {
-                    ReconnectBanner(connection: session.connection)
-                }
+            if let scope = activeSession.current {
+                AppShell(scope: scope, webAPI: webAPI, recentSearches: recentSearches)
+                    .id(ObjectIdentifier(scope.handle))
+                    .overlay(alignment: .top) {
+                        ReconnectBanner(connection: session.connection)
+                    }
             }
         case .notPremium:
             NotPremiumView(signOut: signOut)
@@ -174,7 +166,13 @@ private struct ReconnectBanner: View {
     ContentView(
         session: session,
         activeSession: ActiveSession(session: session, controls: MediaControls(artworkLoader: nil, commands: nil)) {
-            SessionScope(handle: $0, metadataStore: nil, settings: settings) { _ in false }
+            SessionScope(
+                handle: $0,
+                metadataStore: nil,
+                settings: settings,
+                accessToken: { "" },
+                episodeProgress: WebAPIEpisodeProgress { "" }
+            ) { _ in false }
         },
         signIn: SignInModel(browser: WebAuthenticationBrowser()),
         webAPI: WebAPIConnection(
@@ -182,9 +180,7 @@ private struct ReconnectBanner: View {
             defaults: UserDefaults(suiteName: "preview")!,
             browser: WebAuthenticationBrowser()
         ),
-        metadataStore: nil,
         recentSearches: RecentSearches(defaults: UserDefaults(suiteName: "preview")!),
-        episodeProgress: WebAPIEpisodeProgress { "" },
         signOut: {}
     )
 }

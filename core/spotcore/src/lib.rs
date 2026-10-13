@@ -26,6 +26,7 @@ mod remote;
 mod search;
 mod session;
 mod store;
+mod util;
 
 pub use account::is_premium_account;
 pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};

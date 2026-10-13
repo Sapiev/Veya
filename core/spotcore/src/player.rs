@@ -6,7 +6,7 @@
 //! Spotify's autoplay radio for it.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use librespot_connect::{LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
@@ -30,12 +30,15 @@ use crate::devices::DeviceList;
 use crate::queue::{Queue, RepeatMode};
 use crate::remote::{Change, PlayRequest, RemoteCommand, RemotePlayback, load_leaves_remote};
 use crate::session::SpotSession;
+use crate::util::{OffRuntime, canonical, lock};
 
 const POSITION_INTERVAL: Duration = Duration::from_secs(1);
 /// Past this point `previous` restarts the track instead of going back.
 const RESTART_THRESHOLD_MS: u32 = 3_000;
 /// Played tracks sent with an autoplay request so the radio skips them.
 const RECENT_TRACKS: usize = 20;
+/// Skip steps sent to a remote whose queue is not known yet.
+const MAX_BLIND_SKIPS: usize = 100;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum PlayerError {
@@ -127,7 +130,9 @@ pub enum PlaybackEvent {
     },
 }
 
-/// Called on a tokio worker thread, in the order the player emits events.
+/// Called on the thread that raised the event: a tokio thread, or the one
+/// calling into `SpotPlayer`/`SpotConnect`. Never called under a core lock,
+/// so it may call back into the core; events from one source keep their order.
 #[uniffi::export(with_foreign)]
 pub trait PlayerObserver: Send + Sync {
     fn on_event(&self, event: PlaybackEvent);
@@ -202,6 +207,9 @@ struct State {
     /// Bumped by every user-initiated load, so an autoplay fetch that
     /// finishes afterwards does not replace what the user chose.
     generation: u64,
+    /// Bumped by every change the user makes to what plays, so a `load`
+    /// whose resolve finishes after a newer choice is dropped.
+    choice: u64,
     clock: Clock,
     /// Events from earlier play requests are stale: their end of track must
     /// not advance the queue a second time.
@@ -227,12 +235,6 @@ pub struct SpotPlayer {
     owner: Owner,
     /// Set by `SpotConnect::start`; held weakly as the connect side owns this player.
     connect: Mutex<Weak<SpotConnect>>,
-}
-
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -268,6 +270,7 @@ impl SpotPlayer {
             context_uri: None,
             autoplay: true,
             generation: 0,
+            choice: 0,
             clock: Clock::default(),
             request_id: None,
             session_id: link.session_id(),
@@ -377,10 +380,10 @@ impl SpotPlayer {
         }
         // Adopt the session only once resolve succeeds: adopting first would
         // make a pending reconnect restore skip, leaving playback dead on failure.
+        let choice = lock(&self.state).claim();
         let tracks = resolve(&self.session.current_session(), &uri).await?;
         self.sync_session();
-        let empty = canonical(&uri);
-        self.start_context(tracks, None, Some(uri), empty, start_ms, autoplay)
+        self.start_context(tracks, None, Some(uri), start_ms, autoplay, Some(choice))
     }
 
     /// Plays a list the app already holds (Liked Songs, a sorted playlist)
@@ -434,9 +437,9 @@ impl SpotPlayer {
             tracks,
             Some(start_index as usize),
             context,
-            String::new(),
             0,
             autoplay,
+            None,
         )
     }
 
@@ -484,7 +487,7 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if let Some(track) = state.queue.advance(true).cloned() {
-            state.generation += 1;
+            state.supersede();
             state.clock.wants_play = true;
             self.player().load(track, true, 0);
         }
@@ -495,7 +498,7 @@ impl SpotPlayer {
     pub fn skip(&self, count: u32) {
         if let Some((connect, target)) = self.remote_mode() {
             // shortcut: one skip_next per step, as in Connect mode.
-            for _ in 0..count {
+            for _ in 0..remote_steps(connect.queued(), count) {
                 connect.remote(target.clone(), &RemoteCommand::SkipNext);
             }
             return;
@@ -503,7 +506,7 @@ impl SpotPlayer {
         if let Some(connect) = self.connect_mode() {
             // shortcut: Spirc has no skip-to, so each step loads a track; send a
             // `skip_next` command with the target track if that is audible.
-            for _ in 0..count {
+            for _ in 0..remote_steps(connect.queued(), count) {
                 connect.spirc(Spirc::next);
             }
             return;
@@ -511,7 +514,7 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if let Some(track) = state.queue.skip(count as usize).cloned() {
-            state.generation += 1;
+            state.supersede();
             state.clock.wants_play = true;
             self.player().load(track, true, 0);
         }
@@ -531,7 +534,7 @@ impl SpotPlayer {
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
             self.player().seek(0);
         } else if let Some(track) = state.queue.back().cloned() {
-            state.generation += 1;
+            state.supersede();
             state.clock.wants_play = true;
             self.player().load(track, true, 0);
         }
@@ -651,33 +654,69 @@ impl SpotPlayer {
     }
 }
 
+impl State {
+    /// Retires in-flight radio fetches and slower `load` resolves.
+    fn supersede(&mut self) {
+        self.generation += 1;
+        self.claim();
+    }
+
+    /// Retires slower `load` resolves only: a radio fetch keeps going until
+    /// a load actually replaces what plays.
+    fn claim(&mut self) -> u64 {
+        self.choice += 1;
+        self.choice
+    }
+
+    /// Sets the context and returns its first track to load, or `None` when
+    /// `choice` is no longer the latest one.
+    fn begin_context(
+        &mut self,
+        tracks: Vec<SpotifyUri>,
+        start: Option<usize>,
+        context_uri: Option<SpotifyUri>,
+        autoplay: bool,
+        choice: Option<u64>,
+    ) -> Result<Option<SpotifyUri>, PlayerError> {
+        if !is_latest(self, choice) {
+            info!("dropping a load superseded while it resolved");
+            return Ok(None);
+        }
+        match start {
+            Some(start) => self.queue.set_context_at(tracks, start, seed()),
+            None => self.queue.set_context(tracks, seed()),
+        }
+        self.context_uri = context_uri;
+        self.supersede();
+        let first = self
+            .queue
+            .current()
+            .cloned()
+            .ok_or_else(|| PlayerError::EmptyContext {
+                uri: self.context_uri.as_ref().map(canonical).unwrap_or_default(),
+            })?;
+        info!("loading context of {} items", self.queue.tracks().len());
+        self.clock.wants_play = autoplay;
+        Ok(Some(first))
+    }
+}
+
 impl SpotPlayer {
     /// Starts at `start`, or where `set_context` would (shuffled or first)
-    /// without one. `empty_uri` names the context when `tracks` is empty.
+    /// without one. Does nothing when `choice` is no longer the latest one.
     fn start_context(
         &self,
         tracks: Vec<SpotifyUri>,
         start: Option<usize>,
         context_uri: Option<SpotifyUri>,
-        empty_uri: String,
         start_ms: u32,
         autoplay: bool,
+        choice: Option<u64>,
     ) -> Result<(), PlayerError> {
         let mut state = lock(&self.state);
-        match start {
-            Some(start) => state.queue.set_context_at(tracks, start, seed()),
-            None => state.queue.set_context(tracks, seed()),
+        if let Some(first) = state.begin_context(tracks, start, context_uri, autoplay, choice)? {
+            self.player().load(first, autoplay, start_ms);
         }
-        state.context_uri = context_uri;
-        state.generation += 1;
-        let first = state
-            .queue
-            .current()
-            .cloned()
-            .ok_or(PlayerError::EmptyContext { uri: empty_uri })?;
-        info!("loading context of {} items", state.queue.tracks().len());
-        state.clock.wants_play = autoplay;
-        self.player().load(first, autoplay, start_ms);
         Ok(())
     }
 
@@ -730,7 +769,7 @@ impl SpotPlayer {
     fn restore_after_reconnect(&self) {
         let link = self.session.current_session();
         let mut state = lock(&self.state);
-        let Some(resume) = prepare_restore(&mut state, link.session_id()) else {
+        let Restore::Adopted(resume) = prepare_restore(&mut state, link.session_id()) else {
             return;
         };
         let player = self.player();
@@ -936,6 +975,12 @@ impl SpotPlayer {
     }
 }
 
+/// One command per step goes to the remote, so never more than the
+/// cluster's queue holds, or `MAX_BLIND_SKIPS` before its first push.
+fn remote_steps(queued: Option<usize>, count: u32) -> usize {
+    (count as usize).min(queued.unwrap_or(MAX_BLIND_SKIPS))
+}
+
 /// The followed remote while it, not this Mac, plays (ADR-009 Remote mode).
 fn remote_for(owner: Role, list: &DeviceList) -> Option<RemotePlayback> {
     match route(owner, list.remote.is_some()) {
@@ -948,7 +993,7 @@ fn remote_for(owner: Role, list: &DeviceList) -> Option<RemotePlayback> {
 /// local player must stop, so nothing decodes while another device plays.
 fn enter_remote(owner: &Owner, state: &mut State) -> bool {
     owner.set_remote(true);
-    state.generation += 1;
+    state.supersede();
     state.clock.wants_play = false;
     owner.get() == Role::Local
 }
@@ -1252,18 +1297,27 @@ fn sync_session(spot: &SpotSession, player: &Player, state: &Mutex<State>) -> Se
     session
 }
 
-/// None when `session_id` is already held; otherwise where to resume, if
-/// anything was playing. Bumps the generation so a radio fetch started on
-/// the old session cannot replace the restored track.
-fn prepare_restore(
-    state: &mut State,
-    session_id: String,
-) -> Option<Option<(SpotifyUri, bool, u32)>> {
+#[derive(Debug, PartialEq)]
+enum Restore {
+    /// The player already holds the session.
+    Held,
+    /// Where to resume on the adopted session, if anything was playing.
+    Adopted(Option<(SpotifyUri, bool, u32)>),
+}
+
+/// False once a newer user choice replaced `choice`; `None` claims nothing.
+fn is_latest(state: &State, choice: Option<u64>) -> bool {
+    choice.is_none_or(|choice| choice == state.choice)
+}
+
+/// Bumps the generation on adoption so a radio fetch started on the old
+/// session cannot replace the restored track.
+fn prepare_restore(state: &mut State, session_id: String) -> Restore {
     if !adopt_session(state, session_id) {
-        return None;
+        return Restore::Held;
     }
     state.generation += 1;
-    Some(resume_point(state))
+    Restore::Adopted(resume_point(state))
 }
 
 /// Records `session_id` as the player's session; false if it already was.
@@ -1335,10 +1389,6 @@ async fn resolve(session: &Session, uri: &SpotifyUri) -> Result<Vec<SpotifyUri>,
     }
 }
 
-fn canonical(uri: &SpotifyUri) -> String {
-    uri.to_uri().unwrap_or_else(|_| "<unprintable>".to_owned())
-}
-
 /// Holds the player weakly so `set_normalisation` can drop it. Once a rebuild
 /// moves the epoch on, this player's events are stale and end the loop;
 /// state changes check it under the state lock.
@@ -1352,7 +1402,12 @@ async fn forward_events(
     observer: Arc<dyn PlayerObserver>,
 ) {
     while let Some(event) = events.recv().await {
-        let Some(player) = player.upgrade().filter(|_| epoch.is_current()) else {
+        // Held across the radio fetch below, so it may be the last reference.
+        let Some(player) = player
+            .upgrade()
+            .filter(|_| epoch.is_current())
+            .map(OffRuntime::new)
+        else {
             return;
         };
         if let PlayerEvent::PlayRequestIdChanged { play_request_id } = event {
@@ -1592,6 +1647,7 @@ mod tests {
             context_uri: None,
             autoplay: true,
             generation: 0,
+            choice: 0,
             clock: Clock::default(),
             request_id: None,
             session_id: String::new(),
@@ -1649,13 +1705,13 @@ mod tests {
 
         assert_eq!(
             prepare_restore(&mut state, "first".to_owned()),
-            None,
+            Restore::Held,
             "no reconnect yet"
         );
         assert_eq!(state.generation, generation);
         assert_eq!(
             prepare_restore(&mut state, "second".to_owned()),
-            Some(Some((track(0), false, 42_000)))
+            Restore::Adopted(Some((track(0), false, 42_000)))
         );
         assert!(
             state.generation > generation,
@@ -1663,14 +1719,67 @@ mod tests {
         );
         assert_eq!(
             prepare_restore(&mut state, "second".to_owned()),
-            None,
+            Restore::Held,
             "a repeated notice for the same session restores nothing"
         );
         assert_eq!(
             prepare_restore(&mut state, "third".to_owned()),
-            Some(Some((track(0), false, 42_000))),
+            Restore::Adopted(Some((track(0), false, 42_000))),
             "a reconnect during a restore restores again"
         );
+    }
+
+    #[test]
+    fn a_load_resolving_after_a_newer_choice_is_dropped() {
+        let mut state = state_playing(track(0));
+        let slow = state.claim();
+        let fast = state.claim();
+
+        let first = state.begin_context(vec![track(2)], None, None, true, Some(fast));
+        assert_eq!(first.unwrap(), Some(track(2)));
+        let first = state.begin_context(vec![track(1)], None, None, true, Some(slow));
+        assert_eq!(first.unwrap(), None, "the slower load is dropped");
+        assert_eq!(state.queue.current(), Some(&track(2)));
+
+        let pending = state.claim();
+        state.supersede();
+        let first = state.begin_context(vec![track(1)], None, None, true, Some(pending));
+        assert_eq!(first.unwrap(), None, "next or skip replaced it");
+
+        let pending = state.claim();
+        prepare_restore(&mut state, "reconnected".to_owned());
+        let first = state.begin_context(vec![track(1)], None, None, true, Some(pending));
+        assert_eq!(
+            first.unwrap(),
+            Some(track(1)),
+            "a restore is not a user choice"
+        );
+
+        let first = state.begin_context(vec![track(3)], Some(0), None, true, None);
+        assert_eq!(first.unwrap(), Some(track(3)), "load_tracks claims nothing");
+    }
+
+    #[test]
+    fn a_pending_load_leaves_a_radio_fetch_running() {
+        let mut state = state_playing(track(0));
+        let radio = state.generation;
+        let pending = state.claim();
+        assert_eq!(
+            state.generation, radio,
+            "a load that fails would cancel radio"
+        );
+        state
+            .begin_context(vec![track(1)], None, None, true, Some(pending))
+            .unwrap();
+        assert!(state.generation > radio, "the load that plays retires it");
+    }
+
+    #[test]
+    fn remote_skips_are_capped_by_the_known_queue_or_a_blind_limit() {
+        assert_eq!(remote_steps(Some(3), 2), 2);
+        assert_eq!(remote_steps(Some(3), 9), 3);
+        assert_eq!(remote_steps(None, 2), 2, "skips before the first push");
+        assert_eq!(remote_steps(None, u32::MAX), MAX_BLIND_SKIPS);
     }
 
     #[test]
@@ -1824,19 +1933,18 @@ mod tests {
     }
 
     fn followed(playing: bool) -> DeviceList {
-        DeviceList {
-            remote: Some(RemotePlayback {
-                device_id: "phone".to_owned(),
-                uri: canonical(&track(0)),
-                title: String::new(),
-                duration_ms: 0,
-                position_ms: 0,
-                playing,
-                volume: 0,
-                device_name: String::new(),
-            }),
-            ..DeviceList::default()
-        }
+        let mut list = DeviceList::default();
+        list.remote = Some(RemotePlayback {
+            device_id: "phone".to_owned(),
+            uri: canonical(&track(0)),
+            title: String::new(),
+            duration_ms: 0,
+            position_ms: 0,
+            playing,
+            volume: 0,
+            device_name: String::new(),
+        });
+        list
     }
 
     #[test]

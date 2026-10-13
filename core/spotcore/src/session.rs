@@ -191,11 +191,11 @@ impl SpotSession {
 
     /// Replaces any previous follower.
     pub(crate) fn set_follower(&self, follower: Weak<dyn ConnectivityFollower>) {
-        *crate::player::lock(&self.follower) = Some(follower);
+        *crate::util::lock(&self.follower) = Some(follower);
     }
 
     fn follower(&self) -> Option<Arc<dyn ConnectivityFollower>> {
-        crate::player::lock(&self.follower)
+        crate::util::lock(&self.follower)
             .as_ref()
             .and_then(Weak::upgrade)
     }

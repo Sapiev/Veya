@@ -17,10 +17,10 @@ use librespot_core::{Session, SessionConfig};
 use librespot_discovery::Discovery;
 use librespot_protocol::connect::ClusterUpdate;
 use log::{info, warn};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use crate::devices::{ConnectDevice, ConnectError, DeviceList, TransferPort};
-use crate::player::{Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, lock, playable};
+use crate::player::{Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, playable};
 use crate::queue::RepeatMode;
 use crate::reconnect::{Connector, Link, Supervisor};
 use crate::remote::{
@@ -31,6 +31,7 @@ use crate::session::{
     CONNECT_TIMEOUT, ConnectivityFollower, SessionError, SpotSession, StoredCredentials,
     map_connect_error,
 };
+use crate::util::{OffRuntime, lock};
 
 /// Fixed so the id is stable across launches and phones list one device.
 const DEVICE_ID_SUFFIX: &str = "-connect";
@@ -144,18 +145,20 @@ impl Link for ConnectLink {
         if self.shut.swap(true, SeqCst) {
             return;
         }
-        match self.player.upgrade() {
+        match self.player.upgrade().map(OffRuntime::new) {
             Some(player) => {
                 player.connect_retired(&self.epoch);
                 // After the retire, so a racing cluster update cannot refill it.
-                let mut list = lock(&self.devices);
-                if list.remote.is_some() {
+                let (remote, listed) = {
+                    let mut list = lock(&self.devices);
+                    let remote = list.remote.is_some();
+                    (remote, list.clear().then(|| list.changed()))
+                };
+                if remote {
                     player.leave_remote(true);
                 }
-                if list.clear() {
-                    player.emit(PlaybackEvent::DevicesChanged {
-                        devices: Vec::new(),
-                    });
+                if let Some(listed) = listed {
+                    listed.report(|devices| player.emit(PlaybackEvent::DevicesChanged { devices }));
                 }
             }
             None => self.epoch.retire(),
@@ -180,7 +183,8 @@ type ClusterQueue = Arc<Mutex<Option<QueueSnapshot>>>;
 type ClusterDevices = Arc<Mutex<DeviceList>>;
 
 struct ConnectConnector {
-    player: Arc<SpotPlayer>,
+    /// The supervisor task may drop the last reference.
+    player: OffRuntime<SpotPlayer>,
     name: String,
     queue: ClusterQueue,
     devices: ClusterDevices,
@@ -205,6 +209,7 @@ impl Connector<ConnectLink> for ConnectConnector {
         let epoch = Epoch::default();
         let player = self
             .player
+            .arc()
             .spawn_connect_player(session.clone(), epoch.clone());
         let connect_config = ConnectConfig {
             name: self.name.clone(),
@@ -224,7 +229,7 @@ impl Connector<ConnectLink> for ConnectConnector {
             Ok(updates) => {
                 tokio::spawn(follow_cluster(
                     updates,
-                    Arc::downgrade(&self.player),
+                    Arc::downgrade(self.player.arc()),
                     Arc::clone(&self.queue),
                     Arc::clone(&self.devices),
                     session.device_id().to_owned(),
@@ -233,30 +238,22 @@ impl Connector<ConnectLink> for ConnectConnector {
             }
             Err(e) => warn!("cannot follow the Connect cluster: {e}"),
         }
-        let started = tokio::time::timeout(
-            CONNECT_TIMEOUT,
-            Spirc::new(
-                connect_config,
-                session.clone(),
-                stored.credentials,
-                player,
-                self.player.connect_mixer(),
-            ),
-        )
-        .await;
-        let (spirc, task) = match started {
-            Ok(Ok(started)) => started,
-            failed => {
-                epoch.retire();
-                session.shutdown();
-                return Err(match failed {
-                    Ok(Err(e)) => map_connect_error(&e),
-                    _ => SessionError::Network {
-                        message: "connection timed out".to_owned(),
-                    },
-                });
+        let spirc = Spirc::new(
+            connect_config,
+            session.clone(),
+            stored.credentials,
+            player,
+            self.player.connect_mixer(),
+        );
+        let (spirc, task) = until_registered(&session, &epoch, async {
+            match tokio::time::timeout(CONNECT_TIMEOUT, spirc).await {
+                Ok(started) => started.map_err(|e| map_connect_error(&e)),
+                Err(_) => Err(SessionError::Network {
+                    message: "connection timed out".to_owned(),
+                }),
             }
-        };
+        })
+        .await?;
         let (ended, task_ended) = watch::channel(false);
         tokio::spawn(async move {
             task.await;
@@ -273,9 +270,41 @@ impl Connector<ConnectLink> for ConnectConnector {
             closed,
             shut: AtomicBool::new(false),
             runtime: tokio::runtime::Handle::current(),
-            player: Arc::downgrade(&self.player),
+            player: Arc::downgrade(self.player.arc()),
             devices: Arc::clone(&self.devices),
         })
+    }
+}
+
+/// Awaits `registering`. When it fails, or is dropped unfinished as when the
+/// supervisor shuts down mid-reconnect, retires `epoch` and shuts `session`.
+async fn until_registered<T>(
+    session: &Session,
+    epoch: &Epoch,
+    registering: impl Future<Output = Result<T, SessionError>>,
+) -> Result<T, SessionError> {
+    let guard = HalfBuilt(Some((session.clone(), epoch.clone())));
+    let result = registering.await;
+    if result.is_ok() {
+        guard.finish();
+    }
+    result
+}
+
+struct HalfBuilt(Option<(Session, Epoch)>);
+
+impl HalfBuilt {
+    fn finish(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for HalfBuilt {
+    fn drop(&mut self) {
+        if let Some((session, epoch)) = self.0.take() {
+            epoch.retire();
+            session.shutdown();
+        }
     }
 }
 
@@ -320,16 +349,17 @@ async fn follow_cluster(
 }
 
 /// What a cluster update tells the player; a seam for the lock order test.
+/// Called only after the device list lock is released.
 pub(crate) trait ClusterSink {
-    /// Must not take `SpotPlayer` locks: it runs under the device list lock.
     fn emit(&self, event: PlaybackEvent);
     fn apply_remote(&self, change: Change, events: Vec<PlaybackEvent>, epoch: &Epoch);
     fn queue_changed(&self, remote: bool);
 }
 
 /// Updates the device list and Remote mode under the list lock, then
-/// applies the change after releasing it: `apply_remote` takes `state`,
-/// which comes first in the lock order (see `SpotPlayer`).
+/// emits and applies the change after releasing it: `apply_remote` takes
+/// `state`, which comes first in the lock order (see `SpotPlayer`), and the
+/// observer may call back into the device list.
 fn apply_cluster(
     devices: &Mutex<DeviceList>,
     update: &ClusterUpdate,
@@ -338,22 +368,21 @@ fn apply_cluster(
     queue_changed: bool,
     sink: &impl ClusterSink,
 ) {
-    let (change, events, remote) = {
+    let (listed, change, events, remote) = {
         // Checked under the list lock that link shutdown clears it under.
         let mut list = lock(devices);
         if !epoch.is_current() {
             return;
         }
-        if list.update(update, this_id) {
-            sink.emit(PlaybackEvent::DevicesChanged {
-                devices: list.devices.clone(),
-            });
-        }
+        let listed = list.update(update, this_id).then(|| list.changed());
         let observed = remote_playback(update, this_id);
         let (change, next, events) = remote_change(list.remote.as_ref(), observed, &list.active);
         list.remote = next;
-        (change, events, list.remote.is_some())
+        (listed, change, events, list.remote.is_some())
     };
+    if let Some(listed) = listed {
+        listed.report(|devices| sink.emit(PlaybackEvent::DevicesChanged { devices }));
+    }
     sink.apply_remote(change, events, epoch);
     if queue_changed {
         sink.queue_changed(remote);
@@ -419,7 +448,8 @@ pub struct SpotConnect {
     queue: ClusterQueue,
     devices: ClusterDevices,
     player: Arc<SpotPlayer>,
-    runtime: tokio::runtime::Handle,
+    /// Connect-state requests, sent one at a time in order.
+    outbox: mpsc::UnboundedSender<Outgoing>,
     /// Dropping it stops zeroconf.
     _zeroconf: Option<watch::Sender<bool>>,
 }
@@ -442,7 +472,7 @@ impl SpotConnect {
         let queue = ClusterQueue::default();
         let devices = ClusterDevices::default();
         let connector = ConnectConnector {
-            player: Arc::clone(&player),
+            player: OffRuntime::new(Arc::clone(&player)),
             name: name.clone(),
             queue: Arc::clone(&queue),
             devices: Arc::clone(&devices),
@@ -473,7 +503,7 @@ impl SpotConnect {
             queue,
             devices,
             player: Arc::clone(&player),
-            runtime: tokio::runtime::Handle::current(),
+            outbox: start_outbox(),
             _zeroconf: zeroconf,
         });
         player.attach_connect(Arc::downgrade(&this));
@@ -547,6 +577,13 @@ impl SpotConnect {
         if let Err(e) = command(&self.supervisor.current_link().spirc) {
             warn!("Connect command failed: {e}");
         }
+    }
+
+    /// Tracks after the current one, or `None` before the first cluster push.
+    pub(crate) fn queued(&self) -> Option<usize> {
+        lock(&self.queue)
+            .as_ref()
+            .map(|q| q.up_next.len() + q.next_from_context.len())
     }
 
     pub(crate) fn queue(&self, autoplay: bool) -> QueueSnapshot {
@@ -629,20 +666,82 @@ impl SpotConnect {
         endpoint: fn(&str, &str) -> String,
     ) {
         let session = self.supervisor.current_link().session.clone();
-        self.runtime.spawn(async move {
-            let me = session.device_id().to_owned();
-            let endpoint = endpoint(&me, target.as_deref().unwrap_or(&me));
-            let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            let sent = session
-                .spclient()
-                .request(&method, &endpoint, Some(headers), Some(&body))
-                .await;
-            if let Err(e) = sent {
-                warn!("Connect command failed: {e}");
-            }
+        let _ = self.outbox.send(Outgoing {
+            session,
+            method,
+            target,
+            body,
+            endpoint,
         });
     }
+}
+
+struct Outgoing {
+    session: Session,
+    method: Method,
+    target: Option<String>,
+    body: Vec<u8>,
+    endpoint: fn(&str, &str) -> String,
+}
+
+impl Outgoing {
+    /// The target of a volume request, which a later one to it replaces.
+    fn volume_target(&self) -> Option<&str> {
+        (self.method == Method::PUT).then_some(self.target.as_deref()?)
+    }
+
+    async fn send(self) {
+        let me = self.session.device_id().to_owned();
+        let endpoint = (self.endpoint)(&me, self.target.as_deref().unwrap_or(&me));
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let sent = self
+            .session
+            .spclient()
+            .request(&self.method, &endpoint, Some(headers), Some(&self.body))
+            .await;
+        if let Err(e) = sent {
+            warn!("Connect command failed: {e}");
+        }
+    }
+}
+
+/// Parallel requests could reach a remote out of order (a pause after the
+/// play that followed it), so one task sends them in turn. Ends once
+/// `SpotConnect` is dropped.
+fn start_outbox() -> mpsc::UnboundedSender<Outgoing> {
+    let (outbox, mut queued) = mpsc::unbounded_channel::<Outgoing>();
+    tokio::spawn(async move {
+        while let Some(first) = queued.recv().await {
+            let mut batch = vec![first];
+            while let Ok(next) = queued.try_recv() {
+                batch.push(next);
+            }
+            for request in coalesce(batch, Outgoing::volume_target) {
+                request.send().await;
+            }
+        }
+    });
+    outbox
+}
+
+/// Drops each volume request a later one to the same target replaces, so a
+/// slider drag ends on its last value without sending every step.
+fn coalesce<T>(batch: Vec<T>, volume_target: impl Fn(&T) -> Option<&str>) -> Vec<T> {
+    let replaced: Vec<bool> = (0..batch.len())
+        .map(|i| {
+            volume_target(&batch[i]).is_some_and(|target| {
+                batch[i + 1..]
+                    .iter()
+                    .any(|later| volume_target(later) == Some(target))
+            })
+        })
+        .collect();
+    batch
+        .into_iter()
+        .zip(replaced)
+        .filter_map(|(request, replaced)| (!replaced).then_some(request))
+        .collect()
 }
 
 #[cfg(test)]
@@ -660,7 +759,12 @@ mod tests {
     }
 
     impl ClusterSink for LockChecker<'_> {
-        fn emit(&self, _: PlaybackEvent) {}
+        fn emit(&self, _: PlaybackEvent) {
+            assert!(
+                self.devices.try_lock().is_ok(),
+                "emitted under the list lock"
+            );
+        }
 
         fn apply_remote(&self, change: Change, _: Vec<PlaybackEvent>, _: &Epoch) {
             assert!(
@@ -706,6 +810,60 @@ mod tests {
 
         assert_eq!(*checker.applied.lock().unwrap(), [Change::Enter]);
         assert!(lock(&devices).remote.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_or_failed_connect_retires_its_link() {
+        let fresh = || {
+            (
+                Session::new(SessionConfig::default(), None),
+                Epoch::default(),
+            )
+        };
+
+        let (session, epoch) = fresh();
+        let pending = std::future::pending::<Result<(), SessionError>>();
+        let cancelled = tokio::time::timeout(
+            Duration::from_millis(10),
+            until_registered(&session, &epoch, pending),
+        )
+        .await;
+        assert!(cancelled.is_err());
+        assert!(!epoch.is_current() && session.is_invalid(), "cancelled");
+
+        let (session, epoch) = fresh();
+        let failed = async {
+            Err::<(), _>(SessionError::Network {
+                message: String::new(),
+            })
+        };
+        assert!(until_registered(&session, &epoch, failed).await.is_err());
+        assert!(!epoch.is_current() && session.is_invalid(), "failed");
+
+        let (session, epoch) = fresh();
+        until_registered(&session, &epoch, async { Ok(()) })
+            .await
+            .unwrap();
+        assert!(epoch.is_current() && !session.is_invalid(), "registered");
+    }
+
+    #[test]
+    fn only_the_last_volume_per_target_is_sent_and_order_holds() {
+        let batch = vec![
+            ("vol", "phone", 1),
+            ("pause", "phone", 2),
+            ("vol", "tv", 3),
+            ("vol", "phone", 4),
+            ("play", "phone", 5),
+            ("vol", "phone", 6),
+        ];
+        let kept: Vec<_> = coalesce(batch, |&(kind, target, _)| {
+            (kind == "vol").then_some(target)
+        })
+        .into_iter()
+        .map(|(_, _, n)| n)
+        .collect();
+        assert_eq!(kept, [2, 3, 5, 6]);
     }
 
     #[tokio::test(start_paused = true)]

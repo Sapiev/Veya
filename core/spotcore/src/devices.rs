@@ -1,12 +1,12 @@
 //! The account's Connect devices from cluster updates, and where a transfer
 //! goes (ADR-009 "Cluster and devices", PBI-502).
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use librespot_protocol::connect::ClusterUpdate;
 use librespot_protocol::devices::DeviceType;
 
-use crate::player::lock;
+use crate::util::lock;
 
 /// Messages never carry tokens or usernames.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -126,6 +126,28 @@ pub(crate) struct DeviceList {
     pub(crate) active: String,
     /// The active remote device's playback while in Remote mode (PBI-503).
     pub(crate) remote: Option<crate::remote::RemotePlayback>,
+    /// Bumped by every change, so a snapshot reported late loses to a newer one.
+    version: u64,
+    reported: Arc<Mutex<u64>>,
+}
+
+/// A device list taken under the list lock, reported after it is released.
+pub(crate) struct Listed {
+    devices: Vec<ConnectDevice>,
+    version: u64,
+    reported: Arc<Mutex<u64>>,
+}
+
+impl Listed {
+    /// Calls `emit` unless a newer list was already reported. Holds the
+    /// report lock across `emit`, so `emit` must not report a list itself.
+    pub(crate) fn report(self, emit: impl FnOnce(Vec<ConnectDevice>)) {
+        let mut last = lock(&self.reported);
+        if self.version > *last {
+            *last = self.version;
+            emit(self.devices);
+        }
+    }
 }
 
 impl DeviceList {
@@ -155,8 +177,22 @@ impl DeviceList {
     /// Returns whether anything was listed.
     pub(crate) fn clear(&mut self) -> bool {
         let listed = !self.devices.is_empty();
-        *self = Self::default();
+        *self = Self {
+            version: self.version,
+            reported: Arc::clone(&self.reported),
+            ..Self::default()
+        };
         listed
+    }
+
+    /// Call after a change, under the list lock, to report it once released.
+    pub(crate) fn changed(&mut self) -> Listed {
+        self.version += 1;
+        Listed {
+            devices: self.devices.clone(),
+            version: self.version,
+            reported: Arc::clone(&self.reported),
+        }
     }
 
     pub(crate) fn contains(&self, id: &str) -> bool {
@@ -170,7 +206,8 @@ pub(crate) trait TransferPort: Send + Sync {
     fn to_this_mac(&self) -> Result<(), String>;
     fn between(&self, from: &str, to: &str) -> impl Future<Output = Result<(), String>> + Send;
     fn pause_local(&self);
-    /// Gets the list after a transfer moved the active mark.
+    /// Gets the list after a transfer moved the active mark, with the list
+    /// lock released.
     fn devices_changed(&self, devices: Vec<ConnectDevice>);
 }
 
@@ -198,9 +235,13 @@ pub(crate) async fn transfer(
             port.pause_local();
         }
     }
-    let mut list = lock(list);
-    if list.set_active(&target) {
-        port.devices_changed(list.devices.clone());
+    let changed = {
+        let mut list = lock(list);
+        list.set_active(&target).then(|| list.changed())
+    };
+    // The observer may call back into the device list.
+    if let Some(listed) = changed {
+        listed.report(|devices| port.devices_changed(devices));
     }
     Ok(())
 }
@@ -463,8 +504,59 @@ mod transfer_tests {
                 .map(|id| device(id, active))
                 .to_vec(),
             active: active.to_owned(),
-            remote: None,
+            ..DeviceList::default()
         })
+    }
+
+    #[test]
+    fn a_list_reported_late_loses_to_a_newer_one() {
+        let devices = list("phone");
+        let stale = lock(&devices).changed();
+        let newer = {
+            let mut list = lock(&devices);
+            list.clear();
+            list.changed()
+        };
+        let reported = Mutex::new(Vec::new());
+        newer.report(|d| reported.lock().unwrap().push(d.len()));
+        stale.report(|d| reported.lock().unwrap().push(d.len()));
+        assert_eq!(*reported.lock().unwrap(), [0], "the cleared list stands");
+
+        let after = lock(&devices).changed();
+        after.report(|d| reported.lock().unwrap().push(d.len()));
+        assert_eq!(
+            reported.lock().unwrap().len(),
+            2,
+            "a clear keeps the version"
+        );
+    }
+
+    /// Fails if the observer is told while the device list is locked.
+    struct Reentrant<'a>(&'a Mutex<DeviceList>);
+
+    impl TransferPort for Reentrant<'_> {
+        fn to_this_mac(&self) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn between(&self, _: &str, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn pause_local(&self) {}
+
+        fn devices_changed(&self, _: Vec<ConnectDevice>) {
+            assert!(self.0.try_lock().is_ok(), "told under the list lock");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_new_list_is_reported_after_the_lock_is_released() {
+        let devices = list("phone");
+        transfer(&devices, "mac", "speaker".to_owned(), &Reentrant(&devices))
+            .await
+            .unwrap();
+        assert_eq!(lock(&devices).active, "speaker");
     }
 
     #[tokio::test]

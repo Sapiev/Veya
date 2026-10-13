@@ -292,16 +292,17 @@ struct SessionReconnectTests {
         let session = FakeSession()
         let model = try await ready(session, store: FakeStore(blob: storedBlob))
 
-        try model.setAudioCacheLimit(bytes: 512 << 20)
+        try await model.setAudioCacheLimit(bytes: 512 << 20)
 
         #expect(connector.cacheLimits == [512 << 20])
+        #expect(connector.cacheWorkOnMain == [false])
         #expect(session.reconnects == 1)
     }
 
-    @Test func cacheLimitChangeWithoutSessionOnlySetsLimit() throws {
+    @Test func cacheLimitChangeWithoutSessionOnlySetsLimit() async throws {
         let fresh = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
-        try fresh.setAudioCacheLimit(bytes: 2 << 30)
+        try await fresh.setAudioCacheLimit(bytes: 2 << 30)
 
         #expect(connector.cacheLimits == [2 << 30])
     }
@@ -311,7 +312,7 @@ struct SessionReconnectTests {
         let model = try await ready(session, store: FakeStore(blob: storedBlob))
         connector.failCacheLimit(with: CacheError.Io(message: "disk"))
 
-        #expect(throws: CacheError.self) { try model.setAudioCacheLimit(bytes: 1) }
+        await #expect(throws: CacheError.self) { try await model.setAudioCacheLimit(bytes: 1) }
         #expect(session.reconnects == 0)
     }
 }

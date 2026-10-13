@@ -261,13 +261,15 @@ public final class SessionModel {
     }
 
     /// Drops cached library and metadata; the next fetch goes to the network.
-    public func resetMetadataCache() throws {
-        try connector.clearMetadataCache()
+    public func resetMetadataCache() async throws {
+        let connector = connector
+        try await Task.detached { try connector.clearMetadataCache() }.value
     }
 
     /// Deletes downloaded audio; tracks download again when played.
-    public func clearAudioCache() throws {
-        try connector.clearAudioCache()
+    public func clearAudioCache() async throws {
+        let connector = connector
+        try await Task.detached { try connector.clearAudioCache() }.value
     }
 
     /// Ties `player` to the session it started on, so ending that session stops it.
@@ -297,8 +299,9 @@ public final class SessionModel {
 
     /// Evicts down to `bytes` at once; the live session reconnects to pick
     /// up the limit, and the player restarts the current track where it was.
-    public func setAudioCacheLimit(bytes: UInt64) throws {
-        try connector.setAudioCacheLimit(bytes: bytes)
+    public func setAudioCacheLimit(bytes: UInt64) async throws {
+        let connector = connector
+        try await Task.detached { try connector.setAudioCacheLimit(bytes: bytes) }.value
         session?.reconnect()
     }
 

@@ -158,6 +158,7 @@ public final class SearchModel {
         } catch let error as SearchError {
             primaryError = error
         } catch {
+            if Self.isCancellation(error) { return (nil, error) }
             primaryError = .Request(message: String(describing: type(of: error)))
         }
         log(.warn, "Search failed: \(Self.summary(primaryError))")
@@ -168,6 +169,10 @@ public final class SearchModel {
             log(.warn, "Fallback search failed: \(String(describing: type(of: error)))")
             return (nil, primaryError)
         }
+    }
+
+    private static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     /// Error case names only: messages may carry server text.

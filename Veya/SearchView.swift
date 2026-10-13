@@ -4,7 +4,7 @@ import SwiftUI
 
 extension FocusedValues {
     /// Focuses the toolbar search field in the key window (⌘F, ⌘K, ⌘L).
-    @Entry var focusSearch: (() -> Void)?
+    @Entry var focusSearch: WindowAction?
 }
 
 /// The toolbar search field (`.search-field`). Typing opens the Search route;
@@ -683,7 +683,8 @@ private struct SongRow: View {
         )
         .contentShape(.rect)
         .onTapGesture(count: 2, perform: open)
-        .onTapGesture(perform: select)
+        // Simultaneous, so a single click selects at once instead of waiting out the double-click interval.
+        .simultaneousGesture(TapGesture().onEnded(select))
         .contextMenu {
             Button("Play", action: open)
             Button("Play Next", action: playNext)
@@ -692,7 +693,7 @@ private struct SongRow: View {
             Button(saved ? "Remove from Liked Songs" : "Save to Liked Songs", action: toggleSaved)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { open() }
         .onHover { hovering = $0 }
     }

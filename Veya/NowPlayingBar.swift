@@ -359,6 +359,7 @@ struct ThinSlider: View {
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var hovering = false
     @State private var dragging = false
+    @State private var accessibilityEditing = false
     @Environment(\.palette) private var palette
     @Environment(\.isEnabled) private var isEnabled
 
@@ -374,6 +375,20 @@ struct ThinSlider: View {
         self.label = label
         self.onArtwork = onArtwork
         self.onEditingChanged = onEditingChanged
+    }
+
+    /// Assistive increments and value sets arrive without an editing session;
+    /// each one becomes a complete edit so seeks are not left pending.
+    private var accessibleValue: Binding<Double> {
+        Binding(get: { value }, set: { new in
+            if accessibilityEditing {
+                value = new
+            } else {
+                onEditingChanged(true)
+                value = new
+                onEditingChanged(false)
+            }
+        })
     }
 
     var body: some View {
@@ -418,7 +433,10 @@ struct ThinSlider: View {
         .onHover { hovering = $0 }
         .animation(Theme.fast, value: hovering || dragging)
         .accessibilityRepresentation {
-            Slider(value: $value, in: range, label: { label }, onEditingChanged: onEditingChanged)
+            Slider(value: accessibleValue, in: range, label: { label }) { editing in
+                accessibilityEditing = editing
+                onEditingChanged(editing)
+            }
         }
     }
 }

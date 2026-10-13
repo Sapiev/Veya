@@ -273,7 +273,16 @@ struct PlaylistPageView: View {
 
 extension EnvironmentValues {
     /// Asks for an image file; UI test scenarios supply one without the panel.
-    @Entry var choosePhoto: @MainActor () async -> URL? = choosePhotoWithPanel
+    @Entry var choosePhoto = PhotoChooser(choose: choosePhotoWithPanel)
+}
+
+/// Set once at launch, so it never needs comparing.
+struct PhotoChooser {
+    let choose: @MainActor () async -> URL?
+
+    func callAsFunction() async -> URL? {
+        await choose()
+    }
 }
 
 @MainActor private func choosePhotoWithPanel() async -> URL? {

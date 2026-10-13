@@ -186,6 +186,9 @@ struct QueueRow: View {
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
         .onTapGesture { if row.playable { play?() } }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(play == nil ? [] : .isButton)
+        .accessibilityAction { if row.playable { play?() } }
         .accessibilityAction(named: "Play") { if row.playable { play?() } }
         .opacity(row.playable ? 1 : 0.4)
     }

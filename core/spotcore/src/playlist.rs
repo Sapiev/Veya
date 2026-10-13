@@ -24,16 +24,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::library::decode_fields;
 use crate::metadata::{Artwork, ArtworkSize, image_url_template};
-use crate::player::lock;
 use crate::push::PushWatch;
 use crate::session::SpotSession;
 use crate::store::MetadataStore;
+use crate::util::{blocking, lock};
 
 const ROOTLIST_PAGE: usize = 120;
 const PUSH_URI: &str = "hm://playlist/";
 const PLAYLIST_PREFIX: &str = "spotify:playlist:";
 const IMAGE_UPLOAD_URL: &str = "https://image-upload.spotify.com/v4/playlist";
 const MAX_PICTURE_BYTES: usize = 256 * 1024;
+/// Local file URIs carry artist, album and title, so allow far past 22-char ids.
+const MAX_LISTED_URI: usize = 2048;
 const START_GROUP: &str = "spotify:start-group:";
 const END_GROUP: &str = "spotify:end-group:";
 /// Form encoding keeps only the unreserved characters; spaces become `+`.
@@ -189,10 +191,14 @@ impl PlaylistService {
         let raw = raw_rootlist(&session).await?;
         let username = session.username();
         let entries = rootlist_entries(&username, &raw.items, &raw.metas);
-        if let Some(store) = &self.store {
+        let Some(store) = self.store.clone() else {
+            return Ok(entries);
+        };
+        Ok(blocking(move || {
             store.put_rootlist(generation, &username, &entries);
-        }
-        Ok(entries)
+            entries
+        })
+        .await)
     }
 
     /// The stored window when every track in it is stored, without a request.
@@ -220,10 +226,14 @@ impl PlaylistService {
             &session.username(),
         );
         page.owner_name = self.owner_name(&session, &page.owner).await;
-        if let Some(store) = &self.store {
-            persist_page(store, generation, &page);
-        }
-        Ok(page)
+        let Some(store) = self.store.clone() else {
+            return Ok(page);
+        };
+        Ok(blocking(move || {
+            persist_page(&store, generation, &page);
+            page
+        })
+        .await)
     }
 
     pub async fn follower_count(&self, uri: String) -> Result<u64, PlaylistError> {
@@ -240,10 +250,8 @@ impl PlaylistService {
         track_uris: Vec<String>,
         revision: String,
     ) -> Result<String, PlaylistError> {
-        for track in &track_uris {
-            validate_track_uri(track)?;
-        }
-        self.change_playlist(&uri, &revision, add_op(None, &track_uris))
+        validate_track_uris(&track_uris)?;
+        self.change_playlist(&uri, &revision, add_op(None, &track_uris)?)
             .await
     }
 
@@ -255,7 +263,8 @@ impl PlaylistService {
         track_uris: Vec<String>,
         revision: String,
     ) -> Result<String, PlaylistError> {
-        self.change_playlist(&uri, &revision, rem_op(from, &track_uris))
+        validate_listed_uris(&track_uris)?;
+        self.change_playlist(&uri, &revision, rem_op(from, &track_uris)?)
             .await
     }
 
@@ -269,7 +278,7 @@ impl PlaylistService {
         to: u32,
         revision: String,
     ) -> Result<String, PlaylistError> {
-        self.change_playlist(&uri, &revision, mov_op(from, length, to))
+        self.change_playlist(&uri, &revision, mov_op(from, length, to)?)
             .await
     }
 
@@ -360,7 +369,7 @@ impl PlaylistService {
         let session = self.session.current_session();
         let raw = raw_rootlist(&session).await?;
         let index = rootlist_index(&raw.items, &uri)?;
-        let op = rem_op(index as u32, std::slice::from_ref(&uri));
+        let op = rem_op(index, std::slice::from_ref(&uri))?;
         send_rootlist(&session, raw.revision, op).await
     }
 
@@ -369,7 +378,7 @@ impl PlaylistService {
         let session = self.session.current_session();
         let raw = raw_rootlist(&session).await?;
         let index = rootlist_index(&raw.items, &uri)?;
-        send_rootlist(&session, raw.revision, public_op(index, &uri, public)).await
+        send_rootlist(&session, raw.revision, public_op(index, &uri, public)?).await
     }
 
     /// Returns at the next root list or playlist change pushed by the dealer.
@@ -394,7 +403,11 @@ impl PlaylistService {
         if !is_username(owner) {
             return owner.to_owned();
         }
-        let name = match session.spclient().get_user_profile(owner, Some(0), Some(0)).await {
+        let name = match session
+            .spclient()
+            .get_user_profile(owner, Some(0), Some(0))
+            .await
+        {
             Ok(bytes) => profile_name(&bytes),
             Err(error) => {
                 log::debug!("owner profile lookup failed: {error}");
@@ -465,7 +478,7 @@ async fn raw_rootlist(session: &Session) -> Result<RawRootlist, PlaylistError> {
         if raw.items.is_empty() {
             raw.revision = content.revision().to_vec();
         }
-        let total = content.length().max(0) as usize;
+        let total = usize::try_from(content.length()).unwrap_or(0);
         let contents = content.contents.take().unwrap_or_default();
         let received = contents.items.len();
         let mut page_metas = contents.meta_items;
@@ -553,40 +566,47 @@ fn items(uris: &[String]) -> Vec<Item> {
         .collect()
 }
 
+/// The wire format's indexes are `i32`; a larger one addresses no real list.
+fn wire_index(value: impl TryInto<i32>) -> Result<i32, PlaylistError> {
+    value.try_into().map_err(|_| PlaylistError::Request {
+        message: "playlist index out of range".to_owned(),
+    })
+}
+
 /// Appends when `index` is None, otherwise inserts before raw index `index`.
-fn add_op(index: Option<usize>, uris: &[String]) -> Op {
+fn add_op(index: Option<usize>, uris: &[String]) -> Result<Op, PlaylistError> {
     let mut add = Add::new();
     match index {
-        Some(index) => add.set_from_index(index as i32),
+        Some(index) => add.set_from_index(wire_index(index)?),
         None => add.set_add_last(true),
     }
     add.items = items(uris);
     let mut op = Op::new();
     op.set_kind(Kind::ADD);
     op.add = Some(add).into();
-    op
+    Ok(op)
 }
 
-fn rem_op(from: u32, uris: &[String]) -> Op {
+fn rem_op(from: impl TryInto<i32>, uris: &[String]) -> Result<Op, PlaylistError> {
     let mut rem = Rem::new();
-    rem.set_from_index(from as i32);
-    rem.set_length(uris.len() as i32);
+    rem.set_from_index(wire_index(from)?);
+    rem.set_length(wire_index(uris.len())?);
     rem.items = items(uris);
     let mut op = Op::new();
     op.set_kind(Kind::REM);
     op.rem = Some(rem).into();
-    op
+    Ok(op)
 }
 
-fn mov_op(from: u32, length: u32, to: u32) -> Op {
+fn mov_op(from: u32, length: u32, to: u32) -> Result<Op, PlaylistError> {
     let mut mov = Mov::new();
-    mov.set_from_index(from as i32);
-    mov.set_length(length as i32);
-    mov.set_to_index(to as i32);
+    mov.set_from_index(wire_index(from)?);
+    mov.set_length(wire_index(length)?);
+    mov.set_to_index(wire_index(to)?);
     let mut op = Op::new();
     op.set_kind(Kind::MOV);
     op.mov = Some(mov).into();
-    op
+    Ok(op)
 }
 
 fn details_op(name: &str, description: &str) -> Op {
@@ -607,9 +627,9 @@ fn details_op(name: &str, description: &str) -> Op {
     op
 }
 
-fn public_op(index: usize, uri: &str, public: bool) -> Op {
+fn public_op(index: usize, uri: &str, public: bool) -> Result<Op, PlaylistError> {
     let mut update = UpdateItemAttributes::new();
-    update.set_index(index as i32);
+    update.set_index(wire_index(index)?);
     update.item = items(&[uri.to_owned()]).pop().into();
     let mut values = ItemAttributes::new();
     values.set_public(public);
@@ -617,7 +637,7 @@ fn public_op(index: usize, uri: &str, public: bool) -> Op {
     let mut op = Op::new();
     op.set_kind(Kind::UPDATE_ITEM_ATTRIBUTES);
     op.update_item_attributes = Some(update).into();
-    op
+    Ok(op)
 }
 
 fn create_request(name: &str, description: &str) -> ListUpdateRequest {
@@ -722,6 +742,25 @@ fn revision_bytes(revision: &str) -> Result<Vec<u8>, PlaylistError> {
         .collect()
 }
 
+fn validate_track_uris(uris: &[String]) -> Result<(), PlaylistError> {
+    uris.iter().try_for_each(|uri| validate_track_uri(uri))
+}
+
+/// Looser than `validate_track_uri`: a removal names rows a page listed,
+/// local files (`spotify:local:...`) included.
+fn validate_listed_uris(uris: &[String]) -> Result<(), PlaylistError> {
+    uris.iter().try_for_each(|uri| {
+        let listed = uri.starts_with("spotify:")
+            && uri.len() <= MAX_LISTED_URI
+            && !uri.chars().any(char::is_control);
+        listed
+            .then_some(())
+            .ok_or_else(|| PlaylistError::InvalidUri {
+                uri: uri.to_owned(),
+            })
+    })
+}
+
 fn validate_track_uri(uri: &str) -> Result<(), PlaylistError> {
     let valid = ["spotify:track:", "spotify:episode:"]
         .iter()
@@ -779,7 +818,7 @@ fn insert_index(items: &[Item], folder: Option<&str>) -> Result<usize, PlaylistE
 }
 
 fn insert_op(items: &[Item], folder: Option<&str>, uris: &[String]) -> Result<Op, PlaylistError> {
-    Ok(add_op(Some(insert_index(items, folder)?), uris))
+    add_op(Some(insert_index(items, folder)?), uris)
 }
 
 fn folder_markers(id: &str, name: &str) -> [String; 2] {
@@ -836,7 +875,7 @@ fn cached_page(store: &MetadataStore, uri: String, from: u32, length: u32) -> Op
         .filter(|(position, _)| *position < end)
         .map(|(_, track)| track)
         .collect();
-    (tracks.len() as u32 == end.saturating_sub(from)).then_some(PlaylistPage {
+    (u32::try_from(tracks.len()).ok() == Some(end.saturating_sub(from))).then_some(PlaylistPage {
         offset: from,
         tracks,
         ..attributes
@@ -903,7 +942,7 @@ fn rootlist_entries(username: &str, items: &[Item], metas: &[MetaItem]) -> Vec<R
                 uri: uri.to_owned(),
                 name: meta.attributes.name().to_owned(),
                 owner: owner.to_owned(),
-                track_count: meta.length().max(0) as u32,
+                track_count: u32::try_from(meta.length()).unwrap_or(0),
                 parent: folders.last().cloned(),
                 editable: owner == username || meta.attributes.collaborative(),
                 public: item.attributes.public(),
@@ -938,8 +977,8 @@ fn page_of(
         collaborative: attributes.collaborative(),
         editable: content.owner_username() == username || attributes.collaborative(),
         artwork: artwork(attributes.picture(), &attributes.picture_size, image_url),
-        total: content.length().max(0) as u32,
-        offset: contents.pos().max(0) as u32,
+        total: u32::try_from(content.length()).unwrap_or(0),
+        offset: u32::try_from(contents.pos()).unwrap_or(0),
         tracks: contents
             .items
             .iter()
@@ -1008,7 +1047,7 @@ fn decode_popcount(bytes: &[u8]) -> protobuf::Result<u64> {
         count = is.read_sint64()?;
         Ok(true)
     })?;
-    Ok(count.max(0) as u64)
+    Ok(u64::try_from(count).unwrap_or(0))
 }
 
 #[cfg(test)]
@@ -1353,21 +1392,21 @@ mod tests {
     #[test]
     fn add_appends_or_inserts_at_raw_index() {
         let tracks = vec![format!("spotify:track:{ID}")];
-        let (base, op) = decode(changes(vec![0x01, 0xab], add_op(None, &tracks)));
+        let (base, op) = decode(changes(vec![0x01, 0xab], add_op(None, &tracks).unwrap()));
         assert_eq!(base, vec![0x01, 0xab]);
         assert_eq!(op.kind(), Kind::ADD);
         assert!(op.add.add_last());
         assert!(!op.add.has_from_index());
         assert_eq!(uris(&op.add.items), vec![tracks[0].as_str()]);
 
-        let (_, op) = decode(changes(vec![1], add_op(Some(3), &tracks)));
+        let (_, op) = decode(changes(vec![1], add_op(Some(3), &tracks).unwrap()));
         assert_eq!((op.add.from_index(), op.add.add_last()), (3, false));
     }
 
     #[test]
     fn rem_carries_index_length_and_items() {
         let tracks = vec!["spotify:track:a".to_owned(), "spotify:local:x".to_owned()];
-        let (base, op) = decode(changes(vec![0xff], rem_op(7, &tracks)));
+        let (base, op) = decode(changes(vec![0xff], rem_op(7, &tracks).unwrap()));
         assert_eq!(base, vec![0xff]);
         assert_eq!(op.kind(), Kind::REM);
         assert_eq!((op.rem.from_index(), op.rem.length()), (7, 2));
@@ -1379,7 +1418,7 @@ mod tests {
 
     #[test]
     fn mov_carries_range_and_target() {
-        let (_, op) = decode(changes(vec![2], mov_op(4, 2, 0)));
+        let (_, op) = decode(changes(vec![2], mov_op(4, 2, 0).unwrap()));
         assert_eq!(op.kind(), Kind::MOV);
         assert_eq!(
             (op.mov.from_index(), op.mov.length(), op.mov.to_index()),
@@ -1410,7 +1449,7 @@ mod tests {
     #[test]
     fn public_updates_the_root_list_item() {
         let uri = format!("{PLAYLIST_PREFIX}{ID}");
-        let (_, op) = decode(changes(vec![3], public_op(5, &uri, true)));
+        let (_, op) = decode(changes(vec![3], public_op(5, &uri, true).unwrap()));
         assert_eq!(op.kind(), Kind::UPDATE_ITEM_ATTRIBUTES);
         let update = &op.update_item_attributes;
         assert_eq!((update.index(), update.item.uri()), (5, uri.as_str()));
@@ -1613,6 +1652,45 @@ mod tests {
                 Err(PlaylistError::InvalidUri { .. })
             ));
         }
+    }
+
+    #[test]
+    fn one_bad_uri_fails_a_whole_add() {
+        let good = format!("spotify:track:{ID}");
+        assert!(validate_track_uris(std::slice::from_ref(&good)).is_ok());
+        assert!(matches!(
+            validate_track_uris(&[good, "spotify:local:a:b:c:1".into()]),
+            Err(PlaylistError::InvalidUri { .. })
+        ));
+    }
+
+    #[test]
+    fn a_removal_accepts_listed_local_files_but_not_garbage() {
+        let good = format!("spotify:track:{ID}");
+        assert!(validate_listed_uris(&[good.clone(), "spotify:local:a:b:c:1".into()]).is_ok());
+        for bad in [
+            "https://evil".to_owned(),
+            "spotify:track:a\nb".to_owned(),
+            format!("spotify:{}", "x".repeat(MAX_LISTED_URI)),
+        ] {
+            assert!(
+                matches!(
+                    validate_listed_uris(&[good.clone(), bad.clone()]),
+                    Err(PlaylistError::InvalidUri { .. })
+                ),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn indexes_past_i32_are_rejected_not_wrapped() {
+        assert!(mov_op(u32::MAX, 1, 0).is_err());
+        assert!(mov_op(0, 1, u32::MAX).is_err());
+        assert!(rem_op(u32::MAX, &[]).is_err());
+        assert!(add_op(Some(usize::MAX), &[]).is_err());
+        assert!(public_op(usize::MAX, "spotify:playlist:x", true).is_err());
+        assert!(mov_op(i32::MAX.unsigned_abs(), 1, 0).is_ok());
     }
 
     #[test]

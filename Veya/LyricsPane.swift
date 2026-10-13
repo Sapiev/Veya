@@ -34,7 +34,8 @@ struct LyricsPane: View {
         do {
             phase = try await metadata.lyrics(trackUri: uri).map(Phase.lyrics) ?? .none
         } catch {
-            logMessage(level: .warn, category: "lyrics", message: "Lyrics failed: \(error)")
+            // Type name only: messages may carry server text.
+            logMessage(level: .warn, category: "lyrics", message: "Lyrics failed: \(type(of: error))")
             phase = .failed
         }
         guard !Task.isCancelled else { return }

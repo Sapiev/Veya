@@ -172,20 +172,30 @@ struct SessionSignOutTests {
         #expect(connector.audioClears == 2)
     }
 
-    @Test func clearAudioCacheClearsThroughConnector() throws {
+    @Test func clearAudioCacheClearsThroughConnectorOffTheMainThread() async throws {
         let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
-        try model.clearAudioCache()
+        try await model.clearAudioCache()
 
         #expect(connector.audioClears == 1)
+        #expect(connector.cacheWorkOnMain == [false])
     }
 
-    @Test func resetMetadataCacheClearsThroughConnector() {
+    @Test func resetMetadataCacheClearsThroughConnectorOffTheMainThread() async {
         let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
-        try? model.resetMetadataCache()
+        try? await model.resetMetadataCache()
 
         #expect(connector.metadataClears == 1)
+        #expect(connector.cacheWorkOnMain == [false])
+    }
+
+    @Test func signOutClearsCachesOnTheMainThreadBeforeReturning() throws {
+        let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
+
+        try model.signOut()
+
+        #expect(connector.cacheWorkOnMain == [true, true])
     }
 }
 

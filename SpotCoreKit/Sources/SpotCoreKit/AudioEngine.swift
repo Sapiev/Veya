@@ -13,11 +13,11 @@ public enum AudioEngineError: Error, Equatable, Sendable {
 public final class AudioEngine {
     private static let log = Logger(subsystem: "veya", category: "audio")
 
-    // nonisolated(unsafe) only so deinit, which has sole access, can stop and free them.
-    private nonisolated(unsafe) let engine = AVAudioEngine()
+    private let engine = AVAudioEngine()
+    // nonisolated(unsafe) only so deinit, which has sole access, can free and remove them.
     private nonisolated(unsafe) let renderHandle: OpaquePointer
+    private nonisolated(unsafe) var configurationObserver: (any NSObjectProtocol)?
     private let timePitch = AVAudioUnitTimePitch()
-    private var configurationObserver: (any NSObjectProtocol)?
     private var deviceListener: SystemAudioListener?
     private var wantsToRun = false
 
@@ -75,6 +75,7 @@ public final class AudioEngine {
     }
 
     deinit {
+        configurationObserver.map(NotificationCenter.default.removeObserver)
         engine.stop()
         spotcore_audio_render_handle_free(renderHandle)
     }

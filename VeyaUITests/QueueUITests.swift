@@ -39,6 +39,13 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(app.queue.staticTexts["Song 8"].exists)
     }
 
+    @MainActor func testPlayableRowsAreButtonsAndTheNowPlayingRowIsNot() {
+        let app = openQueue()
+
+        XCTAssertTrue(app.queue.buttons.containing(NSPredicate(format: "value == %@", "Song 7")).firstMatch.exists)
+        XCTAssertFalse(app.queue.buttons.containing(NSPredicate(format: "value == %@", "Test Track")).firstMatch.exists)
+    }
+
     @MainActor func testTheCloseButtonAndTheTopBarToggleShareOneState() {
         let app = openQueue()
 

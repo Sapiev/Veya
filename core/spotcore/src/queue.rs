@@ -115,9 +115,10 @@ impl Queue {
 
     /// Skips `count` tracks as `count` presses of Next would, stopping at the
     /// end of the context; the track landed on, or `None` if none moved.
+    /// Moves at most one pass over the queue, even with repeat on.
     pub fn skip(&mut self, count: usize) -> Option<&SpotifyUri> {
         let mut moved = false;
-        for _ in 0..count {
+        for _ in 0..count.min(self.up_next.len() + self.order.len()) {
             if self.advance(true).is_none() {
                 break;
             }
@@ -293,6 +294,14 @@ mod tests {
         assert_eq!(q.skip(3), Some(&track(1)));
         assert_eq!(q.up_next().count(), 0);
         assert_eq!(q.advance(false), Some(&track(2)));
+    }
+
+    #[test]
+    fn a_huge_skip_with_repeat_on_stops_after_one_pass() {
+        let mut q = context(3);
+        q.add(track(9));
+        q.repeat = RepeatMode::Context;
+        assert_eq!(q.skip(usize::MAX), Some(&track(0)));
     }
 
     #[test]

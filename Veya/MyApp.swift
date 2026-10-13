@@ -13,12 +13,10 @@ import SwiftUI
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
     private let choosePhoto: (@MainActor () async -> URL?)?
-    private let metadataStore: MetadataStore?
     @State private var recentSearches: RecentSearches
     /// One instance, so Settings window edits reach the live player.
     @State private var settings: PlaybackSettings
     private let defaults: UserDefaults
-    private let episodeProgress: any EpisodeProgressProvider
     @State private var menuBar: MenuBarSettings
 
     init() {
@@ -30,7 +28,6 @@ import SwiftUI
         _settings = State(initialValue: settings)
         artworkLoader = dependencies.artworkLoader
         choosePhoto = dependencies.choosePhoto
-        metadataStore = dependencies.metadataStore
         _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
         let session = SessionModel(
             store: dependencies.store,
@@ -47,7 +44,7 @@ import SwiftUI
         )
         _webAPI = State(initialValue: webAPI)
         let tokens = webAPI.tokens
-        episodeProgress = dependencies.episodeProgress ?? WebAPIEpisodeProgress { try await tokens.accessToken() }
+        let episodeProgress = dependencies.episodeProgress ?? WebAPIEpisodeProgress { try await tokens.accessToken() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
             object: nil,
@@ -64,7 +61,13 @@ import SwiftUI
         }
         AppDelegate.controls = controls
         _activeSession = State(initialValue: ActiveSession(session: session, controls: controls) { handle in
-            SessionScope(handle: handle, metadataStore: dependencies.metadataStore, settings: settings) {
+            SessionScope(
+                handle: handle,
+                metadataStore: dependencies.metadataStore,
+                settings: settings,
+                accessToken: { try await tokens.accessToken() },
+                episodeProgress: episodeProgress
+            ) {
                 session.attach($0, startedOn: handle)
             }
         })
@@ -82,14 +85,12 @@ import SwiftUI
                 activeSession: activeSession,
                 signIn: signIn,
                 webAPI: webAPI,
-                metadataStore: metadataStore,
-                recentSearches: recentSearches,
-                episodeProgress: episodeProgress
+                recentSearches: recentSearches
             ) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
-            .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = choosePhoto } }
+            .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = PhotoChooser(choose: choosePhoto) } }
             .defaultAppStorage(defaults)
             .onAppear { NSApp.setActivationPolicy(.regular) }
             .onDisappear { menuBar.windowClosed() }
@@ -190,13 +191,7 @@ private struct AccountCommands: Commands {
         }
     }
 
-    /// Raised on the next turn: an alert button's own action can reset its flag.
-    @MainActor
     static func signOut(_ session: SessionModel, failed: Binding<Bool>) {
-        do {
-            try session.signOut()
-        } catch {
-            Task { @MainActor in failed.wrappedValue = true }
-        }
+        session.signOut { failed.wrappedValue = true }
     }
 }

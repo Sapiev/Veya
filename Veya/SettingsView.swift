@@ -208,6 +208,7 @@ private struct StorageSettingsTab: View {
     @State private var confirmingAudioClear = false
     @State private var audioCleared = false
     @State private var failure: LocalizedStringKey?
+    @State private var limitChange: Task<Void, Never>?
 
     private static let limits: [UInt64] = [512 << 20, 1 << 30, 2 << 30, 5 << 30, 10 << 30]
 
@@ -265,31 +266,39 @@ private struct StorageSettingsTab: View {
         }
     }
 
-    /// The live cache changes first, so a failure leaves the saved size matching it.
+    /// The live cache changes first, so a failure leaves the saved size matching it;
+    /// changes run in order so the last pick is the one both keep.
     private func setLimit(_ bytes: UInt64) {
-        do {
-            try session.setAudioCacheLimit(bytes: bytes)
-            settings.audioCacheLimitBytes = bytes
-        } catch {
-            failure = "Couldn't change the audio cache size."
+        limitChange = Task { [previous = limitChange] in
+            await previous?.value
+            do {
+                try await session.setAudioCacheLimit(bytes: bytes)
+                settings.audioCacheLimitBytes = bytes
+            } catch {
+                failure = "Couldn't change the audio cache size."
+            }
         }
     }
 
     private func clearAudio() {
-        do {
-            try session.clearAudioCache()
-            audioCleared = true
-        } catch {
-            failure = "Couldn't clear the audio cache."
+        Task {
+            do {
+                try await session.clearAudioCache()
+                audioCleared = true
+            } catch {
+                failure = "Couldn't clear the audio cache."
+            }
         }
     }
 
     private func reset() {
-        do {
-            try session.resetMetadataCache()
-            resetDone = true
-        } catch {
-            failure = "Couldn't reset the metadata cache."
+        Task {
+            do {
+                try await session.resetMetadataCache()
+                resetDone = true
+            } catch {
+                failure = "Couldn't reset the metadata cache."
+            }
         }
     }
 }

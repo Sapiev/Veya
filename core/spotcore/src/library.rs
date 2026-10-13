@@ -2,7 +2,7 @@
 //! spclient's collection v2 endpoints, cached in the metadata store per set
 //! and kept fresh by delta syncs that dealer pushes trigger.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,8 +16,11 @@ use serde::{Deserialize, Serialize};
 use crate::push::PushWatch;
 use crate::session::SpotSession;
 use crate::store::MetadataStore;
+use crate::util::{blocking, lock, unix_now};
 
 const PAGE_LIMIT: i32 = 300;
+/// 3 million items at `PAGE_LIMIT`, past any real library.
+const MAX_PAGES: usize = 10_000;
 const PUSH_URI: &str = "hm://collection/";
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -94,7 +97,7 @@ pub trait LibraryObserver: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct LibraryService {
     session: Arc<SpotSession>,
-    sets: SetCache,
+    sets: Arc<SetCache>,
     push: PushWatch,
 }
 
@@ -105,7 +108,7 @@ impl LibraryService {
     pub fn new(session: Arc<SpotSession>, store: Option<Arc<MetadataStore>>) -> Arc<Self> {
         Arc::new(Self {
             session,
-            sets: SetCache::new(store),
+            sets: Arc::new(SetCache::new(store)),
             push: PushWatch::new(PUSH_URI),
         })
     }
@@ -123,19 +126,23 @@ impl LibraryService {
         let username = session.username();
         let set = kind.set();
         let generation = self.sets.generation();
-        let token = self.sets.get(set, &username).sync_token;
+        let token = {
+            let (sets, username) = (Arc::clone(&self.sets), username.clone());
+            blocking(move || sets.get(set, &username).sync_token).await
+        };
 
-        let synced = match sync(&session, &username, set, &token).await? {
+        let synced = sync(&session, &username, set, &token).await?;
+        let sets = Arc::clone(&self.sets);
+        let synced = blocking(move || match synced {
             Synced::Delta { items, sync_token } => {
-                self.sets.update(set, &username, generation, |state| {
+                sets.update(set, &username, generation, |state| {
                     state.apply(items);
                     state.sync_token = sync_token;
                 })
             }
-            Synced::Full(full) => self
-                .sets
-                .update(set, &username, generation, |state| *state = full),
-        };
+            Synced::Full(full) => sets.update(set, &username, generation, |state| *state = full),
+        })
+        .await;
         Ok(synced.items(kind))
     }
 
@@ -148,17 +155,20 @@ impl LibraryService {
         let username = session.username();
         let item = WireItem {
             uri,
-            added_at: now(),
+            added_at: unix_now(),
             is_removed: !saved,
         };
         let generation = self.sets.generation();
         let request = encode_write(&username, kind.set(), &item, &client_update_id())?;
         post(&session, "/collection/v2/write", request).await?;
 
-        self.sets
-            .update(kind.set(), &username, generation, |state| {
-                state.apply(vec![item])
-            });
+        let sets = Arc::clone(&self.sets);
+        blocking(move || {
+            sets.update(kind.set(), &username, generation, |state| {
+                state.apply(vec![item]);
+            })
+        })
+        .await;
         Ok(())
     }
 
@@ -176,6 +186,9 @@ impl LibraryService {
 struct SetCache {
     store: Option<Arc<MetadataStore>>,
     sets: Mutex<HashMap<&'static str, Loaded>>,
+    /// Taken before `sets` and held through the write, so writes land in
+    /// update order while `get` only waits for the in-memory change.
+    persist: Mutex<()>,
 }
 
 struct Loaded {
@@ -189,6 +202,7 @@ impl SetCache {
         Self {
             store,
             sets: Mutex::new(HashMap::new()),
+            persist: Mutex::new(()),
         }
     }
 
@@ -198,7 +212,7 @@ impl SetCache {
     }
 
     fn get(&self, set: &'static str, username: &str) -> SetState {
-        let mut sets = self.sets.lock().unwrap();
+        let mut sets = lock(&self.sets);
         self.current(&mut sets, set, username).state.clone()
     }
 
@@ -211,8 +225,9 @@ impl SetCache {
         generation: u64,
         change: impl FnOnce(&mut SetState),
     ) -> SetState {
+        let _persist = lock(&self.persist);
         let snapshot = {
-            let mut sets = self.sets.lock().unwrap();
+            let mut sets = lock(&self.sets);
             let loaded = self.current(&mut sets, set, username);
             if loaded.generation != generation {
                 let mut stale = loaded.state.clone();
@@ -289,6 +304,7 @@ async fn sync(
 
     let mut state = SetState::default();
     let mut page_token = String::new();
+    let mut seen = HashSet::new();
     loop {
         let request = encode_page(username, set, &page_token)?;
         let page = decode_page(&post(session, "/collection/v2/paging", request).await?)?;
@@ -300,8 +316,20 @@ async fn sync(
         if page.next_page_token.is_empty() {
             return Ok(Synced::Full(state));
         }
+        follow_page(&mut seen, &page.next_page_token)?;
         page_token = page.next_page_token;
     }
+}
+
+/// Fails on a token the server already gave or past `MAX_PAGES`, so a
+/// misbehaving server cannot keep paging forever.
+fn follow_page(seen: &mut HashSet<String>, token: &str) -> Result<(), LibraryError> {
+    if seen.len() >= MAX_PAGES || !seen.insert(token.to_owned()) {
+        return Err(LibraryError::Request {
+            message: "collection paging did not end".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 async fn post(session: &Session, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8>, LibraryError> {
@@ -316,12 +344,6 @@ async fn post(session: &Session, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8
         .request(&Method::POST, endpoint, Some(headers), Some(&body))
         .await?;
     Ok(response.to_vec())
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn client_update_id() -> String {
@@ -528,6 +550,17 @@ fn decode_delta(bytes: &[u8]) -> protobuf::Result<Delta> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn paging_stops_on_a_repeated_token_or_past_the_page_cap() {
+        let mut seen = HashSet::new();
+        assert!(follow_page(&mut seen, "a").is_ok());
+        assert!(follow_page(&mut seen, "b").is_ok());
+        assert!(follow_page(&mut seen, "a").is_err(), "a token loop");
+
+        let mut seen: HashSet<_> = (0..MAX_PAGES).map(|i| i.to_string()).collect();
+        assert!(follow_page(&mut seen, "new").is_err());
+    }
+
     fn item(uri: &str, added_at: i64, is_removed: bool) -> WireItem {
         WireItem {
             uri: uri.to_owned(),
@@ -675,6 +708,32 @@ mod tests {
         );
         assert_eq!(LibraryKind::of("spotify:playlist:a"), None);
         assert_eq!(LibraryKind::of("spotify:episode:a"), None);
+    }
+
+    #[test]
+    fn a_slow_write_does_not_block_reading_the_updated_set() {
+        let store = crate::store::tests::temp_store("library-slow-write");
+        let sets = Arc::new(SetCache::new(Some(store.clone())));
+        sets.get("collection", "u");
+        let generation = sets.generation();
+        let stalled = store.stall();
+        let writer = {
+            let sets = Arc::clone(&sets);
+            std::thread::spawn(move || {
+                sets.update("collection", "u", generation, |state| {
+                    state.sync_token = "s".into();
+                });
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while sets.get("collection", "u").sync_token != "s" {
+            assert!(std::time::Instant::now() < deadline, "update never showed");
+            std::thread::yield_now();
+        }
+        assert!(!writer.is_finished(), "the write is still stalled");
+        drop(stalled);
+        writer.join().unwrap();
+        assert_eq!(SetState::load(&store, "collection", "u").sync_token, "s");
     }
 
     #[test]
