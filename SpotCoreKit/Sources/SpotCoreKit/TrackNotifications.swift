@@ -13,7 +13,7 @@ public final class TrackNotifications {
     private let post: Post
     private var announced: [String]?
     private var latest: (info: MediaControls.Info, image: CGImage?)?
-    private var pending: Task<Void, Never>?
+    private(set) var pending: Task<Void, Never>?
 
     public init(
         settle: Duration = .seconds(1.5),
