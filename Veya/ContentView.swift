@@ -13,6 +13,8 @@ struct ContentView: View {
 
     var body: some View {
         content
+            .animation(Theme.themeChange, value: session.state)
+            .frame(minWidth: 900, minHeight: 600)
             .onOpenURL { url in
                 if let link = SpotifyLink(url.absoluteString) { openedLink = link }
             }
@@ -29,9 +31,12 @@ struct ContentView: View {
 
     @ViewBuilder private var content: some View {
         switch session.state {
-        case .restoring, .connecting:
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .restoring:
+            // A saved sign-in usually restores within a frame or two, so no welcome copy flashes by.
+            WelcomeBackground()
+                .modifier(AdaptiveColors(artwork: []))
+        case .connecting:
+            SignInView(model: signIn, connecting: true)
         case .signedOut:
             SignInView(model: signIn)
         case .ready:
