@@ -1,3 +1,4 @@
+import AppIntents
 import AppKit
 import SpotCoreKit
 import SwiftUI
@@ -60,7 +61,7 @@ import SwiftUI
             notifications.update(info, image)
         }
         AppDelegate.controls = controls
-        _activeSession = State(initialValue: ActiveSession(session: session, controls: controls) { handle in
+        let activeSession = ActiveSession(session: session, controls: controls) { handle in
             SessionScope(
                 handle: handle,
                 metadataStore: dependencies.metadataStore,
@@ -70,7 +71,10 @@ import SwiftUI
             ) {
                 session.attach($0, startedOn: handle)
             }
-        })
+        }
+        _activeSession = State(initialValue: activeSession)
+        let shortcuts = ShortcutActions(session: activeSession)
+        AppDependencyManager.shared.add(dependency: shortcuts)
         _signIn = State(initialValue: SignInModel(browser: dependencies.browser, startFlow: dependencies.startFlow))
         _systemEvents = State(initialValue: SystemEvents(
             onWake: { session.systemDidWake() },
