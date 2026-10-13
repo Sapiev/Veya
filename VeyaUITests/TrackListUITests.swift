@@ -122,7 +122,7 @@ final class TrackListUITests: XCTestCase {
         app.trackList.staticTexts["Song 1"].rightClick()
         app.menuItems["Copy Link"].click()
 
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://open.spotify.com/track/ui-test-1")
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://open.spotify.com/track/uitest1")
     }
 
     /// The app copies to the real general pasteboard, so put back what the user had there.
