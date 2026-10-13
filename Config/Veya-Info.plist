@@ -6,6 +6,10 @@
 	<array>
 		<string>_spotify-connect._tcp</string>
 	</array>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>Veya.sdef</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Veya can advertise this Mac to Spotify apps on your network so they can play on it.</string>
 </dict>

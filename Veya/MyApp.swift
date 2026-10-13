@@ -75,6 +75,7 @@ import SwiftUI
         _activeSession = State(initialValue: activeSession)
         let shortcuts = ShortcutActions(session: activeSession)
         AppDependencyManager.shared.add(dependency: shortcuts)
+        AppleScript.actions = shortcuts
         _signIn = State(initialValue: SignInModel(browser: dependencies.browser, startFlow: dependencies.startFlow))
         _systemEvents = State(initialValue: SystemEvents(
             onWake: { session.systemDidWake() },
