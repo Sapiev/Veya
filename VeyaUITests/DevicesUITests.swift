@@ -2,8 +2,8 @@ import XCTest
 
 /// PBI-502: the device picker lists the account's Connect devices and moves playback.
 final class DevicesUITests: XCTestCase {
-    @MainActor private func openDevices() -> XCUIApplication {
-        let app = XCUIApplication.launch(.connectDevices)
+    @MainActor private func openDevices(_ scenario: Scenario = .connectDevices) -> XCUIApplication {
+        let app = XCUIApplication.launch(scenario)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.buttons["Devices"].firstMatch.click()
         return app
@@ -57,5 +57,22 @@ final class DevicesUITests: XCTestCase {
         let app = XCUIApplication.launch(.connectDevices)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertEqual(app.buttons["Devices"].firstMatch.value as? String, "Playing on Pixel")
+    }
+
+    @MainActor func testPopoverExplainsWhenLocalNetworkAccessIsOff() throws {
+        let app = openDevices(.localNetworkDenied)
+
+        let notice = app.popovers.staticTexts["Local Network Access Is Off"]
+        XCTAssertTrue(notice.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.popovers.buttons["Open Privacy Settings"].exists)
+        XCTAssertTrue(device(app, "Pixel").exists, "account devices still list")
+        try assertAuditPasses(app, "Devices without local network")
+    }
+
+    @MainActor func testPopoverHasNoNoticeWithLocalNetworkAccess() {
+        let app = openDevices()
+
+        XCTAssertTrue(device(app, "Pixel").waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.popovers.staticTexts["Local Network Access Is Off"].exists)
     }
 }

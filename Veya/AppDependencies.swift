@@ -19,6 +19,8 @@ struct AppDependencies {
     var episodeProgress: (any EpisodeProgressProvider)?
     /// `nil` asks with an open panel.
     var choosePhoto: (@MainActor () async -> URL?)?
+    /// `nil` probes the real local network permission.
+    var localNetworkAccess: (@Sendable () -> AsyncStream<Bool>)?
 
     static func make() -> AppDependencies {
         #if DEBUG

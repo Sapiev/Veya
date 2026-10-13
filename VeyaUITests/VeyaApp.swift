@@ -15,6 +15,7 @@ enum Scenario: String {
     case recentlyPlayedNeedsSignIn
     case webAPINotConnected
     case connectDevices
+    case localNetworkDenied
     case remoteControl
     case playlistConflict
     case localFiles

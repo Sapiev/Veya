@@ -14,6 +14,7 @@ import SwiftUI
     @State private var signOutFailed = false
     private let artworkLoader: ArtworkLoader?
     private let choosePhoto: (@MainActor () async -> URL?)?
+    private let localNetworkAccess: (@Sendable () -> AsyncStream<Bool>)?
     @State private var recentSearches: RecentSearches
     /// One instance, so Settings window edits reach the live player.
     @State private var settings: PlaybackSettings
@@ -29,6 +30,7 @@ import SwiftUI
         _settings = State(initialValue: settings)
         artworkLoader = dependencies.artworkLoader
         choosePhoto = dependencies.choosePhoto
+        localNetworkAccess = dependencies.localNetworkAccess
         _recentSearches = State(initialValue: RecentSearches(defaults: dependencies.defaults))
         let session = SessionModel(
             store: dependencies.store,
@@ -96,6 +98,7 @@ import SwiftUI
             }
             .environment(\.artworkLoader, artworkLoader)
             .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = PhotoChooser(choose: choosePhoto) } }
+            .transformEnvironment(\.localNetworkAccess) { if let localNetworkAccess { $0 = localNetworkAccess } }
             .defaultAppStorage(defaults)
             .onAppear { NSApp.setActivationPolicy(.regular) }
             .onDisappear { menuBar.windowClosed() }

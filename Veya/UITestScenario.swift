@@ -35,6 +35,8 @@
         case webAPINotConnected
         /// Signed in; Connect lists this Mac, an active phone, an idle speaker and a TV that refuses transfers.
         case connectDevices
+        /// As `connectDevices`, with the local network permission turned off.
+        case localNetworkDenied
         /// Signed in; the phone is playing, so the bar is its remote control.
         case remoteControl
         /// Signed in; the next track edit to a playlist reports it changed elsewhere.
@@ -90,7 +92,7 @@
                     initial: self == .reconnecting ? .reconnecting(attempt: 1, retryInSecs: 30) : nil,
                     library: library,
                     recentlyPlayedScope: self != .recentlyPlayedNeedsSignIn,
-                    connectDevices: [.connectDevices, .remoteControl].contains(self),
+                    connectDevices: [.connectDevices, .localNetworkDenied, .remoteControl].contains(self),
                     remote: self == .remoteControl
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
@@ -100,7 +102,8 @@
                 artworkLoader: nil,
                 defaults: defaults,
                 episodeProgress: ScenarioEpisodeProgress(),
-                choosePhoto: { Self.photo() }
+                choosePhoto: { Self.photo() },
+                localNetworkAccess: { [allowed = self != .localNetworkDenied] in AsyncStream { $0.yield(allowed) } }
             )
         }
 

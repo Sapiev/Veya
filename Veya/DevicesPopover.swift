@@ -22,9 +22,17 @@ struct DevicesButton: View {
     }
 }
 
+extension EnvironmentValues {
+    /// Whether the app may reach the local network; UI test scenarios supply a fixed answer.
+    @Entry var localNetworkAccess: @Sendable () -> AsyncStream<Bool> = LocalNetworkAccess.updates
+}
+
 private struct DeviceList: View {
     let player: PlayerModel
     @FocusState private var focused: String?
+    @State private var localNetworkAllowed = true
+    @Environment(\.localNetworkAccess) private var localNetworkAccess
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s1) {
@@ -33,6 +41,9 @@ private struct DeviceList: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, Theme.s2)
                 .padding(.bottom, Theme.s1)
+            if !localNetworkAllowed {
+                LocalNetworkNotice { openURL(.localNetworkSettings) }
+            }
             if player.devices.isEmpty {
                 Text("No devices found.")
                     .foregroundStyle(.secondary)
@@ -63,7 +74,35 @@ private struct DeviceList: View {
         }
         // Set after the popover takes focus, which would otherwise land on the first row.
         .task { focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id }
+        .task {
+            for await allowed in localNetworkAccess() { localNetworkAllowed = allowed }
+        }
     }
+}
+
+/// Without local network access Connect misses nearby speakers and TVs; only System Settings can grant it.
+private struct LocalNetworkNotice: View {
+    let openSettings: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s1) {
+            Label("Local Network Access Is Off", systemImage: "exclamationmark.triangle.fill")
+                .scaledFont(size: 12, weight: .semibold)
+                .symbolRenderingMode(.multicolor)
+            Text("Veya can't find devices on your network. Turn on Veya in Privacy & Security > Local Network.")
+                .scaledFont(size: 11)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Open Privacy Settings", action: openSettings)
+                .controlSize(.small)
+        }
+        .padding(Theme.s2)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private extension URL {
+    static let localNetworkSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!
 }
 
 private struct DeviceRow: View {
