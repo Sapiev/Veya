@@ -709,8 +709,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 5 · **Milestone:** M4 · **Depends on:** PBI-202, PBI-304
 
-- [ ] User picks local folders (security-scoped bookmarks); files are matched to `spotify:local:` entries in playlists.
-- [ ] Uses librespot 0.8's local-file playback; respects its current limit of 44.1 kHz files and shows a clear message for others.
+**Status:** Done (merged to develop)
+
+- [x] User picks local folders (security-scoped bookmarks); files are matched to `spotify:local:` entries in playlists.
+- [x] Uses librespot 0.8's local-file playback; respects its current limit of 44.1 kHz files and shows a clear message for others.
 
 ### E8 · Quality
 
