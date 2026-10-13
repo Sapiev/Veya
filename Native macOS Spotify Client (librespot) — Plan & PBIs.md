@@ -661,8 +661,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 3 · **Milestone:** M4 · **Depends on:** PBI-202
 
-- [ ] Scripting definition (.sdef) with `playpause`, `next track`, `previous track`, `player state`, `current track` properties and `play track <uri>`.
-- [ ] Documented in `docs/automation.md` with examples.
+**Status:** Done (merged to develop)
+
+- [x] Scripting definition (.sdef) with `playpause`, `next track`, `previous track`, `player state`, `current track` properties and `play track <uri>`. (Not yet checked with Raycast or Alfred.)
+- [x] Documented in `docs/automation.md` with examples.
 
 #### PBI-606 · Keyboard shortcuts and links
 
