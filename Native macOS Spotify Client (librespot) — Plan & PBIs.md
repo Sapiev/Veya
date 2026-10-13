@@ -650,8 +650,10 @@ veya/
 
 **Priority:** Could · **Estimate:** 3 · **Milestone:** M4 · **Depends on:** PBI-202, PBI-304
 
-- [ ] Intents: Play/Pause, Next, Previous, Play Playlist (with playlist entity query), Like Current Track, Get Current Track.
-- [ ] Intents appear in the Shortcuts app and Spotlight.
+**Status:** In progress (merged to develop)
+
+- [x] Intents: Play/Pause, Next, Previous, Play Playlist (with playlist entity query), Like Current Track, Get Current Track. (Each waits up to 20 s for the player, so a shortcut can launch the app; tested on fakes, not yet against a live account.)
+- [ ] Intents appear in the Shortcuts app and Spotlight. (All six intents, six App Shortcuts and the playlist entity are in the built app's App Intents metadata; not yet checked by hand in Shortcuts and Spotlight.)
 
 #### PBI-605 · AppleScript support
 
