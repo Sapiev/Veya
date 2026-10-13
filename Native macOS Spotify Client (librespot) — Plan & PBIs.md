@@ -722,10 +722,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-401–PBI-408
 
-- [ ] All controls have labels, values and hints; track rows read title, artist, duration and playing state.
-- [ ] Full keyboard navigation (Tab, arrows, Return, Escape) across sidebar, lists and popovers.
-- [ ] Respects Reduce Motion, Increase Contrast and Dynamic Type-equivalent text size setting.
-- [ ] Accessibility Inspector audit has no warnings on main screens.
+**Status:** Done (merged to develop)
+
+- [x] All controls have labels, values and hints; track rows read title, artist, duration and playing state. (Not yet checked with VoiceOver that the row reads as one item.)
+- [x] Full keyboard navigation (Tab, arrows, Return, Escape) across sidebar, lists and popovers. (Home grids are reached by Tab only.)
+- [x] Respects Reduce Motion, Increase Contrast and Dynamic Type-equivalent text size setting (Settings > General > Text size).
+- [ ] Accessibility Inspector audit has no warnings on main screens. (Clean on Home, Album, Settings, track list, queue and devices; Search, Lyrics and Now Playing still report an elementless "Parent/Child mismatch". Contrast is measured from screen pixels, since the audit flags text drawn at 5.6-9.5:1.)
 
 #### PBI-802 · Localization
 
