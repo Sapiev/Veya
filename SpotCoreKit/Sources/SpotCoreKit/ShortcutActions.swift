@@ -8,6 +8,7 @@ public final class ShortcutActions {
         /// No signed-in session started its player in time.
         case notReady
         case nothingPlaying
+        case invalidURI
     }
 
     private let player: () -> PlayerModel?
@@ -67,7 +68,18 @@ public final class ShortcutActions {
         }
     }
 
-    public func playPlaylist(_ uri: String) async throws(Failure) {
+    /// What's playing right now, without waiting for a player; for AppleScript properties,
+    /// which must answer synchronously.
+    public var nowPlaying: (uri: String, info: MediaControls.Info)? {
+        guard let player = player(), let uri = player.nowPlaying?.uri,
+              let info = MediaControls.info(player: player, library: library(), at: .now) else { return nil }
+        return (uri, info)
+    }
+
+    /// Plays a track, playlist, album or other `spotify:` URI as the context.
+    public func play(_ uri: String) async throws(Failure) {
+        // AppleScript passes any text; only Spotify URIs reach the core.
+        guard uri.hasPrefix("spotify:"), uri.count > "spotify:".count else { throw .invalidURI }
         try await ready(player).play(uri, startingAt: 0).value
     }
 
