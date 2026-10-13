@@ -39,6 +39,8 @@
         case remoteControl
         /// Signed in; the next track edit to a playlist reports it changed elsewhere.
         case playlistConflict
+        /// Signed in with two local folders chosen and a Local Mix playlist of local files (PBI-703).
+        case localFiles
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -67,14 +69,18 @@
             case .largeLibrary: .liked(10000)
             case .emptyLibrary: .empty
             case .libraryFails: .failing
-            default: .liked(5, playlistConflict: self == .playlistConflict)
+            default: .liked(5, playlistConflict: self == .playlistConflict, localFiles: self == .localFiles)
             }
         }
 
         var dependencies: AppDependencies {
+            let webAPIConnected = self != .webAPINotConnected
+            let defaults = Self.freshDefaults(clientID: webAPIConnected ? Self.clientID : nil)
+            if self == .localFiles {
+                PlaybackSettings(defaults: defaults).addLocalFolders(Self.localFolders())
+            }
             let hasSavedSignIn = ![.signedOut, .signInCancelled, .signInFails, .notPremium].contains(self)
             let signInCompletes = self != .signInCancelled
-            let webAPIConnected = self != .webAPINotConnected
             return AppDependencies(
                 store: InMemoryCredentialStore(blob: hasSavedSignIn ? ScenarioSession.blob : nil),
                 refreshTokenStore: InMemoryCredentialStore(blob: webAPIConnected ? Data("ui-test".utf8) : nil),
@@ -92,10 +98,19 @@
                 webAPIStartFlow: { _ in ScenarioFlow(completes: true) },
                 tokenRefresher: ScenarioRefresher(),
                 artworkLoader: nil,
-                defaults: Self.freshDefaults(clientID: webAPIConnected ? Self.clientID : nil),
+                defaults: defaults,
                 episodeProgress: ScenarioEpisodeProgress(),
                 choosePhoto: { Self.photo() }
             )
+        }
+
+        /// "Veya Music" and "Veya Mixes", created so they can be bookmarked.
+        private static func localFolders() -> [URL] {
+            ["Veya Music", "Veya Mixes"].map { name in
+                let url = FileManager.default.temporaryDirectory.appending(path: "ui-test-local/\(name)")
+                try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                return url
+            }
         }
 
         /// Stands in for the open panel: a 1600 x 1200 PNG, larger than a
@@ -144,7 +159,7 @@
     /// What the signed-in library and playlists hold.
     private enum LibraryFill {
         /// Liked songs "Song 1"... plus one album, one artist, one show and one playlist.
-        case liked(Int, playlistConflict: Bool = false)
+        case liked(Int, playlistConflict: Bool = false, localFiles: Bool = false)
         case empty
         case failing
     }
@@ -282,7 +297,22 @@
         "spotify:track:uitest\(n)"
     }
 
+    private nonisolated let scenarioLocalMixURI = "spotify:playlist:uitestlocal"
+
+    /// As the core decodes `spotify:local:` entries: no artist or album URI, no artwork.
+    /// The player cannot play "Hi-Res Song", as librespot skips files not sampled at 44.1 kHz.
+    private nonisolated let scenarioLocalTracks = [("Local Song", 200), ("Hi-Res Song", 240)].map { title, seconds in
+        TrackMetadata(
+            uri: "spotify:local:Local+Artist:Local+Album:\(title.replacingOccurrences(of: " ", with: "+")):\(seconds)", title: title,
+            artists: [ItemRef(uri: "", name: "Local Artist")], album: ItemRef(uri: "", name: "Local Album"),
+            durationMs: UInt32(seconds * 1000), explicit: false, playability: .playable, artwork: []
+        )
+    }
+
     private nonisolated func scenarioTrack(_ uri: String) -> TrackMetadata? {
+        if let local = scenarioLocalTracks.first(where: { $0.uri == uri }) {
+            return local
+        }
         if uri == scenarioTrackURI {
             return TrackMetadata(
                 uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:uitest", name: "Test Artist")],
@@ -441,6 +471,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}
         func setShuffle(on _: Bool) {}
@@ -478,6 +509,9 @@
         }
         func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
+            if uri == scenarioLocalTracks[1].uri {
+                return observer.onEvent(event: .unavailable(uri: uri))
+            }
             snapshot.withLock {
                 $0.current = uri
                 $0.nextFromContext = Array(uris.dropFirst(Int(startIndex) + 1))
@@ -511,6 +545,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}
         func setShuffle(on _: Bool) {}
@@ -529,7 +564,7 @@
         }
 
         func cached(kind: LibraryKind) -> [LibraryItem] {
-            guard case let .liked(likedSongs, _) = fill else { return [] }
+            guard case let .liked(likedSongs, _, _) = fill else { return [] }
             let newest: Int64 = 1_760_000_000
             switch kind {
             case .tracks:
@@ -567,6 +602,8 @@
             var description: String
             var owner: String
             var songs: [Int]
+            /// `spotify:local:` entries, listed after the songs.
+            var local: [String] = []
             var revision = 0
             var hasPicture = false
         }
@@ -585,7 +622,7 @@
         init(fill: LibraryFill) {
             self.fill = fill
             var state = State()
-            if case let .liked(_, conflict) = fill {
+            if case let .liked(_, conflict, localFiles) = fill {
                 let folder = "spotify:user:uitest:folder:mixes"
                 state.rootlist = [
                     .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil, editable: true, public: false),
@@ -598,6 +635,14 @@
                     scenarioMixURI: Playlist(name: "Daily Mix 1", description: "Made for you", owner: "spotify", songs: [4, 6]),
                 ]
                 state.conflictNext = conflict
+                if localFiles {
+                    state.rootlist.append(
+                        .playlist(uri: scenarioLocalMixURI, name: "Local Mix", owner: "ui-test", trackCount: 2, parent: nil, editable: false, public: false)
+                    )
+                    state.playlists[scenarioLocalMixURI] = Playlist(
+                        name: "Local Mix", description: "", owner: "ui-test", songs: [], local: scenarioLocalTracks.map(\.uri)
+                    )
+                }
             }
             self.state = OSAllocatedUnfairLock(initialState: state)
         }
@@ -624,12 +669,12 @@
             let editable = if case .playlist(_, _, _, _, _, true, _) = entry { true } else { false }
             let tracks = from > 0 ? [] : playlist.songs.map {
                 PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
-            }
+            } + playlist.local.map { PlaylistTrack(uri: $0, addedBy: "ui-test", addedAt: 1_760_000_000) }
             return PlaylistPage(
                 uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
                 owner: playlist.owner, ownerName: "UI Test", collaborative: false, editable: editable,
                 artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
-                total: UInt32(playlist.songs.count), offset: from, tracks: tracks
+                total: UInt32(playlist.songs.count + playlist.local.count), offset: from, tracks: tracks
             )
         }
 

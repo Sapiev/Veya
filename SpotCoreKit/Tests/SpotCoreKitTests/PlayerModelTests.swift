@@ -86,6 +86,7 @@ final class FakePlayer: SpotPlayerProtocol {
     func seek(positionMs: UInt32) { record("seek \(positionMs)") }
     func setAutoplay(on: Bool) { record("autoplay \(on)") }
     func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
+    func setLocalFolders(paths: [String]) async { record("local folders \(paths)") }
     func setNormalisation(normalisation: LoudnessPreset?) async { record("normalisation \(normalisation.map { "\($0)" } ?? "off")") }
     func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
     func setShuffle(on: Bool) { record("shuffle \(on)") }
@@ -353,6 +354,62 @@ struct PlayerModelTests {
         await Task.yield()
         #expect(player.settingsApply == nil)
         #expect(fake.recorded == [])
+    }
+
+    /// PBI-703: saved folders reach the new player before Connect starts, so Spirc's player has them.
+    @Test func savedLocalFoldersReachANewPlayerBeforeConnectStarts() async {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        let folder = URL.temporaryDirectory
+        settings.addLocalFolders([folder])
+        let fake = FakePlayer()
+        let devices = ConnectStarts()
+
+        let player = PlayerModel(
+            player: fake, engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, clock: Date.init, log: { _, _ in }
+        )
+        await player.settingsApply?.value
+        await player.connectStart?.value
+
+        #expect(fake.recorded == ["local folders \(settings.localFolderPaths)"])
+        #expect(devices.started == ["Studio Mac off"])
+    }
+
+    @Test func localFolderChangeRetunesThePlayerOnce() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+
+        settings.addLocalFolders([URL.temporaryDirectory])
+        while fake.recorded.isEmpty {
+            await Task.yield()
+        }
+        await player.settingsApply?.value
+        let paths = settings.localFolderPaths
+        settings.removeLocalFolder(URL.temporaryDirectory)
+        while fake.recorded.count < 2 {
+            await Task.yield()
+        }
+        await player.settingsApply?.value
+
+        #expect(fake.recorded == ["local folders \(paths)", "local folders []"])
+    }
+
+    /// PBI-703: librespot skips a local file it can't play; the user learns why.
+    @Test func unplayableLocalFileShowsItsTitle() async {
+        let local = "spotify:local:Band:Record:Hi-Res+Song:200"
+        let item = MetadataItem.track(track: TrackMetadata(
+            uri: local, title: "Hi-Res Song", artists: [ItemRef(uri: "", name: "Band")],
+            album: ItemRef(uri: "", name: "Record"), durationMs: 200_000, explicit: false, playability: .playable, artwork: []
+        ))
+        let player = model(metadata: StubMetadata([trackItem, item]))
+
+        player.apply(.unavailable(uri: trackURI))
+        #expect(player.unplayableResolution == nil)
+        player.apply(.unavailable(uri: local))
+        await player.unplayableResolution?.value
+
+        #expect(player.unplayableLocalFile == "Hi-Res Song")
     }
 
     @Test func stopClearsWhatIsPlaying() {

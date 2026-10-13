@@ -81,6 +81,8 @@ public final class PlayerModel {
     public private(set) var transferring = false
     /// Why the last transfer failed, until the next one starts.
     public private(set) var transferFailed = false
+    /// The title of a local file librespot couldn't play, until the user dismisses the message.
+    public var unplayableLocalFile: String?
 
     /// The device this Mac controls in Remote mode (PBI-503). Set by the core's
     /// Remote mode, not the device list: a paused active phone does not count.
@@ -104,6 +106,7 @@ public final class PlayerModel {
     @ObservationIgnored private let log: PlayerLog
     @ObservationIgnored private var events: Task<Void, Never>?
     @ObservationIgnored private(set) var resolution: Task<Void, Never>?
+    @ObservationIgnored private(set) var unplayableResolution: Task<Void, Never>?
     /// What the player and engine were last given, so a change is sent once.
     @ObservationIgnored private var applied: Applied
     /// Async setters run in order, so the last change wins.
@@ -122,6 +125,7 @@ public final class PlayerModel {
         var autoplay: Bool
         var connectName: String
         var zeroconf: Bool
+        var localFolders: [String]
     }
 
     init(
@@ -154,10 +158,14 @@ public final class PlayerModel {
             rate: 1,
             autoplay: queue.autoplay,
             connectName: settings.connectDeviceName,
-            zeroconf: settings.zeroconf
+            zeroconf: settings.zeroconf,
+            localFolders: []
         )
         followSettings()
-        restartConnect()
+        // Saved local folders retune the player, which restarts Connect once it is done.
+        if settingsApply == nil {
+            restartConnect()
+        }
     }
 
     isolated deinit {
@@ -225,8 +233,11 @@ public final class PlayerModel {
             refreshQueue()
         case .endOfTrack:
             break
-        case .unavailable:
+        case let .unavailable(uri):
             log(.warn, "Track unavailable, skipping")
+            if uri.hasPrefix("spotify:local:") {
+                showUnplayable(uri)
+            }
         case .stopped:
             isPlaying = false
             nowPlaying = nil
@@ -451,7 +462,8 @@ public final class PlayerModel {
             rate: settings.rate(for: nowPlaying?.uri ?? ""),
             autoplay: settings.autoplay,
             connectName: settings.connectDeviceName,
-            zeroconf: settings.zeroconf
+            zeroconf: settings.zeroconf,
+            localFolders: settings.localFolderPaths
         )
         let previous = applied
         guard target != previous else { return }
@@ -471,7 +483,8 @@ public final class PlayerModel {
         if target.autoplay != previous.autoplay {
             player.setAutoplay(on: target.autoplay)
         }
-        guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation else { return }
+        guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation
+            || target.localFolders != previous.localFolders else { return }
         let player = player
         let pending = settingsApply
         settingsApply = Task { [weak self] in
@@ -481,6 +494,9 @@ public final class PlayerModel {
             }
             if target.normalisation != previous.normalisation {
                 await player.setNormalisation(normalisation: target.normalisation)
+            }
+            if target.localFolders != previous.localFolders {
+                await player.setLocalFolders(paths: target.localFolders)
             }
             // Spirc's player takes the tuning when it starts.
             self?.restartConnect()
@@ -527,6 +543,18 @@ public final class PlayerModel {
             } catch {
                 // Type name only: messages may carry server text.
                 log(.warn, "Couldn't start Spotify Connect: \(String(describing: type(of: error)))")
+            }
+        }
+    }
+
+    /// The title comes from the core, which decodes it from the `spotify:local:` URI.
+    private func showUnplayable(_ uri: String) {
+        unplayableResolution = Task {
+            let item = try? await metadata.items(uris: [uri]).first
+            if case let .track(track) = item {
+                unplayableLocalFile = track.title
+            } else {
+                unplayableLocalFile = ""
             }
         }
     }

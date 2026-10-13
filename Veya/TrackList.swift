@@ -153,7 +153,7 @@ struct TrackList: View {
             .disabled(playlists.editablePlaylists.isEmpty)
             Divider()
             if rows.count == 1, let row = rows.first {
-                if let album = row.album {
+                if let album = row.album, !album.uri.isEmpty {
                     Button("Go to Album") { history.navigate(to: .album(uri: album.uri)) }
                 }
                 ArtistMenu(artists: row.artists, history: history)
