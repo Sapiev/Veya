@@ -26,17 +26,17 @@ struct TrackNotificationsTests {
         )
     }
 
-    private func settle() async throws {
-        try await Task.sleep(for: .milliseconds(80))
+    private func settle() async {
+        await notifications.pending?.value
     }
 
     @Test func postsOncePerTrackWithTheLatestArtwork() async throws {
         let image = try #require(Self.image())
         notifications.update(Self.info("One"), nil)
         notifications.update(Self.info("One", elapsedMs: 1000), image)
-        try await settle()
+        await settle()
         notifications.update(Self.info("One", elapsedMs: 2000), image)
-        try await settle()
+        await settle()
 
         #expect(posted.all.map(\.info.title) == ["One"])
         #expect(posted.all.first?.image != nil)
@@ -46,27 +46,27 @@ struct TrackNotificationsTests {
         notifications.update(Self.info("One"), nil)
         notifications.update(Self.info("Two"), nil)
         notifications.update(Self.info("Three"), nil)
-        try await settle()
+        await settle()
 
         #expect(posted.all.map(\.info.title) == ["Three"])
     }
 
     @Test func pausedOrDisabledPostsNothing() async throws {
         notifications.update(Self.info("One", playing: false), nil)
-        try await settle()
+        await settle()
         posted.enabled = false
         notifications.update(Self.info("Two"), nil)
-        try await settle()
+        await settle()
 
         #expect(posted.all.isEmpty)
     }
 
     @Test func theSameTrackPostsAgainAfterPlaybackStops() async throws {
         notifications.update(Self.info("One"), nil)
-        try await settle()
+        await settle()
         notifications.update(nil, nil)
         notifications.update(Self.info("One"), nil)
-        try await settle()
+        await settle()
 
         #expect(posted.all.map(\.info.title) == ["One", "One"])
     }
