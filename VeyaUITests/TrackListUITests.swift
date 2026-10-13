@@ -116,12 +116,28 @@ final class TrackListUITests: XCTestCase {
 
     @MainActor func testCopyLinkPutsTheWebLinkOnThePasteboard() {
         let app = likedSongs()
+        restorePasteboardAfterwards()
         NSPasteboard.general.clearContents()
 
         app.trackList.staticTexts["Song 1"].rightClick()
         app.menuItems["Copy Link"].click()
 
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://open.spotify.com/track/ui-test-1")
+    }
+
+    /// The app copies to the real general pasteboard, so put back what the user had there.
+    @MainActor private func restorePasteboardAfterwards() {
+        let saved = (NSPasteboard.general.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            }
+            return copy
+        }
+        addTeardownBlock { @MainActor in
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects(saved)
+        }
     }
 
     @MainActor func testTitleHeaderSortsDescendingOnSecondClick() {

@@ -2,7 +2,7 @@ import SpotCoreKit
 import SwiftUI
 
 /// Spacing, radii and type from the Tone design; one place so screens stay on the same rhythm.
-enum Theme {
+nonisolated enum Theme {
     static let s1: CGFloat = 4, s2: CGFloat = 8, s3: CGFloat = 12, s4: CGFloat = 16
     static let s5: CGFloat = 20, s6: CGFloat = 24, s8: CGFloat = 32, s12: CGFloat = 48
 

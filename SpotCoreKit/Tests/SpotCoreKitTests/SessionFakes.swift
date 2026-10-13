@@ -187,6 +187,7 @@ final class FakeConnector: SessionConnector {
         var metadataClearError: (any Error)?
         var audioClears = 0
         var audioClearError: (any Error)?
+        var cacheWorkOnMain: [Bool] = []
     }
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
@@ -223,7 +224,13 @@ final class FakeConnector: SessionConnector {
                 throw error
             }
             box.cacheLimits.append(bytes)
+            box.cacheWorkOnMain.append(Thread.isMainThread)
         }
+    }
+
+    /// Whether each cache call ran on the main thread, in call order.
+    var cacheWorkOnMain: [Bool] {
+        box.withLock { $0.cacheWorkOnMain }
     }
 
     var metadataClears: Int {
@@ -237,6 +244,7 @@ final class FakeConnector: SessionConnector {
     func clearMetadataCache() throws {
         try box.withLock { box in
             box.metadataClears += 1
+            box.cacheWorkOnMain.append(Thread.isMainThread)
             if let error = box.metadataClearError {
                 throw error
             }
@@ -254,6 +262,7 @@ final class FakeConnector: SessionConnector {
     func clearAudioCache() throws {
         try box.withLock { box in
             box.audioClears += 1
+            box.cacheWorkOnMain.append(Thread.isMainThread)
             if let error = box.audioClearError {
                 throw error
             }

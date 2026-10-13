@@ -64,7 +64,7 @@ final class SearchUITests: XCTestCase {
         app.typeKey(.escape, modifierFlags: [])
 
         XCTAssertTrue(app.showsRoute("Search"))
-        XCTAssertFalse(app.searchResults.exists)
+        XCTAssertTrue(app.searchResults.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testTypingShowsTheTopResultAndASectionPerKind() {
@@ -101,6 +101,19 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).count >= 2)
     }
 
+    @MainActor func testClickingASongRowSelectsItWithoutPlaying() {
+        let app = signedIn()
+        searchFor("test", in: app)
+        let row = app.searchResults.buttons.containing(NSPredicate(format: "value == %@", "Song 2")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout))
+
+        row.staticTexts["Song 2"].click()
+
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+        XCTAssertFalse(app.buttons["Pause"].exists)
+    }
+
     @MainActor func testFilterChipsShowCountsAndNarrowTheResults() {
         let app = signedIn()
         searchFor("test", in: app)
@@ -112,8 +125,8 @@ final class SearchUITests: XCTestCase {
         songs.click()
 
         XCTAssertTrue(app.searchResults.staticTexts["Song 3"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.searchResults.staticTexts["Top result"].exists)
-        XCTAssertFalse(app.searchResults.staticTexts["Test Album"].exists)
+        XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.searchResults.staticTexts["Test Album"].waitForNonExistence(timeout: XCUIApplication.timeout))
 
         app.searchResults.buttons["All"].click()
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
@@ -206,7 +219,7 @@ final class SearchUITests: XCTestCase {
         searchFor("test", in: app)
 
         XCTAssertTrue(app.staticTexts["Connect Spotify Web API to Search"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.searchResults.exists)
+        XCTAssertTrue(app.searchResults.waitForNonExistence(timeout: XCUIApplication.timeout))
         app.buttons["Open Settings"].click()
 
         XCTAssertTrue(app.textFields["Client ID"].waitForExistence(timeout: XCUIApplication.timeout))
@@ -250,7 +263,7 @@ final class SearchUITests: XCTestCase {
         app.searchField.typeKey(.delete, modifierFlags: [])
         app.buttons["Clear all"].click()
         XCTAssertTrue(app.staticTexts["Browse all"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.recentSearches.exists)
+        XCTAssertTrue(app.recentSearches.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testRemovingOneRecentSearchKeepsTheOthers() {
@@ -265,7 +278,7 @@ final class SearchUITests: XCTestCase {
         app.recentSearches.buttons["Remove second from recent searches"].click()
 
         XCTAssertTrue(app.recentSearches.buttons["first"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.recentSearches.buttons["second"].exists)
+        XCTAssertTrue(app.recentSearches.buttons["second"].waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testNoResultsSuggestionSearchesForIt() {

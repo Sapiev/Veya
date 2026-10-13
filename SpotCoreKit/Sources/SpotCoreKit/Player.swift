@@ -406,7 +406,6 @@ public final class PlayerModel {
         repeatMode = mode
     }
 
-    /// 0...1, persisted.
     /// 0...1, persisted; in Remote mode the remote device's, which is sent
     /// to it but never saved.
     public var volume: Double {

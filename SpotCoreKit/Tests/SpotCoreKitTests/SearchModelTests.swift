@@ -141,6 +141,19 @@ struct SearchModelTests {
         #expect(logs.entries.allSatisfy { !$0.1.contains("refused") }, "server text stays out of logs")
     }
 
+    @Test(arguments: [CancellationError() as any Error, URLError(.cancelled)])
+    func aCancelledRequestIsNotAFailure(error: any Error) async {
+        let fallback = FakeSearch(["a": tracks("web", total: 1)])
+        let logs = LogSpy()
+        let model = SearchModel(service: FakeSearch(error: error), fallback: fallback, debounce: .zero, log: logs.log)
+
+        await model.search("a").value
+
+        #expect(model.failure == nil)
+        #expect(fallback.queries.isEmpty)
+        #expect(logs.entries.isEmpty)
+    }
+
     @Test func aFailureWithoutAFallbackFails() async {
         let model = SearchModel(service: FakeSearch(error: refused), debounce: .zero, log: LogSpy().log)
 

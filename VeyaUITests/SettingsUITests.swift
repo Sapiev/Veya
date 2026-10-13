@@ -210,7 +210,7 @@ final class SettingsUITests: XCTestCase {
         disconnect.click()
 
         XCTAssertTrue(showsWebAPIStatus(app, "Not connected"))
-        XCTAssertFalse(disconnect.exists)
+        XCTAssertTrue(disconnect.waitForNonExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.scrollViews.buttons["Connect"].isEnabled)
     }
 

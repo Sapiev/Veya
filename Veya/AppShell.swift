@@ -7,20 +7,29 @@ extension FocusedValues {
     @Entry var navigationHistory: NavigationHistory?
     @Entry var queueVisible: Binding<Bool>?
     @Entry var sidebarVisible: Binding<Bool>?
-    @Entry var newPlaylist: (() -> Void)?
-    @Entry var newFolder: (() -> Void)?
+    @Entry var newPlaylist: WindowAction?
+    @Entry var newFolder: WindowAction?
+}
+
+/// A menu action the key window publishes. Equal while it comes from the same
+/// window, whose actions never change, so the menus don't redraw on every window update.
+struct WindowAction: Equatable {
+    let window: ObjectIdentifier
+    let perform: () -> Void
+
+    func callAsFunction() {
+        perform()
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.window == rhs.window
+    }
 }
 
 /// The signed-in main window: sidebar of destinations, detail for the current route.
 struct AppShell: View {
-    private let session: any SessionHandle
-    private let metadata: any MetadataServiceProtocol
-    @State private var history = NavigationHistory()
-    @State private var playlists: PlaylistModel
-    @State private var podcast: PodcastModel
     private let scope: SessionScope
-    @State private var search: SearchModel
-    @State private var home: HomeModel
+    @State private var history = NavigationHistory()
     @State private var searchFocusRequest = 0
     @State private var searchSelection: SearchResultID?
     @State private var searchFilter = SearchFilter.all
@@ -33,32 +42,17 @@ struct AppShell: View {
     @State private var creatingPlaylist = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(
-        scope: SessionScope,
-        webAPI: WebAPIConnection,
-        metadataStore: MetadataStore?,
-        recentSearches: RecentSearches,
-        episodeProgress: any EpisodeProgressProvider
-    ) {
-        let session = scope.handle
-        self.session = session
+    init(scope: SessionScope, webAPI: WebAPIConnection, recentSearches: RecentSearches) {
         self.scope = scope
         self.recentSearches = recentSearches
         self.webAPI = webAPI
-        let tokens = webAPI.tokens
-        _search = State(initialValue: SearchModel(service: session.makeSearch { try await tokens.accessToken() }))
-        let metadata = scope.metadata
-        self.metadata = metadata
-        let playlistService = session.makePlaylists(store: metadataStore)
-        _playlists = State(initialValue: PlaylistModel(playlists: playlistService))
-        _home = State(initialValue: HomeModel(
-            metadata: metadata,
-            playlists: playlistService,
-            recentlyPlayed: session.makeRecentlyPlayed { try await tokens.accessToken() }
-        ))
-        _podcast = State(initialValue: PodcastModel(metadata: metadata, progress: episodeProgress))
     }
 
+    private var metadata: any MetadataServiceProtocol { scope.metadata }
+    private var playlists: PlaylistModel { scope.playlists }
+    private var search: SearchModel { scope.search }
+    private var home: HomeModel { scope.home }
+    private var podcast: PodcastModel { scope.podcast }
     private var library: LibraryModel { scope.library }
     private var player: PlayerModel? { scope.player }
 
@@ -156,9 +150,9 @@ struct AppShell: View {
         .focusedSceneValue(\.navigationHistory, history)
         .focusedSceneValue(\.queueVisible, $queueVisible)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
-        .focusedSceneValue(\.focusSearch, focusSearch)
-        .focusedSceneValue(\.newPlaylist, newPlaylist)
-        .focusedSceneValue(\.newFolder, newFolder)
+        .focusedSceneValue(\.focusSearch, action(focusSearch))
+        .focusedSceneValue(\.newPlaylist, action(newPlaylist))
+        .focusedSceneValue(\.newFolder, action(newFolder))
         .sheet(isPresented: $creatingPlaylist) {
             PlaylistDetailsSheet(title: "New Playlist", confirm: "Create") { name, description, _ in
                 Task {
@@ -220,6 +214,11 @@ struct AppShell: View {
         case let .show(uri):
             ShowPage(uri: uri, podcast: podcast, player: player)
         }
+    }
+
+    /// `history` lives exactly as long as this window, so it names the window.
+    private func action(_ perform: @escaping () -> Void) -> WindowAction {
+        WindowAction(window: ObjectIdentifier(history), perform: perform)
     }
 
     private func focusSearch() {
