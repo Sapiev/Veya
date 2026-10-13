@@ -24,9 +24,13 @@ struct Sidebar: View {
             list
                 // Clears the traffic lights, which sit inside the panel.
                 .padding(.top, 40)
-            Divider()
+            PanelEdge()
             Button(action: newPlaylist) {
-                Label("New Playlist", systemImage: "plus")
+                Label {
+                    Text("New Playlist")
+                } icon: {
+                    Image(systemName: "plus").foregroundStyle(.tint)
+                }
                     .scaledFont(size: 13)
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             }

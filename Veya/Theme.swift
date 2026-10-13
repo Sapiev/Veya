@@ -225,11 +225,29 @@ private struct GlassPanel: ViewModifier {
             .background(fill, in: .rect(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(
-                        increased ? AnyShapeStyle(.primary.opacity(0.6)) : AnyShapeStyle(.white.opacity(0.14)),
-                        lineWidth: increased ? 1 : 0.5
-                    )
+                    .strokeBorder(PanelEdge.color(increased), lineWidth: PanelEdge.width(increased))
             }
+    }
+}
+
+/// A full-width rule in the glass panel's edge color, to split content inside a panel.
+struct PanelEdge: View {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    static func color(_ increased: Bool) -> Color {
+        increased ? .primary.opacity(0.6) : .white.opacity(0.14)
+    }
+
+    static func width(_ increased: Bool) -> CGFloat {
+        increased ? 1 : 0.5
+    }
+
+    var body: some View {
+        let increased = contrast == .increased
+        Rectangle()
+            .fill(Self.color(increased))
+            .frame(height: Self.width(increased))
+            .accessibilityHidden(true)
     }
 }
 
