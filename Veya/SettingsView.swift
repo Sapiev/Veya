@@ -79,7 +79,7 @@ private struct ConnectSettingsTab: View {
 /// The menu bar mini-player, and the window colors: from the artwork, a fixed accent, or the accent cycling at a chosen speed.
 private struct GeneralSettingsTab: View {
     @AppStorage(ColorSource.key) private var source = ColorSource.artwork
-    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
+    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.defaultAccent.hex
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
     @AppStorage(SettingsView.trackNotificationsKey) private var notifiesTrackChanges = false
     @State private var notificationsDenied = false
@@ -149,7 +149,7 @@ private struct GeneralSettingsTab: View {
     }
 
     private var accent: Binding<Color> {
-        Binding(get: { Color(RGB(hex: accentHex) ?? .systemAccent) }, set: { accentHex = RGB($0).hex })
+        Binding(get: { Color(RGB(hex: accentHex) ?? .defaultAccent) }, set: { accentHex = RGB($0).hex })
     }
 }
 
