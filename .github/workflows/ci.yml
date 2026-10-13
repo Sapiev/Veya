@@ -32,6 +32,8 @@ jobs:
         run: swiftlint lint --quiet --reporter github-actions-logging
       - name: SwiftFormat
         run: swiftformat --lint .
+      - name: Localizations
+        run: scripts/check-localizations.sh
       # rustfmt only; overrides rust-toolchain.toml so clippy and the
       # cross-target std libraries are not downloaded.
       - name: Install rustfmt
