@@ -2647,7 +2647,7 @@ name = "spotcore"
 version = "0.1.0"
 dependencies = [
  "async-compat",
- "base64 0.22.1",
+ "base64 0.23.1",
  "futures-util",
  "http",
  "indexmap",
