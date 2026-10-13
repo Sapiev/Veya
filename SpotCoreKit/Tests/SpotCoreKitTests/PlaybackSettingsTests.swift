@@ -134,4 +134,52 @@ struct PlaybackSettingsTests {
         #expect(settings.bitrate == .kbps320)
         #expect(settings.audioCacheLimitBytes == PlaybackSettings.defaultAudioCacheLimitBytes)
     }
+
+    /// PBI-703: chosen folders survive relaunch through their bookmarks, once each.
+    @Test func localFoldersPersistAsBookmarksWithoutDuplicates() throws {
+        let music = try temporaryFolder("Music")
+        let mixes = try temporaryFolder("Mixes")
+        let settings = PlaybackSettings(defaults: defaults)
+
+        settings.addLocalFolders([music, mixes, music.appending(path: "x/..")])
+
+        #expect(settings.localFolderPaths == [music.path, mixes.path])
+        let relaunched = PlaybackSettings(defaults: defaults)
+        #expect(relaunched.localFolderPaths == [music.path, mixes.path])
+        relaunched.addLocalFolders([mixes])
+        #expect(relaunched.localFolderPaths == [music.path, mixes.path])
+    }
+
+    @Test func removedLocalFolderIsForgotten() throws {
+        let music = try temporaryFolder("Music")
+        let mixes = try temporaryFolder("Mixes")
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.addLocalFolders([music, mixes])
+
+        settings.removeLocalFolder(settings.localFolders[0])
+        settings.removeLocalFolder(music)
+
+        #expect(settings.localFolderPaths == [mixes.path])
+        #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [mixes.path])
+    }
+
+    /// A moved folder is still found, and a deleted one is dropped from the saved list.
+    @Test func movedLocalFolderFollowsAndDeletedOneIsDropped() throws {
+        let music = try temporaryFolder("Music")
+        let mixes = try temporaryFolder("Mixes")
+        PlaybackSettings(defaults: defaults).addLocalFolders([music, mixes])
+        let moved = music.deletingLastPathComponent().appending(path: "Moved \(UUID().uuidString)")
+        try FileManager.default.moveItem(at: music, to: moved)
+        try FileManager.default.removeItem(at: mixes)
+
+        #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [moved.path])
+        #expect((defaults.array(forKey: "playback.localFolders") as? [Data])?.count == 1)
+        #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [moved.path])
+    }
+
+    private func temporaryFolder(_ name: String) throws -> URL {
+        let url = URL.temporaryDirectory.appending(path: "PlaybackSettingsTests-\(UUID().uuidString)/\(name)").standardizedFileURL
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url.resolvingSymlinksInPath()
+    }
 }

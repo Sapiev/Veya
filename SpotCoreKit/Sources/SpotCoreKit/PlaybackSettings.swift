@@ -3,8 +3,8 @@ import Observation
 import SystemConfiguration
 
 /// App volume, loudness normalisation, output device, streaming quality,
-/// audio cache size, episode speed, autoplay and the Spotify Connect device,
-/// persisted across launches.
+/// audio cache size, episode speed, autoplay, the Spotify Connect device and
+/// local file folders, persisted across launches.
 @MainActor
 @Observable
 public final class PlaybackSettings {
@@ -76,6 +76,13 @@ public final class PlaybackSettings {
         didSet { defaults.set(zeroconf, forKey: Key.zeroconf) }
     }
 
+    /// Folders scanned for `spotify:local:` files, in the order the user added them.
+    public var localFolders: [URL] {
+        folders.map(\.url)
+    }
+
+    private var folders: [LocalFolder]
+
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let macName: String
 
@@ -96,6 +103,50 @@ public final class PlaybackSettings {
         storedEpisodeSpeed = AudioEngine.clamped(rate: defaults.object(forKey: Key.episodeSpeed) as? Float ?? 1)
         storedConnectDeviceName = defaults.string(forKey: Key.connectDeviceName)
         zeroconf = defaults.object(forKey: Key.zeroconf) as? Bool ?? false
+        let saved = defaults.array(forKey: Key.localFolders) as? [Data] ?? []
+        folders = []
+        for bookmark in saved {
+            if let folder = LocalFolder(bookmark: bookmark), !folders.contains(where: { $0.path == folder.path }) {
+                folders.append(folder)
+            }
+        }
+        if folders.map(\.bookmark) != saved {
+            saveLocalFolders()
+        }
+    }
+
+    isolated deinit {
+        folders.forEach { $0.stopAccessing() }
+    }
+
+    /// Adds the folders not already listed; a folder that cannot be bookmarked is skipped.
+    public func addLocalFolders(_ urls: [URL]) {
+        for url in urls where !folders.contains(where: { $0.path == LocalFolder.path(url) }) {
+            // An open panel's URL may need its scope opened before it can be bookmarked.
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let bookmark = try? LocalFolder.bookmark(url), let folder = LocalFolder(bookmark: bookmark) else { continue }
+            folders.append(folder)
+        }
+        saveLocalFolders()
+    }
+
+    public func removeLocalFolder(_ url: URL) {
+        folders.removeAll { folder in
+            guard folder.path == LocalFolder.path(url) else { return false }
+            folder.stopAccessing()
+            return true
+        }
+        saveLocalFolders()
+    }
+
+    /// What `SpotPlayer.setLocalFolders` takes.
+    public var localFolderPaths: [String] {
+        folders.map(\.path)
+    }
+
+    private func saveLocalFolders() {
+        defaults.set(folders.map(\.bookmark), forKey: Key.localFolders)
     }
 
     /// The Mac's localized name from Sharing settings.
@@ -135,6 +186,43 @@ public final class PlaybackSettings {
         static let episodeSpeed = "playback.episodeSpeed"
         static let connectDeviceName = "connect.deviceName"
         static let zeroconf = "connect.zeroconf"
+        static let localFolders = "playback.localFolders"
+    }
+}
+
+/// A chosen folder, read through its security-scoped bookmark so access survives relaunch.
+private struct LocalFolder {
+    let url: URL
+    /// Refreshed when the bookmark went stale, e.g. after the folder moved.
+    let bookmark: Data
+    private let accessing: Bool
+
+    /// Nil when the folder is gone. Starts access, which `stopAccessing` balances once.
+    /// shortcut: an unresolvable folder (unmounted volume) is dropped, keep its bookmark if that bites.
+    init?(bookmark: Data) {
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
+        else { return nil }
+        self.url = url
+        accessing = url.startAccessingSecurityScopedResource()
+        self.bookmark = stale ? (try? Self.bookmark(url)) ?? bookmark : bookmark
+    }
+
+    /// Compares folders whatever their trailing slash or `..` components.
+    var path: String {
+        Self.path(url)
+    }
+
+    static func path(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
+    static func bookmark(_ url: URL) throws -> Data {
+        try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    func stopAccessing() {
+        if accessing { url.stopAccessingSecurityScopedResource() }
     }
 }
 

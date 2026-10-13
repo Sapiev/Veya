@@ -1,5 +1,6 @@
 import SpotCoreKit
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 
 /// The Settings window (⌘,). Playback changes reach the live player through
@@ -156,6 +157,7 @@ private struct GeneralSettingsTab: View {
 private struct PlaybackSettingsTab: View {
     @Bindable var settings: PlaybackSettings
     @State private var devices = OutputDevices()
+    @State private var choosingFolders = false
 
     private static let speeds: [Float] = [0.8, 1, 1.25, 1.5, 1.75, 2]
 
@@ -195,6 +197,25 @@ private struct PlaybackSettingsTab: View {
                 }
             }
             .accessibilityLabel("Output device")
+            Section {
+                ForEach(settings.localFolders, id: \.self) { folder in
+                    LabeledContent {
+                        Button("Remove") { settings.removeLocalFolder(folder) }
+                            .accessibilityLabel("Remove \(folder.lastPathComponent)")
+                    } label: {
+                        Label(folder.lastPathComponent, systemImage: "folder")
+                        Text(folder.path(percentEncoded: false))
+                    }
+                }
+                Button("Add Folder…") { choosingFolders = true }
+                    .fileImporter(isPresented: $choosingFolders, allowedContentTypes: [.folder], allowsMultipleSelection: true) {
+                        if case let .success(folders) = $0 { settings.addLocalFolders(folders) }
+                    }
+            } header: {
+                Text("Local Files")
+            } footer: {
+                Text("Only MP3, MP4 and FLAC files sampled at 44.1 kHz play, matched to local files in your playlists.")
+            }
         }
         .formStyle(.grouped)
     }

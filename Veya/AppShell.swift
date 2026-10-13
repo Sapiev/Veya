@@ -184,6 +184,11 @@ struct AppShell: View {
             case .failed: Text("Check your connection and try again.")
             }
         }
+        .alert(unplayableTitle, isPresented: unplayableShown) {
+            Button("OK") {}
+        } message: {
+            Text("Veya plays local MP3, MP4 and FLAC files sampled at 44.1 kHz from the folders in Settings > Playback.")
+        }
         .background {
             // ⌘F is in the Go menu; ⌘L is the browser habit, ⌘K the design's hint.
             Button("Search", action: focusSearch)
@@ -256,6 +261,15 @@ struct AppShell: View {
 
     private var editErrorShown: Binding<Bool> {
         Binding(get: { playlists.editError != nil }, set: { if !$0 { playlists.editError = nil } })
+    }
+
+    private var unplayableShown: Binding<Bool> {
+        Binding(get: { player?.unplayableLocalFile != nil }, set: { if !$0 { player?.unplayableLocalFile = nil } })
+    }
+
+    private var unplayableTitle: Text {
+        let title = player?.unplayableLocalFile ?? ""
+        return title.isEmpty ? Text("Couldn't Play Local File") : Text("Couldn't Play “\(title)”")
     }
 
     private var selection: Binding<Route?> {

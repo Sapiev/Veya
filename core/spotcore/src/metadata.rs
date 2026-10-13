@@ -179,12 +179,13 @@ impl MetadataService {
     /// the last 7 days cost no request; the rest go out in batches of up to
     /// 100. Failed items are not cached.
     pub async fn items(&self, uris: Vec<String>) -> Result<Vec<MetadataItem>, MetadataError> {
-        let requested = uris
-            .iter()
-            .map(|uri| Requested::parse(uri))
-            .collect::<Result<Vec<_>, _>>()?;
+        let Split {
+            keys,
+            requested,
+            local,
+        } = split(&uris)?;
 
-        let mut found = HashMap::new();
+        let mut found: HashMap<String, MetadataItem> = local.into_iter().collect();
         let mut missing = Vec::new();
         let generation = self.generation();
         {
@@ -245,14 +246,14 @@ impl MetadataService {
             }
         }
 
-        Ok(requested
+        Ok(keys
             .into_iter()
-            .map(|item| {
+            .map(|key| {
                 found
-                    .get(&item.key)
+                    .get(&key)
                     .cloned()
                     .unwrap_or(MetadataItem::Unavailable {
-                        uri: item.key,
+                        uri: key,
                         error: ItemError::Failed { status: 0 },
                     })
             })
@@ -310,6 +311,77 @@ fn to_store(
         .map(|(key, item)| (key.as_str(), item))
         .collect();
     store.put_metadata_items(generation, &items, now);
+}
+
+/// `keys` holds each requested URI's canonical form, in input order.
+struct Split {
+    keys: Vec<String>,
+    requested: Vec<Requested>,
+    local: Vec<(String, MetadataItem)>,
+}
+
+/// Local files are answered from their URI alone; Spotify holds no metadata
+/// for them.
+fn split(uris: &[String]) -> Result<Split, MetadataError> {
+    let mut split = Split {
+        keys: Vec::with_capacity(uris.len()),
+        requested: Vec::new(),
+        local: Vec::new(),
+    };
+    for uri in uris {
+        if let Some(track) = local_track(uri) {
+            split.keys.push(track.uri.clone());
+            split
+                .local
+                .push((track.uri.clone(), MetadataItem::Track { track }));
+        } else {
+            let item = Requested::parse(uri)?;
+            split.keys.push(item.key.clone());
+            split.requested.push(item);
+        }
+    }
+    Ok(split)
+}
+
+/// `spotify:local:{artist}:{album}:{title}:{seconds}`, parts form-urlencoded.
+fn local_track(raw: &str) -> Option<TrackMetadata> {
+    let uri = SpotifyUri::from_uri(raw).ok()?;
+    let SpotifyUri::Local {
+        artist,
+        album_title,
+        track_title,
+        duration,
+    } = &uri
+    else {
+        return None;
+    };
+    let artist = form_decode(artist);
+    Some(TrackMetadata {
+        uri: uri.to_uri().ok()?,
+        title: form_decode(track_title),
+        artists: if artist.is_empty() {
+            Vec::new()
+        } else {
+            vec![ItemRef {
+                uri: String::new(),
+                name: artist,
+            }]
+        },
+        album: ItemRef {
+            uri: String::new(),
+            name: form_decode(album_title),
+        },
+        duration_ms: u32::try_from(duration.as_millis()).unwrap_or(u32::MAX),
+        explicit: false,
+        playability: Playability::Playable,
+        artwork: Vec::new(),
+    })
+}
+
+fn form_decode(part: &str) -> String {
+    percent_encoding::percent_decode_str(&part.replace('+', " "))
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1091,6 +1163,52 @@ mod tests {
                 (SHOW, ExtensionKind::SHOW_V4)
             ]
         );
+    }
+
+    #[test]
+    fn local_track_decodes_uri_parts() {
+        let uri = "spotify:local:Daft+Punk:Discovery:One+More+Time:320";
+        assert_eq!(
+            local_track(uri),
+            Some(TrackMetadata {
+                uri: uri.to_owned(),
+                title: "One More Time".to_owned(),
+                artists: vec![ItemRef {
+                    uri: String::new(),
+                    name: "Daft Punk".to_owned(),
+                }],
+                album: ItemRef {
+                    uri: String::new(),
+                    name: "Discovery".to_owned(),
+                },
+                duration_ms: 320_000,
+                explicit: false,
+                playability: Playability::Playable,
+                artwork: Vec::new(),
+            })
+        );
+        let bare =
+            local_track("spotify:local::Donkey+Kong+Country%3A+Tropical+Freeze:Snomads+Island:127")
+                .unwrap();
+        assert!(bare.artists.is_empty());
+        assert_eq!(bare.album.name, "Donkey Kong Country: Tropical Freeze");
+        assert_eq!(local_track(TRACK), None);
+    }
+
+    #[test]
+    fn split_answers_local_uris_and_keeps_request_order() {
+        let local = "spotify:local:Daft+Punk:Discovery:One+More+Time:320";
+        let uris = [TRACK, local, ALBUM].map(str::to_owned);
+        let parts = split(&uris).unwrap();
+        assert_eq!(parts.keys, [TRACK, local, ALBUM]);
+        let remote: Vec<_> = parts.requested.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(remote, [TRACK, ALBUM]);
+        assert_eq!(parts.local.len(), 1);
+        assert_eq!(parts.local[0].0, local);
+        assert!(matches!(
+            split(&["spotify:playlist:37i9dQZF1DXcBWIGoYBM5M".to_owned()]),
+            Err(MetadataError::UnsupportedKind { .. })
+        ));
     }
 
     #[test]
