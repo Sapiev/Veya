@@ -377,17 +377,12 @@ struct ThinSlider: View {
         self.onEditingChanged = onEditingChanged
     }
 
-    /// Assistive increments and value sets arrive without an editing session;
-    /// each one becomes a complete edit so seeks are not left pending.
     private var accessibleValue: Binding<Double> {
         Binding(get: { value }, set: { new in
-            if accessibilityEditing {
-                value = new
-            } else {
-                onEditingChanged(true)
-                value = new
-                onEditingChanged(false)
-            }
+            AssistiveSlider.set(
+                new, editing: accessibilityEditing,
+                apply: { value = $0 }, onEditingChanged: onEditingChanged
+            )
         })
     }
 
