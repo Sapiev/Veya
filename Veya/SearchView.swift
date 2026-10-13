@@ -47,7 +47,7 @@ struct SearchField: View {
                     .help("Clear Search")
                 }
                 Text(verbatim: "⌘K")
-                    .font(.system(size: 11))
+                    .scaledFont(size: 11)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 4)
                     .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(.separator, lineWidth: 0.5) }
@@ -131,7 +131,6 @@ struct ToolbarTextField: NSViewRepresentable {
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
-        field.font = .systemFont(ofSize: 13)
         field.placeholderString = prompt
         field.setAccessibilityLabel(label)
         field.setAccessibilityIdentifier("searchField")
@@ -141,6 +140,7 @@ struct ToolbarTextField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
+        field.font = .systemFont(ofSize: 13 * context.environment.textScale)
         if field.stringValue != text { field.stringValue = text }
         if context.coordinator.focusRequest != focusRequest {
             context.coordinator.focusRequest = focusRequest
@@ -286,7 +286,7 @@ struct SearchView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 2 * Theme.s8 } action: { width = $0 }
             .accessibilityIdentifier(phase == .results ? "searchResults" : "searchPage")
             .onChange(of: selection) { _, id in
-                if let id { withAnimation(Theme.fast) { proxy.scrollTo(id) } }
+                if let id { withAnimation(reduceMotion ? nil : Theme.fast) { proxy.scrollTo(id) } }
             }
         }
     }
@@ -356,11 +356,11 @@ struct SearchView: View {
     private var noResults: some View {
         VStack(spacing: Theme.s3) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 40, weight: .light))
+                .scaledFont(size: 40, weight: .light)
                 .foregroundStyle(.tertiary)
                 .accessibilityHidden(true)
             Text("No results for “\(search.query.trimmingCharacters(in: .whitespacesAndNewlines))”")
-                .font(.system(size: 17, weight: .semibold))
+                .scaledFont(size: 17, weight: .semibold)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .accessibilityAddTraits(.isHeader)
@@ -374,7 +374,7 @@ struct SearchView: View {
             }
             .padding(.top, Theme.s2)
         }
-        .font(.system(size: 14))
+        .scaledFont(size: 14)
         .padding(.vertical, Theme.s12)
         .padding(.horizontal, Theme.s8)
         .frame(maxWidth: .infinity)
@@ -462,7 +462,7 @@ struct SearchView: View {
                     }
                     if songs.isEmpty {
                         Text("No songs match.")
-                            .font(Theme.cardSubtitle)
+                            .modifier(Theme.cardSubtitle)
                             .foregroundStyle(.secondary)
                     } else {
                         songList(Array(songs.prefix(4)))
@@ -593,10 +593,10 @@ private struct TopResultCard: View {
                 .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.name)
-                    .font(Theme.greeting)
+                    .modifier(Theme.greeting)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(Theme.cardSubtitle)
+                    .modifier(Theme.cardSubtitle)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -607,6 +607,7 @@ private struct TopResultCard: View {
         .contentShape(.rect(cornerRadius: Theme.cardRadius))
         .onTapGesture(perform: open)
         .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(hit.name), \(subtitle)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { open() }
         .overlay(alignment: .bottomTrailing) {
@@ -665,11 +666,11 @@ private struct SongRow: View {
                 .clipShape(.rect(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.name)
-                    .font(.system(size: 14, weight: .medium))
+                    .scaledFont(size: 14, weight: .medium)
                     .foregroundStyle(playing ? Color(palette.tintText) : Color.primary)
                     .lineLimit(1)
                 Text(hit.subtitle)
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -693,6 +694,9 @@ private struct SongRow: View {
             Button(saved ? "Remove from Liked Songs" : "Save to Liked Songs", action: toggleSaved)
         }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(hit.subtitle.isEmpty ? hit.name : "\(hit.name), \(hit.subtitle)")
+        .accessibilityValue(playing ? "Playing" : "")
+        .accessibilityHint("Double-click to play")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { open() }
         .onHover { hovering = $0 }
@@ -718,7 +722,7 @@ private struct RecentChip: View {
             .accessibilityLabel(query)
             Button { remove(query) } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .scaledFont(size: 10, weight: .semibold)
                     .foregroundStyle(.secondary)
                     .frame(width: 28, height: 28)
                     .contentShape(.circle)
@@ -727,7 +731,7 @@ private struct RecentChip: View {
             .accessibilityLabel("Remove \(query) from recent searches")
             .padding(.trailing, 2)
         }
-        .font(Theme.cardTitle)
+        .modifier(Theme.cardTitle)
         .frame(height: 32)
         .background(Color.fillStrong, in: .capsule)
     }
@@ -749,7 +753,7 @@ private struct ChipStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(Theme.cardTitle)
+                .modifier(Theme.cardTitle)
                 .foregroundStyle(selected ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
                 .padding(.horizontal, Theme.s4)
                 .frame(height: 32)
@@ -777,7 +781,7 @@ private struct LinkButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(Theme.cardTitle)
+                .modifier(Theme.cardTitle)
                 .foregroundStyle(hovering ? .primary : .secondary)
                 .underline(hovering)
                 .onHover { hovering = $0 }
@@ -801,7 +805,7 @@ private struct GenreCard: View {
                 .aspectRatio(16 / 10, contentMode: .fit)
                 .overlay(alignment: .topLeading) {
                     Text(genre.name)
-                        .font(Theme.sectionTitle)
+                        .modifier(Theme.sectionTitle)
                         .foregroundStyle(Color(palette.tintInk))
                         .padding(Theme.s4)
                 }

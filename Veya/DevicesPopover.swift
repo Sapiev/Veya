@@ -14,6 +14,7 @@ struct DevicesButton: View {
         Button("Devices", systemImage: "hifispeaker.2") { showing.toggle() }
             .buttonStyle(TransportButtonStyle(on: playingElsewhere != nil))
             .accessibilityValue(playingElsewhere.map { "Playing on \($0.name)" } ?? "")
+            .accessibilityHint("Chooses where music plays")
             .help("Devices")
             .popover(isPresented: $showing, arrowEdge: .top) {
                 DeviceList(player: player)
@@ -28,7 +29,7 @@ private struct DeviceList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s1) {
             Text("Devices")
-                .font(.headline)
+                .scaledFont(size: 13, weight: .bold)
                 .accessibilityAddTraits(.isHeader)
                 .padding(.horizontal, Theme.s2)
                 .padding(.bottom, Theme.s1)
@@ -43,22 +44,25 @@ private struct DeviceList: View {
                     DeviceRow(device: device)
                 }
                 .buttonStyle(.plain)
+                .focusable()
                 .focused($focused, equals: device.id)
                 .accessibilityAddTraits(device.isActive ? .isSelected : [])
                 .disabled(!player.canTransfer)
             }
             if player.transferFailed {
                 Text("Couldn't move playback. Try again.")
-                    .font(.caption)
+                    .scaledFont(size: 10)
                     .foregroundStyle(.red)
                     .padding(.horizontal, Theme.s2)
             }
         }
         .padding(Theme.s3)
         .frame(width: 280)
-        .onAppear {
-            focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id
+        .arrowKeyList(player.devices.map(\.id), focus: $focused) { id in
+            if player.canTransfer { player.transfer(to: id) }
         }
+        // Set after the popover takes focus, which would otherwise land on the first row.
+        .task { focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id }
     }
 }
 
@@ -76,7 +80,7 @@ private struct DeviceRow: View {
     var body: some View {
         HStack(spacing: Theme.s3) {
             Image(systemName: device.kind.symbol)
-                .font(.system(size: 16))
+                .scaledFont(size: 16)
                 .frame(width: 22)
                 .foregroundStyle(device.isActive ? Color.accentColor : .secondary)
             VStack(alignment: .leading, spacing: 0) {
@@ -85,14 +89,14 @@ private struct DeviceRow: View {
                     .foregroundStyle(device.isActive ? Color.accentColor : .primary)
                 if device.isActive {
                     Text("Playing")
-                        .font(.caption)
+                        .scaledFont(size: 10)
                         .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: Theme.s2)
             Label("\(volumePercent)%", systemImage: "speaker.wave.2")
                 .labelStyle(.titleAndIcon)
-                .font(.caption)
+                .scaledFont(size: 10)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             if device.isActive {
@@ -106,6 +110,7 @@ private struct DeviceRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(name)
         .accessibilityValue(device.isActive ? "Playing, volume \(volumePercent)%" : "Volume \(volumePercent)%")
+        .accessibilityHint(device.isActive ? "" : "Moves playback to this device")
     }
 }
 

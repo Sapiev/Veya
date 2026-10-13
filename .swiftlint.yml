@@ -8,3 +8,9 @@ excluded:
   - SpotCoreKit/Sources/SpotCoreKit/spotcore.swift
   - SpotCoreKit/.build
 strict: true
+custom_rules:
+  unscaled_font:
+    included: "Veya/.*\\.swift"
+    regex: "\\.font\\("
+    message: "Use .scaledFont(size:) or a Theme ScaledFont so Settings > Text size applies (PBI-801)."
+    severity: error

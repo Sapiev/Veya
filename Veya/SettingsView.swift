@@ -44,6 +44,7 @@ struct SettingsView: View {
                 .tag(Tab.advanced)
         }
         .frame(width: 460, height: tab == .account ? 520 : 320)
+        .background(HostingGroupLabel(label: "Settings"))
     }
 }
 
@@ -83,11 +84,21 @@ private struct GeneralSettingsTab: View {
     @AppStorage(ColorSource.accentKey) private var accentHex = RGB.defaultAccent.hex
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
     @AppStorage(SettingsView.trackNotificationsKey) private var notifiesTrackChanges = false
+    @AppStorage(TextSize.key) private var textSize = TextSize.standard
     @State private var notificationsDenied = false
     @Bindable var menuBar: MenuBarSettings
 
     var body: some View {
         Form {
+            Section {
+                Picker("Text size", selection: $textSize) {
+                    Text("Default").tag(TextSize.standard)
+                    Text("Large").tag(TextSize.large)
+                    Text("Larger").tag(TextSize.larger)
+                    Text("Largest").tag(TextSize.largest)
+                }
+                .accessibilityLabel("Text size")
+            }
             Section {
                 Toggle("Show mini player in menu bar", isOn: $menuBar.shown)
                     .accessibilityLabel("Show mini player in menu bar")
@@ -364,7 +375,7 @@ private struct WebAPISection: View {
         Section {
             TextField("Client ID", text: $clientID, prompt: Text(verbatim: "0123456789abcdef0123456789abcdef"))
                 .accessibilityLabel("Client ID")
-                .font(.body.monospaced())
+                .scaledFont(size: 13, design: .monospaced)
                 .onSubmit(connect)
             LabeledContent("Status") {
                 // Separate branches: an updated Text kept its old accessibility value.

@@ -51,9 +51,9 @@ struct NowPlayingBar: View {
                 .help("Show Now Playing")
                 VStack(alignment: .leading, spacing: 0) {
                     Text(nowPlaying.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                     ArtistLinks(artists: nowPlaying.artists) { history.navigate(to: .artist(uri: $0)) }
-                        .font(.system(size: 12))
+                        .scaledFont(size: 12)
                         .foregroundStyle(.secondary)
                     playingOn
                 }
@@ -74,7 +74,7 @@ struct NowPlayingBar: View {
         if let device = player.playingOn {
             Label("Playing on \(device)", systemImage: "hifispeaker.2")
                 .labelStyle(.titleAndIcon)
-                .font(.system(size: 11, weight: .medium))
+                .scaledFont(size: 11, weight: .medium)
                 .foregroundStyle(Color.accentColor)
                 .lineLimit(1)
         }
@@ -114,7 +114,8 @@ struct NowPlayingBar: View {
             ThinSlider(
                 value: Binding(get: { player.volume }, set: { player.volume = $0 }),
                 in: 0 ... 1,
-                label: Text("Volume")
+                label: Text("Volume"),
+                valueDescription: player.volume.formatted(.percent.precision(.fractionLength(0)))
             )
             .frame(width: 96)
             Button("Full-Window Now Playing", systemImage: "arrow.up.left.and.arrow.down.right") { expanded = .queue }
@@ -155,14 +156,15 @@ struct TransportControls: View {
         Button("Shuffle", systemImage: "shuffle") { player.setShuffle(!player.shuffle) }
             .buttonStyle(TransportButtonStyle(on: player.shuffle, side: side, onArtwork: large))
             .accessibilityValue(player.shuffle ? "On" : "Off")
+            .accessibilityHint("Plays the queue in random order")
             .help("Shuffle")
         Button("Previous", systemImage: "backward.end.fill", action: player.previous)
             .buttonStyle(TransportButtonStyle(side: side, onArtwork: large))
-            .font(large ? .title2 : nil)
+            .scaledFont(size: large ? 17 : 13)
             .help("Previous")
         Button(action: player.togglePlayPause) {
             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: large ? 26 : 17, weight: .semibold))
+                .scaledFont(size: large ? 26 : 17, weight: .semibold)
                 .foregroundStyle(large ? Color(white: 0.07) : Color(nsColor: .windowBackgroundColor))
                 .frame(width: large ? 64 : 40, height: large ? 64 : 40)
                 .background(large ? AnyShapeStyle(.white) : AnyShapeStyle(.primary), in: .circle)
@@ -172,11 +174,12 @@ struct TransportControls: View {
         .help(player.isPlaying ? "Pause" : "Play")
         Button("Next", systemImage: "forward.end.fill", action: player.next)
             .buttonStyle(TransportButtonStyle(side: side, onArtwork: large))
-            .font(large ? .title2 : nil)
+            .scaledFont(size: large ? 17 : 13)
             .help("Next")
         Button("Repeat", systemImage: player.repeatMode == .track ? "repeat.1" : "repeat", action: player.cycleRepeat)
             .buttonStyle(TransportButtonStyle(on: player.repeatMode != .off, side: side, onArtwork: large))
             .accessibilityValue(repeatDescription)
+            .accessibilityHint("Switches between off, repeat all and repeat one")
             .help("Repeat")
     }
 
@@ -207,11 +210,12 @@ private struct TransportButton: View {
     let onArtwork: Bool
     @Environment(\.palette) private var palette
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var hovering = false
 
     var body: some View {
         let color: Color = if onArtwork {
-            .white.opacity(on || hovering ? 1 : 0.78)
+            .white.opacity(on || hovering ? 1 : contrast.opacity(0.78))
         } else if on {
             Color(palette.tintText)
         } else {
@@ -257,6 +261,7 @@ private struct PressScale: View {
 /// The bar's artwork with the design's expand overlay on hover.
 private struct ExpandableArtwork: View {
     let artwork: [Artwork]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -265,7 +270,7 @@ private struct ExpandableArtwork: View {
                 Color.black.opacity(0.45)
                     .overlay {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 15, weight: .semibold))
+                            .scaledFont(size: 15, weight: .semibold)
                             .foregroundStyle(.white)
                     }
                     .opacity(hovering ? 1 : 0)
@@ -273,7 +278,7 @@ private struct ExpandableArtwork: View {
             .clipShape(.rect(cornerRadius: Theme.cardRadius))
             .shadow(color: .black.opacity(0.3), radius: 6, y: 4)
             .onHover { hovering = $0 }
-            .animation(Theme.fast, value: hovering)
+            .animation(reduceMotion ? nil : Theme.fast, value: hovering)
     }
 }
 
@@ -281,6 +286,7 @@ private struct ExpandableArtwork: View {
 struct Scrubber: View {
     let player: PlayerModel
     var large = false
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var dragged: Double?
 
     var body: some View {
@@ -292,6 +298,7 @@ struct Scrubber: View {
                 value: Binding(get: { position }, set: { dragged = $0 }),
                 in: 0 ... max(duration, 1),
                 label: Text("Playback Position"),
+                valueDescription: String(localized: "\(Self.spoken(position)) of \(Self.spoken(duration))"),
                 onArtwork: large
             ) { editing in
                 if !editing, let dragged {
@@ -307,8 +314,8 @@ struct Scrubber: View {
                         Spacer()
                         Text("-" + Self.format(duration - position))
                     }
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .scaledFont(size: 12)
+                    .foregroundStyle(.white.opacity(contrast.opacity(0.7)))
                 }
                 .monospacedDigit()
             } else {
@@ -317,7 +324,7 @@ struct Scrubber: View {
                     slider
                     Text(Self.format(duration)).frame(width: 40, alignment: .leading)
                 }
-                .font(.system(size: 11))
+                .scaledFont(size: 11)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             }
@@ -326,6 +333,11 @@ struct Scrubber: View {
 
     static func format(_ milliseconds: Double) -> String {
         Duration.milliseconds(max(0, milliseconds)).formatted(.time(pattern: .minuteSecond))
+    }
+
+    /// VoiceOver's form of a time, e.g. "3 minutes, 12 seconds".
+    static func spoken(_ milliseconds: Double) -> String {
+        Duration.milliseconds(max(0, milliseconds)).formatted(.units(allowed: [.minutes, .seconds], width: .wide))
     }
 }
 
@@ -355,6 +367,8 @@ struct ThinSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     let label: Text
+    /// What VoiceOver reads as the value, e.g. "50%".
+    let valueDescription: String
     var onArtwork = false
     var onEditingChanged: (Bool) -> Void = { _ in }
     @State private var hovering = false
@@ -362,17 +376,20 @@ struct ThinSlider: View {
     @State private var accessibilityEditing = false
     @Environment(\.palette) private var palette
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         value: Binding<Double>,
         in range: ClosedRange<Double>,
         label: Text,
+        valueDescription: String,
         onArtwork: Bool = false,
         onEditingChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         _value = value
         self.range = range
         self.label = label
+        self.valueDescription = valueDescription
         self.onArtwork = onArtwork
         self.onEditingChanged = onEditingChanged
     }
@@ -426,12 +443,13 @@ struct ThinSlider: View {
         }
         .frame(height: 20)
         .onHover { hovering = $0 }
-        .animation(Theme.fast, value: hovering || dragging)
+        .animation(reduceMotion ? nil : Theme.fast, value: hovering || dragging)
         .accessibilityRepresentation {
             Slider(value: accessibleValue, in: range, label: { label }) { editing in
                 accessibilityEditing = editing
                 onEditingChanged(editing)
             }
+            .accessibilityValue(valueDescription)
         }
     }
 }

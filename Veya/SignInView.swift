@@ -53,26 +53,26 @@ struct SignInView: View {
     private func copy(titleSize: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Theme.s6) {
             Text("Welcome to Veya")
-                .font(.system(size: titleSize, weight: .heavy))
+                .scaledFont(size: titleSize, weight: .heavy)
                 .tracking(titleSize * -0.03)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
             Text("Your Spotify library, playlists and liked songs in a player that takes its colors from the music.")
-                .font(.system(size: 17))
+                .scaledFont(size: 17)
                 .lineSpacing(6)
                 .foregroundStyle(.primary.opacity(0.7))
                 .frame(maxWidth: 340, alignment: .leading)
             SpotifyButton(isBusy: isBusy) { model.signIn() }
             // Always laid out so the footnote doesn't jump when a failure appears.
             Text(failure?.message ?? " ")
-                .font(.system(size: 14))
+                .scaledFont(size: 14)
                 .foregroundStyle(scheme == .dark ? Color(red: 1, green: 0x8A / 255, blue: 0x80 / 255) : Color(red: 0xC0 / 255, green: 0x27 / 255, blue: 0x1D / 255))
                 .opacity(failure == nil ? 0 : 1)
                 .animation(Theme.fast, value: failure)
                 .accessibilityHidden(failure == nil)
                 .frame(minHeight: 21, alignment: .top)
             Text("You'll sign in on Spotify's own page. Veya never sees your password.")
-                .font(.system(size: 13))
+                .scaledFont(size: 13)
                 .foregroundStyle(.primary.opacity(0.56))
                 .frame(maxWidth: 340, alignment: .leading)
         }
@@ -119,7 +119,7 @@ private struct SpotifyButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let scale: CGFloat = configuration.isPressed ? 0.98 : hovering ? 1.02 : 1
         configuration.label
-            .font(.system(size: 17, weight: .bold))
+            .scaledFont(size: 17, weight: .bold)
             .foregroundStyle(.black)
             .padding(.horizontal, Theme.s8)
             .frame(minWidth: 280, minHeight: 52)

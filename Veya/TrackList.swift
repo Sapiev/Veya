@@ -38,6 +38,7 @@ struct TrackList: View {
                     play([row.id], in: sortedRows)
                 }
                 .onAppear { resolve(from: row.number - 1) }
+                .cellLabel(String(localized: "Number"))
             }
             .width(min: 28, ideal: 40, max: 56)
             TableColumn("Title", value: \.title) { row in
@@ -48,53 +49,67 @@ struct TrackList: View {
                     }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
-                            .font(.system(size: 14, weight: .medium))
+                            .scaledFont(size: 14, weight: .medium)
                             .foregroundStyle(isPlaying(row) ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.primary))
                         Text(row.artists.map(\.name).formatted(.list(type: .and)))
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                             .foregroundStyle(.secondary)
                     }
                     .lineLimit(1)
                 }
                 .frame(minHeight: 48)
-                .opacity(row.playable ? 1 : 0.45)
+                .opacity(row.playable ? 1 : contrast.opacity(0.7))
                 .help(row.unavailableHelp ?? "")
                 .hoverTracked(row, hover)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(accessibilityLabel(row))
+                .accessibilityHint("Double-click or press Return to play")
+                .cellLabel(String(localized: "Title"), row: accessibilityLabel(row))
+                .accessibilityAction { play([row.id], in: rows) }
+                .accessibilityAction(named: likeActionName(row)) {
+                    library.setSaved(row.uri, !library.isSaved(row.uri))
+                }
+                .accessibilityAction(named: "Add to Queue") { player?.addToQueue([row.uri]) }
             }
             .width(min: 160, ideal: 280)
             TableColumn("Album", value: \.albumName) { row in
                 Text(row.albumName)
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .foregroundStyle(.secondary)
-                    .opacity(row.playable ? 1 : 0.45)
+                    .opacity(row.playable ? 1 : contrast.opacity(0.7))
                     .help(row.unavailableHelp ?? "")
                     .hoverTracked(row, hover)
+                    .cellLabel(String(localized: "Album"))
             }
             .width(min: 100, ideal: 200)
             .defaultVisibility(showsAlbum ? .visible : .hidden)
             TableColumn("Date Added", value: \.addedSort) { row in
                 Text(row.addedAt?.formatted(date: .abbreviated, time: .omitted) ?? "")
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .foregroundStyle(.secondary)
                     .hoverTracked(row, hover)
+                    .cellLabel(String(localized: "Date Added"))
             }
             .width(min: 80, ideal: 110)
             TableColumn(Text(verbatim: "")) { row in
                 LikeCell(row: row, library: library, revealed: selection.contains(row.id), hover: hover)
+                    .cellLabel(String(localized: "Liked"))
             }
             .width(36)
             TableColumn("Duration", value: \.durationMs) { row in
                 Text(row.durationMs == 0 ? "" : Duration.milliseconds(Int(row.durationMs)).formatted(.time(pattern: .minuteSecond)))
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .hoverTracked(row, hover)
+                    .cellLabel(String(localized: "Duration"))
             }
             .width(min: 56, ideal: 64, max: 90)
             TableColumn(Text(verbatim: "")) { row in
                 MoreCell(row: row, revealed: selection.contains(row.id), hover: hover) {
                     menu(for: [row])
                 }
+                .cellLabel(String(localized: "Options"))
             }
             .width(36)
         } rows: {
@@ -113,6 +128,7 @@ struct TrackList: View {
         }
         .alternatingRowBackgrounds(.disabled)
         .scrollContentBackground(.hidden)
+        .accessibilityLabel("Tracks")
         .accessibilityIdentifier("trackList")
         .contextMenu(forSelectionType: Row.ID.self) { ids in
             menu(for: rows.filter { ids.contains($0.id) })
@@ -124,7 +140,7 @@ struct TrackList: View {
             play(selection, in: sortedRows)
             return true
         })
-        .background(ClickEndsTextEditing())
+        .background(ClickFocusesTable())
         .background(KeyMonitor(keyCodes: KeyMonitor.deleteKeys) {
             guard let editablePlaylist, !selection.isEmpty else { return false }
             remove(selection, from: editablePlaylist)
@@ -139,6 +155,7 @@ struct TrackList: View {
     }
 
     @Environment(\.palette) private var palette
+    @Environment(\.colorSchemeContrast) private var contrast
 
     @ViewBuilder private func menu(for rows: [Row]) -> some View {
         let uris = rows.map(\.uri)
@@ -208,25 +225,6 @@ struct TrackList: View {
         player?.nowPlaying?.uri == row.uri
     }
 
-    private func resolve(from index: Int) {
-        let end = min(index + Self.resolveAhead, entries.count)
-        guard index >= 0, index < end else { return }
-        library.resolve(entries[index ..< end].map(\.uri))
-    }
-
-    private func copyLinks(_ uris: [String]) {
-        let links = uris.compactMap(Self.webLink)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
-    }
-
-    /// `spotify:track:ID` to `https://open.spotify.com/track/ID`.
-    static func webLink(_ uri: String) -> String? {
-        let parts = uri.split(separator: ":")
-        guard parts.count == 3, parts[0] == "spotify" else { return nil }
-        return "https://open.spotify.com/\(parts[1])/\(parts[2])"
-    }
-
     nonisolated struct Row: Identifiable, Sendable {
         /// 1-based position in the source order; unique even when a playlist repeats a track.
         let number: Int
@@ -283,6 +281,54 @@ struct TrackList: View {
                 artwork = []
             }
         }
+    }
+}
+
+extension TrackList {
+    fileprivate func resolve(from index: Int) {
+        let end = min(index + Self.resolveAhead, entries.count)
+        guard index >= 0, index < end else { return }
+        library.resolve(entries[index ..< end].map(\.uri))
+    }
+
+    fileprivate func copyLinks(_ uris: [String]) {
+        let links = uris.compactMap(Self.webLink)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+    }
+
+    /// `spotify:track:ID` to `https://open.spotify.com/track/ID`.
+    static func webLink(_ uri: String) -> String? {
+        let parts = uri.split(separator: ":")
+        guard parts.count == 3, parts[0] == "spotify" else { return nil }
+        return "https://open.spotify.com/\(parts[1])/\(parts[2])"
+    }
+}
+
+/// What VoiceOver reads for a row and names its actions.
+private extension TrackList {
+    func likeActionName(_ row: Row) -> LocalizedStringKey {
+        library.isSaved(row.uri) ? "Remove from Liked Songs" : "Save to Liked Songs"
+    }
+
+    /// Title, artists, spoken duration and playing state, e.g. "Song 1, Artist, 3 minutes, 12 seconds, Now playing".
+    func accessibilityLabel(_ row: Row) -> String {
+        let state: String? = if isPlaying(row), player?.isPlaying == true {
+            String(localized: "Now playing")
+        } else if isPlaying(row) {
+            String(localized: "Paused")
+        } else if !row.playable {
+            row.unavailableHelp ?? String(localized: "Unavailable")
+        } else {
+            nil
+        }
+        let parts = [
+            row.title.isEmpty ? String(localized: "Loading…") : row.title,
+            row.artists.map(\.name).formatted(.list(type: .and)),
+            row.durationMs == 0 ? "" : Scrubber.spoken(Double(row.durationMs)),
+            state ?? ""
+        ]
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 }
 
@@ -352,10 +398,49 @@ private struct KeyMonitor: NSViewRepresentable {
     }
 }
 
-/// A click in the table ends text editing, as clicking an AppKit table does;
-/// a SwiftUI `Table` leaves the field editor first responder, so a Filter or
-/// search field would otherwise keep taking Delete and Return.
-private struct ClickEndsTextEditing: NSViewRepresentable {
+/// SwiftUI leaves a table cell's AppKit host and its row without a description, which
+/// VoiceOver reads as an empty group; this names the host after its column and the row after `row`.
+private struct CellAccessibility: NSViewRepresentable {
+    let label: String
+    let row: String?
+
+    func makeNSView(context _: Context) -> Namer {
+        Namer()
+    }
+
+    func updateNSView(_ view: Namer, context _: Context) {
+        view.label = label
+        view.row = row
+        view.apply()
+    }
+
+    final class Namer: NSView {
+        var label = ""
+        var row: String?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            apply()
+        }
+
+        /// Cells are reused across rows, so this runs on every update.
+        func apply() {
+            var view = superview?.superview
+            while let host = view, !(host is NSTableRowView || host is NSTableView) {
+                host.setAccessibilityLabel(label)
+                view = host.superview
+            }
+            if let row, let rowView = view as? NSTableRowView {
+                rowView.setAccessibilityLabel(row)
+            }
+        }
+    }
+}
+
+/// A click in the table makes it first responder, as clicking an AppKit table does;
+/// a SwiftUI `Table` leaves the previous one, so the arrow keys would not move the
+/// selection and a Filter or search field would keep taking Delete and Return.
+private struct ClickFocusesTable: NSViewRepresentable {
     func makeNSView(context _: Context) -> MonitorView {
         MonitorView()
     }
@@ -371,9 +456,15 @@ private struct ClickEndsTextEditing: NSViewRepresentable {
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                guard let self, let window, event.window === window, window.firstResponder is NSText,
+                guard let self, let window, event.window === window,
                       bounds.contains(convert(event.locationInWindow, from: nil)) else { return event }
-                window.makeFirstResponder(nil)
+                let hit = window.contentView?.hitTest(event.locationInWindow)
+                let table = sequence(first: hit, next: { $0?.superview }).lazy.compactMap { $0 as? NSTableView }.first
+                if let table {
+                    window.makeFirstResponder(table)
+                } else if window.firstResponder is NSText {
+                    window.makeFirstResponder(nil)
+                }
                 return event
             }
         }
@@ -398,6 +489,11 @@ private final class DragSource {
 }
 
 private extension View {
+    /// Names a table cell for VoiceOver; its contents stay separate elements.
+    func cellLabel(_ label: String, row: String? = nil) -> some View {
+        background(CellAccessibility(label: label, row: row))
+    }
+
     /// Table cells have gaps between them, so each cell reports the pointer for its row.
     func hoverTracked(_ row: TrackList.Row, _ hover: RowHover) -> some View {
         onHover { inside in
@@ -541,5 +637,3 @@ private struct ArtistMenu: View {
         }
     }
 }
-
-
