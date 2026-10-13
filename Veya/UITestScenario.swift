@@ -273,53 +273,53 @@
         }
     }
 
-    private nonisolated let scenarioTrackURI = "spotify:track:ui-test"
+    private nonisolated let scenarioTrackURI = "spotify:track:uitest"
 
     /// Liked song `n` is "Song n"; song 3 is region locked so its row is dimmed.
     private nonisolated func likedSongURI(_ n: Int) -> String {
-        "spotify:track:ui-test-\(n)"
+        "spotify:track:uitest\(n)"
     }
 
     private nonisolated func scenarioTrack(_ uri: String) -> TrackMetadata? {
         if uri == scenarioTrackURI {
             return TrackMetadata(
-                uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
-                album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: 180_000,
+                uri: uri, title: "Test Track", artists: [ItemRef(uri: "spotify:artist:uitest", name: "Test Artist")],
+                album: ItemRef(uri: "spotify:album:uitest", name: "Test Album"), durationMs: 180_000,
                 explicit: false, playability: .playable, artwork: []
             )
         }
-        guard let n = uri.split(separator: "-").last.flatMap({ Int($0) }), uri == likedSongURI(n) else { return nil }
+        guard let n = Int(uri.dropFirst("spotify:track:uitest".count)), uri == likedSongURI(n) else { return nil }
         return TrackMetadata(
-            uri: uri, title: "Song \(n)", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
-            album: ItemRef(uri: "spotify:album:ui-test", name: "Test Album"), durationMs: UInt32(120_000 + n * 1000),
+            uri: uri, title: "Song \(n)", artists: [ItemRef(uri: "spotify:artist:uitest", name: "Test Artist")],
+            album: ItemRef(uri: "spotify:album:uitest", name: "Test Album"), durationMs: UInt32(120_000 + n * 1000),
             explicit: false, playability: n == 3 ? .regionLocked : .playable, artwork: []
         )
     }
 
     private nonisolated let scenarioArtist = ArtistMetadata(
-        uri: "spotify:artist:ui-test", name: "Test Artist", artwork: [],
-        topTracks: [likedSongURI(2), likedSongURI(1), likedSongURI(3)], albums: ["spotify:album:ui-test"], singles: [scenarioSingle.uri],
+        uri: "spotify:artist:uitest", name: "Test Artist", artwork: [],
+        topTracks: [likedSongURI(2), likedSongURI(1), likedSongURI(3)], albums: ["spotify:album:uitest"], singles: [scenarioSingle.uri],
         compilations: [], related: [ItemRef(uri: scenarioRelated.uri, name: scenarioRelated.name)]
     )
     private nonisolated let scenarioRelated = ArtistMetadata(
         // Large enough for the full-bleed header; the scenario never loads artwork.
-        uri: "spotify:artist:ui-test-related", name: "Related Artist",
+        uri: "spotify:artist:uitestrelated", name: "Related Artist",
         artwork: [Artwork(url: "https://i.scdn.co/image/ui-test-related", size: .large, width: 640, height: 640)],
         topTracks: [], albums: [], singles: [], compilations: [], related: []
     )
     /// Songs 1, 2 and 4; song 3 is the region-locked one.
     private nonisolated let scenarioAlbum = AlbumMetadata(
-        uri: "spotify:album:ui-test", title: "Test Album", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+        uri: "spotify:album:uitest", title: "Test Album", artists: [ItemRef(uri: "spotify:artist:uitest", name: "Test Artist")],
         tracks: [1, 2, 4].map(likedSongURI), playability: .playable, artwork: [], year: 2024,
         copyrights: ["© 2024 Veya Test Records"]
     )
     private nonisolated let scenarioSingle = AlbumMetadata(
-        uri: "spotify:album:ui-test-single", title: "Test Single", artists: [ItemRef(uri: "spotify:artist:ui-test", name: "Test Artist")],
+        uri: "spotify:album:uitestsingle", title: "Test Single", artists: [ItemRef(uri: "spotify:artist:uitest", name: "Test Artist")],
         tracks: [likedSongURI(5)], playability: .playable, artwork: [], year: 2025, copyrights: []
     )
-    private nonisolated let scenarioPlaylistURI = "spotify:playlist:ui-test"
+    private nonisolated let scenarioPlaylistURI = "spotify:playlist:uitest"
     /// Spotify-owned, so Home lists it under Made for You.
-    private nonisolated let scenarioMixURI = "spotify:playlist:ui-test-mix"
+    private nonisolated let scenarioMixURI = "spotify:playlist:uitestmix"
 
     /// Newest first: not started, halfway through, and played.
     private nonisolated let scenarioEpisodes = [
@@ -334,13 +334,13 @@
         _ id: String, _ title: String, publishedAt: Int64, playability: Playability = .playable
     ) -> EpisodeMetadata {
         EpisodeMetadata(
-            uri: "spotify:episode:ui-test-\(id)", title: title, showName: "Test Podcast", description: "Notes for \(title)",
+            uri: "spotify:episode:uitest\(id)", title: title, showName: "Test Podcast", description: "Notes for \(title)",
             durationMs: 3_600_000, explicit: false, playability: playability, artwork: [], publishedAt: publishedAt
         )
     }
 
     private nonisolated let scenarioShow = ShowMetadata(
-        uri: "spotify:show:ui-test", name: "Test Podcast", publisher: "Veya Test Studio",
+        uri: "spotify:show:uitest", name: "Test Podcast", publisher: "Veya Test Studio",
         description: "A podcast about testing Veya", artwork: [], episodes: scenarioEpisodes.map(\.uri)
     )
 
@@ -399,7 +399,7 @@
         private let song = OSAllocatedUnfairLock(initialState: 1)
 
         /// Unknown to the scenario metadata, so its title stays as the cluster gave it.
-        private static let remoteTrackURI = "spotify:track:ui-test-remote"
+        private static let remoteTrackURI = "spotify:track:uitestremote"
 
         init(observer: any PlayerObserver) {
             self.observer = observer
@@ -584,12 +584,12 @@
             self.fill = fill
             var state = State()
             if case let .liked(_, conflict) = fill {
-                let folder = "spotify:user:ui-test:folder:mixes"
+                let folder = "spotify:user:uitest:folder:mixes"
                 state.rootlist = [
                     .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil, editable: true, public: false),
                     .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil, editable: false, public: false),
                     .folder(uri: folder, name: "Mixes", parent: nil),
-                    .playlist(uri: "spotify:playlist:ui-test-nested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder, editable: false, public: false),
+                    .playlist(uri: "spotify:playlist:uitestnested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder, editable: false, public: false),
                 ]
                 state.playlists = [
                     scenarioPlaylistURI: Playlist(name: "Road Trip", description: "Songs for the road", owner: "ui-test", songs: [1, 2, 5]),
@@ -666,7 +666,7 @@
         func createPlaylist(name: String, description: String, folder: String?) async throws -> String {
             state.withLock { state in
                 state.created += 1
-                let uri = "spotify:playlist:ui-test-new-\(state.created)"
+                let uri = "spotify:playlist:uitestnew-\(state.created)"
                 state.playlists[uri] = Playlist(name: name, description: description, owner: "ui-test", songs: [])
                 state.rootlist.insert(
                     .playlist(uri: uri, name: name, owner: "ui-test", trackCount: 0, parent: folder, editable: true, public: false), at: 0
@@ -678,7 +678,7 @@
         func createFolder(name: String, folder: String?) async throws -> String {
             state.withLock { state in
                 state.created += 1
-                let uri = "spotify:user:ui-test:folder:new-\(state.created)"
+                let uri = "spotify:user:uitest:folder:new-\(state.created)"
                 state.rootlist.insert(.folder(uri: uri, name: name, parent: folder), at: 0)
                 return uri
             }
@@ -726,7 +726,7 @@
         }
 
         private static func songNumber(_ uri: String) -> Int? {
-            uri.split(separator: "-").last.flatMap { Int($0) }
+            Int(uri.dropFirst("spotify:track:uitest".count))
         }
 
         func waitForChange() async -> PlaylistChange {
@@ -782,10 +782,10 @@
             return [
                 SearchGroup(kind: .track, total: 4, offset: 0, hits: (1 ... 3).map(Self.track)),
                 SearchGroup(kind: .artist, total: 1, offset: 0, hits: [
-                    SearchHit(uri: "spotify:artist:ui-test", name: "Test Artist", subtitle: "Artist", artwork: [], explicit: false),
+                    SearchHit(uri: "spotify:artist:uitest", name: "Test Artist", subtitle: "Artist", artwork: [], explicit: false),
                 ]),
                 SearchGroup(kind: .album, total: 1, offset: 0, hits: [
-                    SearchHit(uri: "spotify:album:ui-test", name: "Test Album", subtitle: "Test Artist", artwork: [], explicit: false),
+                    SearchHit(uri: "spotify:album:uitest", name: "Test Album", subtitle: "Test Artist", artwork: [], explicit: false),
                 ]),
             ]
         }

@@ -8,9 +8,14 @@ struct ContentView: View {
     let webAPI: WebAPIConnection
     let recentSearches: RecentSearches
     let signOut: () -> Void
+    /// Held until the signed-in window can open it; a cold launch from a link restores the session first.
+    @State private var openedLink: SpotifyLink?
 
     var body: some View {
         content
+            .onOpenURL { url in
+                if let link = SpotifyLink(url.absoluteString) { openedLink = link }
+            }
             .onChange(of: signIn.state) { _, state in
                 if state == .signedIn, let credentials = signIn.takeCredentials() {
                     session.connect(tokens: credentials.tokens)
@@ -31,7 +36,7 @@ struct ContentView: View {
             SignInView(model: signIn)
         case .ready:
             if let scope = activeSession.current {
-                AppShell(scope: scope, webAPI: webAPI, recentSearches: recentSearches)
+                AppShell(scope: scope, webAPI: webAPI, recentSearches: recentSearches, openedLink: $openedLink)
                     .id(ObjectIdentifier(scope.handle))
                     .overlay(alignment: .top) {
                         ReconnectBanner(connection: session.connection)

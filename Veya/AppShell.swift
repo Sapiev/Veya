@@ -9,6 +9,7 @@ extension FocusedValues {
     @Entry var sidebarVisible: Binding<Bool>?
     @Entry var newPlaylist: WindowAction?
     @Entry var newFolder: WindowAction?
+    @Entry var openLink: WindowAction?
 }
 
 /// A menu action the key window publishes. Equal while it comes from the same
@@ -40,12 +41,15 @@ struct AppShell: View {
     /// The full Now Playing view's open tab; nil while it is closed.
     @State private var nowPlayingTab: NowPlayingView.Tab?
     @State private var creatingPlaylist = false
+    @State private var openingLink = false
+    @Binding private var openedLink: SpotifyLink?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(scope: SessionScope, webAPI: WebAPIConnection, recentSearches: RecentSearches) {
+    init(scope: SessionScope, webAPI: WebAPIConnection, recentSearches: RecentSearches, openedLink: Binding<SpotifyLink?>) {
         self.scope = scope
         self.recentSearches = recentSearches
         self.webAPI = webAPI
+        _openedLink = openedLink
     }
 
     private var metadata: any MetadataServiceProtocol { scope.metadata }
@@ -153,6 +157,15 @@ struct AppShell: View {
         .focusedSceneValue(\.focusSearch, action(focusSearch))
         .focusedSceneValue(\.newPlaylist, action(newPlaylist))
         .focusedSceneValue(\.newFolder, action(newFolder))
+        .focusedSceneValue(\.openLink, action { openingLink = true })
+        .sheet(isPresented: $openingLink) {
+            OpenLinkSheet(open: open)
+        }
+        .onChange(of: openedLink, initial: true) {
+            guard let openedLink else { return }
+            self.openedLink = nil
+            open(openedLink)
+        }
         .sheet(isPresented: $creatingPlaylist) {
             PlaylistDetailsSheet(title: "New Playlist", confirm: "Create") { name, description, _ in
                 Task {
@@ -228,6 +241,13 @@ struct AppShell: View {
 
     private func newPlaylist() {
         creatingPlaylist = true
+    }
+
+    private func open(_ link: SpotifyLink) {
+        switch link {
+        case let .page(route): history.navigate(to: route)
+        case let .play(uri): _ = player?.play(uri, startingAt: 0)
+        }
     }
 
     private func newFolder() {
@@ -560,7 +580,7 @@ private struct CapsuleIconButton: View {
     }
 }
 
-/// File menu: new playlists and folders; Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
+/// File menu: new playlists and folders, opening a Spotify link; Go menu: ⌘[ and ⌘] like Finder and Safari; View menu: the queue inspector.
 struct NavigationCommands: Commands {
     @FocusedValue(\.navigationHistory) private var history
     @FocusedValue(\.focusSearch) private var focusSearch
@@ -568,6 +588,7 @@ struct NavigationCommands: Commands {
     @FocusedValue(\.sidebarVisible) private var sidebarVisible
     @FocusedValue(\.newPlaylist) private var newPlaylist
     @FocusedValue(\.newFolder) private var newFolder
+    @FocusedValue(\.openLink) private var openLink
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -576,6 +597,10 @@ struct NavigationCommands: Commands {
                 .disabled(newPlaylist == nil)
             Button("New Folder") { newFolder?() }
                 .disabled(newFolder == nil)
+            Divider()
+            Button("Open Link…") { openLink?() }
+                .keyboardShortcut("o")
+                .disabled(openLink == nil)
         }
         CommandGroup(after: .sidebar) {
             // The sidebar is a custom panel, so the system's Toggle Sidebar item never appears.
@@ -603,5 +628,38 @@ struct NavigationCommands: Commands {
                 .keyboardShortcut("]")
                 .disabled(history?.canGoForward != true)
         }
+    }
+}
+
+/// File › Open Link: a pasted `open.spotify.com` link or `spotify:` URI.
+private struct OpenLinkSheet: View {
+    let open: (SpotifyLink) -> Void
+    @State private var text = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let link = SpotifyLink(text)
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            Text("Open Link")
+                .font(.headline)
+            TextField("Link", text: $text, prompt: Text(verbatim: "https://open.spotify.com/…"))
+                .textFieldStyle(.roundedBorder)
+            Text("Paste a link from open.spotify.com or a spotify: URI.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Open") {
+                    if let link { open(link) }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(link == nil)
+            }
+        }
+        .padding(Theme.s5)
+        .frame(width: 420)
     }
 }
