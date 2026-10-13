@@ -85,7 +85,25 @@ struct ShortcutActionsTests {
     }
 
     @Test func playsAPlaylistAsItsContext() async throws {
-        try await actions().playPlaylist("spotify:playlist:1")
+        try await actions().play("spotify:playlist:1")
         #expect(fake.recorded == ["load spotify:playlist:1 0"])
+    }
+
+    @Test func rejectsTextThatIsNotASpotifyURI() async {
+        let actions = actions()
+        for uri in ["", "spotify:", "https://open.spotify.com/track/1", "track:1"] {
+            await #expect(throws: ShortcutActions.Failure.invalidURI) { try await actions.play(uri) }
+        }
+        #expect(fake.recorded.isEmpty)
+    }
+
+    @Test func nowPlayingAnswersWithoutWaiting() {
+        #expect(ShortcutActions(player: { nil }, library: { nil }, playlists: { nil }).nowPlaying == nil)
+
+        let actions = actions()
+        #expect(actions.nowPlaying == nil)
+        player.apply(.trackChanged(uri: "spotify:track:1", name: "Song", durationMs: 1))
+        #expect(actions.nowPlaying?.uri == "spotify:track:1")
+        #expect(actions.nowPlaying?.info.title == "Song")
     }
 }

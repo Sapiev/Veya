@@ -69,7 +69,7 @@ struct PlayPlaylistIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        try await actions.playPlaylist(playlist.id)
+        try await actions.play(playlist.id)
         return .result()
     }
 }
@@ -152,6 +152,7 @@ extension ShortcutActions.Failure: @retroactive CustomLocalizedStringResourceCon
         switch self {
         case .notReady: "Veya isn't signed in or couldn't start playback."
         case .nothingPlaying: "Nothing is playing in Veya."
+        case .invalidURI: "That isn't a Spotify URI, such as spotify:track:…"
         }
     }
 }
