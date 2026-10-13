@@ -318,6 +318,12 @@ impl MetadataStore {
         }
     }
 
+    /// Stalls every read and write until dropped, as a slow disk would.
+    #[cfg(test)]
+    pub(crate) fn stall(&self) -> MutexGuard<'_, Connection> {
+        self.connection.lock().unwrap()
+    }
+
     /// `None` after a panic while locked, so FFI callers see a miss, not a panic.
     fn lock(&self) -> Option<MutexGuard<'_, Connection>> {
         self.connection

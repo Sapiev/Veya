@@ -7,7 +7,7 @@
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use log::{info, warn};
@@ -22,6 +22,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Semaphore, watch};
 use tokio::task::JoinSet;
+
+use crate::util::shared_client;
 
 const DEFAULT_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 const DEFAULT_REDIRECT_PORT: u16 = 8898;
@@ -281,15 +283,18 @@ fn oauth_client(
         .set_auth_uri(AuthUrl::new(settings.authorize_url.clone()).map_err(invalid_config)?)
         .set_token_uri(TokenUrl::new(settings.token_url.clone()).map_err(invalid_config)?)
         .set_redirect_uri(RedirectUrl::new(redirect).map_err(invalid_config)?);
-    let http = reqwest::Client::builder()
-        // The token endpoint must answer directly; following redirects
-        // would forward the code or refresh token elsewhere.
-        .redirect(reqwest::redirect::Policy::none())
-        // Trust only the macOS keychain roots, honoring the user's trust settings.
-        .tls_built_in_webpki_certs(false)
-        .timeout(TOKEN_REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
+    static HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+    let http = shared_client(&HTTP, || {
+        reqwest::Client::builder()
+            // The token endpoint must answer directly; following redirects
+            // would forward the code or refresh token elsewhere.
+            .redirect(reqwest::redirect::Policy::none())
+            // Trust only the macOS keychain roots, honoring the user's trust settings.
+            .tls_built_in_webpki_certs(false)
+            .timeout(TOKEN_REQUEST_TIMEOUT)
+            .build()
+    })
+    .map_err(|e| internal(format!("cannot build HTTP client: {e}")))?;
     Ok((client, http))
 }
 

@@ -10,7 +10,6 @@ use std::io::{BufRead, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
 
 use log::{LevelFilter, Metadata, Record};
 use time::format_description::well_known::Rfc3339;
@@ -132,8 +131,19 @@ pub fn recent_logs(window_seconds: u64) -> Result<String, SpotCoreError> {
     let Some(dir) = dir else {
         return Ok(String::new());
     };
-    let window = Duration::from_secs(window_seconds);
-    read_recent(&dir, OffsetDateTime::now_utc() - window).map_err(internal)
+    read_recent(
+        &dir,
+        window_start(OffsetDateTime::now_utc(), window_seconds),
+    )
+    .map_err(internal)
+}
+
+/// The epoch for a window too long to subtract, so it covers every log.
+fn window_start(now: OffsetDateTime, window_seconds: u64) -> OffsetDateTime {
+    i64::try_from(window_seconds)
+        .ok()
+        .and_then(|seconds| now.checked_sub(time::Duration::seconds(seconds)))
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
 }
 
 #[uniffi::export(name = "redact")]
@@ -429,6 +439,17 @@ fn internal(e: impl std::fmt::Display) -> SpotCoreError {
 mod tests {
     use super::*;
     use time::macros::datetime;
+
+    #[test]
+    fn a_window_too_long_to_subtract_starts_at_the_epoch() {
+        let now = datetime!(2026-01-01 0:00 UTC);
+        assert_eq!(window_start(now, 60), datetime!(2025-12-31 23:59 UTC));
+        assert_eq!(window_start(now, u64::MAX), OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(
+            window_start(now, i64::MAX.unsigned_abs()),
+            OffsetDateTime::UNIX_EPOCH
+        );
+    }
 
     #[derive(Default)]
     struct CollectingSink(Mutex<Vec<LogRecord>>);

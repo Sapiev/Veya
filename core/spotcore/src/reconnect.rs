@@ -2,13 +2,14 @@
 //! with stored credentials on the same device id, and reports progress.
 
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use log::{info, warn};
 use tokio::sync::{Notify, watch};
 
 use crate::session::{SessionError, StoredCredentials};
+use crate::util::lock;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_BACKOFF_SECS: u32 = 60;
@@ -96,12 +97,6 @@ struct Shared<L> {
     stopped: watch::Sender<bool>,
     /// Counts links installed by reconnects; the first link is 0.
     links: watch::Sender<u64>,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl<L: Link> Shared<L> {

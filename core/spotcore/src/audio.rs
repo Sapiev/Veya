@@ -203,7 +203,7 @@ impl RenderHandle {
 /// # Safety
 /// `handle` comes from `AudioOutput::take_render_handle`, is not freed and is
 /// used by one thread at a time; `left` and `right` each point to `frames`
-/// writable floats.
+/// writable, properly aligned floats, and the two ranges do not overlap.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spotcore_audio_render(
     handle: *mut RenderHandle,

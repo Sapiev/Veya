@@ -2,11 +2,9 @@
 //! batches through extended metadata, cached in memory and in the metadata
 //! store.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use indexmap::IndexMap;
 use librespot_core::date::Date;
 use librespot_core::session::UserData;
 use librespot_core::{Session, SpotifyUri};
@@ -24,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::lyrics::Lyrics;
 use crate::session::SpotSession;
 use crate::store::MetadataStore;
+use crate::util::{blocking, lock, unix_now};
 
 const BATCH_SIZE: usize = 100;
 const CACHE_CAPACITY: usize = 5_000;
@@ -200,8 +199,13 @@ impl MetadataService {
                 }
             }
         }
-        if let Some(store) = &self.store {
-            let hits = from_store(store, &mut missing, now());
+        if let Some(store) = self.store.clone() {
+            let (hits, rest) = blocking(move || {
+                let hits = from_store(&store, &mut missing, unix_now());
+                (hits, missing)
+            })
+            .await;
+            missing = rest;
             let mut cache = self.hot();
             for (key, item) in hits {
                 if cache.generation == generation {
@@ -221,9 +225,13 @@ impl MetadataService {
                 .map_err(|e| MetadataError::Request {
                     message: e.to_string(),
                 })?;
-            let decoded = decode(&response, batch, &Context::of(&session));
-            if let Some(store) = &self.store {
-                to_store(store, generation, &decoded, now());
+            let mut decoded = decode(&response, batch, &Context::of(&session));
+            if let Some(store) = self.store.clone() {
+                decoded = blocking(move || {
+                    to_store(&store, generation, &decoded, unix_now());
+                    decoded
+                })
+                .await;
             }
             let mut cache = self.hot();
             for (key, item) in decoded {
@@ -239,7 +247,15 @@ impl MetadataService {
 
         Ok(requested
             .into_iter()
-            .map(|item| found[&item.key].clone())
+            .map(|item| {
+                found
+                    .get(&item.key)
+                    .cloned()
+                    .unwrap_or(MetadataItem::Unavailable {
+                        uri: item.key,
+                        error: ItemError::Failed { status: 0 },
+                    })
+            })
             .collect())
     }
 
@@ -262,9 +278,9 @@ impl MetadataService {
 /// The memory cache, emptied first when the store was cleared since it
 /// filled, so a clear drops memory too.
 fn hot(cache: &Mutex<Lru>, generation: u64) -> MutexGuard<'_, Lru> {
-    let mut lru = cache.lock().unwrap();
+    let mut lru = lock(cache);
     if lru.generation != generation {
-        lru.entries.clear();
+        lru.clear();
         lru.generation = generation;
     }
     lru
@@ -294,12 +310,6 @@ fn to_store(
         .map(|(key, item)| (key.as_str(), item))
         .collect();
     store.put_metadata_items(generation, &items, now);
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -614,8 +624,11 @@ fn item_ref(id: &SpotifyUri, name: &str) -> ItemRef {
 }
 
 /// Least recently used entries go first once `capacity` is reached.
+/// O(log n) per hit: entries carry a use stamp, `by_use` orders the stamps.
 struct Lru {
-    entries: IndexMap<String, MetadataItem>,
+    entries: HashMap<String, (u64, MetadataItem)>,
+    by_use: BTreeMap<u64, String>,
+    tick: u64,
     capacity: usize,
     /// Store generation the entries were cached under.
     generation: u64,
@@ -624,25 +637,40 @@ struct Lru {
 impl Lru {
     fn new(capacity: usize) -> Self {
         Self {
-            entries: IndexMap::with_capacity(capacity),
+            entries: HashMap::with_capacity(capacity),
+            by_use: BTreeMap::new(),
+            tick: 0,
             capacity,
             generation: 0,
         }
     }
 
     fn get(&mut self, key: &str) -> Option<MetadataItem> {
-        let index = self.entries.get_index_of(key)?;
-        let last = self.entries.len() - 1;
-        self.entries.move_index(index, last);
-        Some(self.entries[last].clone())
+        let (stamp, item) = self.entries.get_mut(key)?;
+        let key = self.by_use.remove(stamp)?;
+        self.tick += 1;
+        *stamp = self.tick;
+        let item = item.clone();
+        self.by_use.insert(self.tick, key);
+        Some(item)
     }
 
     fn insert(&mut self, key: String, item: MetadataItem) {
-        self.entries.shift_remove(&key);
-        self.entries.insert(key, item);
-        if self.entries.len() > self.capacity {
-            self.entries.shift_remove_index(0);
+        self.tick += 1;
+        if let Some((old, _)) = self.entries.insert(key.clone(), (self.tick, item)) {
+            self.by_use.remove(&old);
         }
+        self.by_use.insert(self.tick, key);
+        if self.entries.len() > self.capacity
+            && let Some((_, oldest)) = self.by_use.pop_first()
+        {
+            self.entries.remove(&oldest);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.by_use.clear();
     }
 }
 
@@ -1104,6 +1132,7 @@ mod tests {
         lru.insert("a".into(), item(ItemError::NotFound));
         lru.insert("a".into(), item(ItemError::Malformed));
         assert_eq!(lru.entries.len(), 1);
+        assert_eq!(lru.by_use.len(), 1);
         assert_eq!(lru.get("a"), Some(item(ItemError::Malformed)));
     }
 

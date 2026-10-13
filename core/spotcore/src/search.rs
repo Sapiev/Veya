@@ -296,7 +296,9 @@ fn groups_of(
                 .collect();
             (!hits.is_empty()).then_some(SearchGroup {
                 kind,
-                total: group.total.max(offset + hits.len() as u32),
+                total: group
+                    .total
+                    .max(offset.saturating_add(u32::try_from(hits.len()).unwrap_or(u32::MAX))),
                 offset,
                 hits,
             })
@@ -463,6 +465,13 @@ mod tests {
         let groups = groups_of(body.as_bytes(), &[SearchKind::Track], 50).unwrap();
         assert_eq!(groups[0].offset, 50);
         assert_eq!(groups[0].total, 51);
+    }
+
+    #[test]
+    fn total_saturates_at_the_largest_offset() {
+        let body = format!(r#"{{"tracks": {{"total": 0, "items": [{{"uri": "{TRACK}"}}]}}}}"#);
+        let groups = groups_of(body.as_bytes(), &[SearchKind::Track], u32::MAX).unwrap();
+        assert_eq!(groups[0].total, u32::MAX);
     }
 
     #[test]

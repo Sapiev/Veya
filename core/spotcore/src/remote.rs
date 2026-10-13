@@ -3,6 +3,7 @@
 //! (ADR-009 Remote row, PBI-503). Nothing is decoded locally meanwhile.
 
 use librespot_protocol::connect::ClusterUpdate;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, PercentEncode, utf8_percent_encode};
 use serde_json::{Value, json};
 
 use crate::player::PlaybackEvent;
@@ -32,12 +33,25 @@ pub(crate) struct PlayRequest {
     pub(crate) paused: bool,
 }
 
+/// Device ids come from the cluster, so each is escaped as one path segment.
+const SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
 pub(crate) fn command_endpoint(from: &str, to: &str) -> String {
+    let (from, to) = (segment(from), segment(to));
     format!("/connect-state/v1/player/command/from/{from}/to/{to}")
 }
 
 pub(crate) fn volume_endpoint(from: &str, to: &str) -> String {
+    let (from, to) = (segment(from), segment(to));
     format!("/connect-state/v1/connect/volume/from/{from}/to/{to}")
+}
+
+fn segment(id: &str) -> PercentEncode<'_> {
+    utf8_percent_encode(id, SEGMENT)
 }
 
 /// Wire format of the volume request: `{"volume": 0..=65535}`.
@@ -357,6 +371,14 @@ mod tests {
             "/connect-state/v1/connect/volume/from/mac/to/phone"
         );
         assert_eq!(volume_body(32_768), br#"{"volume":32768}"#);
+    }
+
+    #[test]
+    fn device_ids_cannot_leave_their_path_segment() {
+        assert_eq!(
+            command_endpoint("a-b_c.d~e", "../x/y?z#w"),
+            "/connect-state/v1/player/command/from/a-b_c.d~e/to/..%2Fx%2Fy%3Fz%23w"
+        );
     }
 
     fn cluster(active: &str, playing: bool) -> ClusterUpdate {

@@ -1,11 +1,13 @@
 //! Account product check before the access-point login, because librespot
 //! exits the process when it sees a non-Premium account (ADR-005).
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::session::SessionError;
+use crate::util::shared_client;
 
 const ME_URL: &str = "https://api.spotify.com/v1/me";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -27,13 +29,16 @@ pub async fn is_premium_account(access_token: String) -> Result<bool, SessionErr
 
 /// The client for bearer-authenticated Web API calls.
 pub(crate) fn web_api_client() -> reqwest::Result<reqwest::Client> {
-    reqwest::Client::builder()
-        // A redirect must not carry the bearer token elsewhere.
-        .redirect(reqwest::redirect::Policy::none())
-        // Trust only the macOS keychain roots, honoring the user's trust settings.
-        .tls_built_in_webpki_certs(false)
-        .timeout(REQUEST_TIMEOUT)
-        .build()
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    shared_client(&CLIENT, || {
+        reqwest::Client::builder()
+            // A redirect must not carry the bearer token elsewhere.
+            .redirect(reqwest::redirect::Policy::none())
+            // Trust only the macOS keychain roots, honoring the user's trust settings.
+            .tls_built_in_webpki_certs(false)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+    })
 }
 
 async fn is_premium_at(url: &str, access_token: &str) -> Result<bool, SessionError> {

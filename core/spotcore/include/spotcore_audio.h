@@ -8,7 +8,8 @@
 typedef struct SpotcoreRenderHandle SpotcoreRenderHandle;
 
 // Fills `frames` floats of planar `left` and `right`, padding with silence;
-// returns frames taken from the ring. No locks, no allocation.
+// returns frames taken from the ring. No locks, no allocation. `left` and
+// `right` must not overlap.
 size_t spotcore_audio_render(SpotcoreRenderHandle *_Nonnull handle,
                              float *_Nonnull left,
                              float *_Nonnull right,
