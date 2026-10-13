@@ -155,6 +155,10 @@ struct AdaptiveColors: ViewModifier {
         content
             .environment(\.palette, palette)
             .tint(Color(palette.tint))
+            .onChange(of: palette.tint, initial: true) { _, tint in
+                SelectionTint.install()
+                SelectionTint.color = NSColor(Color(tint))
+            }
             // Cycle steps blend into each other, so the hue never stops moving.
             .animation(reduceMotion ? nil : cycling ? .linear(duration: 1) : Theme.themeChange, value: palette)
             .task(id: cycling ? cycleSeconds : nil) {
