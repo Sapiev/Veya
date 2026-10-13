@@ -103,8 +103,7 @@ private struct LyricsLines: View {
             Button { seek(line.startMs) } label: { text }
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(index == active ? 1 : contrast.opacity(0.45)))
-                .focusable()
-                .focused($focused, equals: index)
+                .focusRing($focused, equals: index)
                 .accessibilityAddTraits(index == active ? .isSelected : [])
                 .accessibilityHint("Plays from this line")
         } else {

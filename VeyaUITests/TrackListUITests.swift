@@ -46,6 +46,41 @@ final class TrackListUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
+    /// The focused selection is the palette tint (Veya's red by default), never the system blue.
+    @MainActor func testSelectionUsesTheAccentNotSystemBlue() throws {
+        let app = likedSongs()
+        let title = app.trackList.staticTexts["Song 2"]
+        title.click()
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+
+        // Just left of the title, between the artwork and the text: only the selection is drawn there.
+        let color = try screenColors(y: title.frame.midY, x: [title.frame.minX - 6])[0]
+        XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
+    }
+
+    /// The right-click outline is the palette tint too, never the system blue.
+    @MainActor func testRightClickOutlineUsesTheAccentNotSystemBlue() throws {
+        let app = likedSongs()
+        let title = app.trackList.staticTexts["Song 4"]
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
+        title.rightClick()
+        XCTAssertTrue(app.menuItems["Play Next"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        // Across the row's leading edge, which the outline crosses and the menu never covers.
+        let colors = try screenColors(y: title.frame.midY, x: Array(stride(from: row.frame.minX, to: row.frame.minX + 30, by: 0.5)))
+        XCTAssertFalse(colors.contains { $0.blueComponent > $0.redComponent + 0.2 }, "\(colors)")
+        XCTAssertTrue(colors.contains { $0.redComponent > $0.blueComponent + 0.3 }, "\(colors)")
+    }
+
+    /// Screen colors along a row of screen points.
+    @MainActor private func screenColors(y: CGFloat, x: [CGFloat]) throws -> [NSColor] {
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: XCUIScreen.main.screenshot().pngRepresentation))
+        let scale = CGFloat(rep.pixelsWide) / (try XCTUnwrap(NSScreen.screens.first)).frame.width
+        return try x.map { try XCTUnwrap(rep.colorAt(x: Int($0 * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)) }
+    }
+
     @MainActor func testRegionLockedRowRefusesToPlay() {
         let app = likedSongs()
         let locked = app.trackList.staticTexts["Song 3"]

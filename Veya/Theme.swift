@@ -155,6 +155,10 @@ struct AdaptiveColors: ViewModifier {
         content
             .environment(\.palette, palette)
             .tint(Color(palette.tint))
+            .onChange(of: palette.tint, initial: true) { _, tint in
+                SelectionTint.install()
+                SelectionTint.color = NSColor(Color(tint))
+            }
             // Cycle steps blend into each other, so the hue never stops moving.
             .animation(reduceMotion ? nil : cycling ? .linear(duration: 1) : Theme.themeChange, value: palette)
             .task(id: cycling ? cycleSeconds : nil) {
@@ -299,7 +303,31 @@ extension ColorSchemeContrast {
     }
 }
 
+/// The system focus ring is always the system accent, so this draws its own in the palette tint.
+private struct FocusRing<ID: Hashable>: ViewModifier {
+    let focus: FocusState<ID?>.Binding
+    let id: ID
+    @Environment(\.palette) private var palette
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .focused(focus, equals: id)
+            .overlay {
+                if focus.wrappedValue == id {
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(Color(palette.tint), lineWidth: 3)
+                }
+            }
+    }
+}
+
 extension View {
+    /// Focusable as `id` in `focus`, ringed in the palette tint while focused.
+    func focusRing<ID: Hashable>(_ focus: FocusState<ID?>.Binding, equals id: ID) -> some View {
+        modifier(FocusRing(focus: focus, id: id))
+    }
+
     /// Up and Down move focus through `ids` and Return runs `activate` on the focused one.
     /// Arrows and Return reach a focused button as AppKit commands, which `onKeyPress` never sees.
     func arrowKeyList<ID: Hashable>(
