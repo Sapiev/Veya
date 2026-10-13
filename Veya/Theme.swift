@@ -33,7 +33,12 @@ extension Color {
 
 extension EnvironmentValues {
     /// Colors taken from the playing track's artwork; the system palette otherwise.
-    @Entry var palette = AdaptivePalette.system(dark: true)
+    @Entry var palette = AdaptivePalette.system(dark: true, accent: .defaultAccent)
+}
+
+extension RGB {
+    /// Veya's warm red (#C94636), the accent until the user picks another in Settings.
+    static let defaultAccent = RGB(red: 0xC9 / 255, green: 0x46 / 255, blue: 0x36 / 255)
 }
 
 /// Where the window takes its colors from (Settings > General).
@@ -62,7 +67,7 @@ extension RGB {
 struct AdaptiveColors: ViewModifier {
     let artwork: [Artwork]
     @AppStorage(ColorSource.key) private var source = ColorSource.artwork
-    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.systemAccent.hex
+    @AppStorage(ColorSource.accentKey) private var accentHex = RGB.defaultAccent.hex
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
     @Environment(\.artworkLoader) private var loader
     @Environment(\.colorScheme) private var scheme
@@ -73,7 +78,7 @@ struct AdaptiveColors: ViewModifier {
 
     func body(content: Content) -> some View {
         let dark = scheme == .dark
-        let accent = RGB(hex: accentHex) ?? .systemAccent
+        let accent = RGB(hex: accentHex) ?? .defaultAccent
         let cycling = source == .cycle && !reduceMotion
         // The accent washes the whole window, so the cycle reads in the background too.
         let shown = accent.rotatingHue(by: cycling ? turns : 0)

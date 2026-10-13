@@ -4,6 +4,7 @@ import XCTest
 enum Scenario: String {
     case signedOut
     case signInCancelled
+    case signInFails
     case signedIn
     case restoreFails
     case reconnecting
@@ -34,7 +35,7 @@ extension XCUIApplication {
     }
 
     var signInScreen: XCUIElement {
-        staticTexts["Sign In to Veya"]
+        staticTexts["Welcome to Veya"]
     }
 
     var signedInScreen: XCUIElement {

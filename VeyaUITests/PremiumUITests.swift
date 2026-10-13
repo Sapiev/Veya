@@ -6,7 +6,7 @@ final class PremiumUITests: XCTestCase {
         let app = XCUIApplication.launch(.notPremium)
         XCTAssertTrue(app.signInScreen.waitForExistence(timeout: XCUIApplication.timeout))
 
-        app.buttons["Sign In with Spotify…"].click()
+        app.buttons["Continue with Spotify"].click()
 
         XCTAssertTrue(app.staticTexts["Veya Needs Spotify Premium"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(app.signedInScreen.exists)

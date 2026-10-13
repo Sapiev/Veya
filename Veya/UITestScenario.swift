@@ -13,6 +13,8 @@
         case signedOut
         /// No saved sign-in; the user closes the Spotify window.
         case signInCancelled
+        /// No saved sign-in; signing in can't reach Spotify.
+        case signInFails
         /// A saved sign-in restores at launch.
         case signedIn
         /// The first restore fails; Try Again succeeds.
@@ -70,7 +72,7 @@
         }
 
         var dependencies: AppDependencies {
-            let hasSavedSignIn = ![.signedOut, .signInCancelled, .notPremium].contains(self)
+            let hasSavedSignIn = ![.signedOut, .signInCancelled, .signInFails, .notPremium].contains(self)
             let signInCompletes = self != .signInCancelled
             let webAPIConnected = self != .webAPINotConnected
             return AppDependencies(
@@ -86,7 +88,7 @@
                     remote: self == .remoteControl
                 ),
                 browser: ScenarioBrowser(dismissedByUser: !signInCompletes),
-                startFlow: { ScenarioFlow(completes: signInCompletes) },
+                startFlow: { ScenarioFlow(completes: signInCompletes && self != .signInFails, fails: self == .signInFails) },
                 webAPIStartFlow: { _ in ScenarioFlow(completes: true) },
                 tokenRefresher: ScenarioRefresher(),
                 artworkLoader: nil,
@@ -851,10 +853,12 @@
 
     private final nonisolated class ScenarioFlow: SignInFlow {
         private let completes: Bool
+        private let fails: Bool
         private let cancelled = OSAllocatedUnfairLock(initialState: false)
 
-        init(completes: Bool) {
+        init(completes: Bool, fails: Bool = false) {
             self.completes = completes
+            self.fails = fails
         }
 
         func authorizeURL() -> String {
@@ -863,6 +867,9 @@
 
         /// SignInModel's task group waits for this child, so it must end on `cancel()`.
         func finish() async throws -> OAuthTokens {
+            if fails {
+                throw SignInFailure.network
+            }
             if completes {
                 return OAuthTokens(accessToken: "ui-test", refreshToken: "ui-test", expiresInSecs: 3600, scopes: [])
             }
