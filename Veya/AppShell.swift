@@ -91,6 +91,8 @@ struct AppShell: View {
                         focusRequest: searchFocusRequest
                     )
                 }
+                // With the sidebar hidden the window buttons sit over the page, so the bar starts past them.
+                .padding(.leading, sidebarVisible ? 0 : Theme.windowButtonsWidth)
             }
             .overlay(alignment: .bottom) {
                 if let player {

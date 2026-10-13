@@ -67,6 +67,19 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
     }
 
+    /// With the sidebar hidden the window buttons sit over the page, so the top bar starts past them.
+    @MainActor func testTopBarClearsWindowButtonsWithSidebarHidden() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.menuItem("View", "Hide Sidebar").click()
+        XCTAssertTrue(app.signedInScreen.waitForNonExistence(timeout: XCUIApplication.timeout))
+        let window = app.windows.firstMatch
+        let zoom = window.buttons[XCUIIdentifierFullScreenWindow].frame
+        let back = window.buttons["Back"].frame
+        XCTAssertGreaterThan(back.minX, zoom.maxX)
+    }
+
     /// Saved artists, albums and podcasts list in the sidebar and open their page.
     @MainActor func testSidebarSectionsListSavedItemsThatOpenTheirPage() {
         let app = XCUIApplication.launch(.signedIn)
