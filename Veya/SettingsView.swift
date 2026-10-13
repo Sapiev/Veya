@@ -44,7 +44,7 @@ struct SettingsView: View {
                 .tag(Tab.advanced)
         }
         .frame(width: 460, height: tab == .account ? 520 : 320)
-        .background(HostingGroupLabel(label: "Settings"))
+        .background(HostingGroupLabel(label: String(localized: "Settings")))
     }
 }
 

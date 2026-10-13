@@ -244,7 +244,7 @@ struct PlaylistPageView: View {
                     }
                     if let followers = playlists.followers[page.uri], followers > 0 {
                         Dot()
-                        Text("\(followers.formatted()) followers")
+                        Text("\(followers) followers")
                     }
                 }
             }
