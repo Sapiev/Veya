@@ -5,6 +5,7 @@
 //! the end of a track advances it, and an exhausted context continues with
 //! Spotify's autoplay radio for it.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -74,10 +75,11 @@ pub enum Bitrate {
 }
 
 /// Player settings librespot fixes when the player is created.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Tuning {
     normalisation: Option<LoudnessPreset>,
     bitrate: Bitrate,
+    local_folders: Vec<PathBuf>,
 }
 
 /// URIs are canonical `spotify:` strings.
@@ -253,6 +255,7 @@ impl SpotPlayer {
         let tuning = Tuning {
             normalisation,
             bitrate,
+            local_folders: Vec::new(),
         };
         let sink = Arc::new(Mutex::new(
             output.take_sink().ok_or(PlayerError::OutputTaken)?,
@@ -284,7 +287,15 @@ impl SpotPlayer {
                 owner: owner.clone(),
             },
         };
-        let player = spawn_player(&session, link, shared, &mixer, &state, &observer, tuning);
+        let player = spawn_player(
+            &session,
+            link,
+            shared,
+            &mixer,
+            &state,
+            &observer,
+            tuning.clone(),
+        );
         let this = Arc::new(Self {
             session,
             player: Mutex::new(player),
@@ -336,6 +347,15 @@ impl SpotPlayer {
         self.retune(|t| t.bitrate = bitrate);
     }
 
+    /// Folders librespot scans for `spotify:local:` files, once per player.
+    /// Rebuilds the player like `set_bitrate` only when the list changed.
+    pub async fn set_local_folders(&self, paths: Vec<String>) {
+        let folders: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        if lock(&self.tuning).local_folders != folders {
+            self.retune(|t| t.local_folders = folders);
+        }
+    }
+
     /// Expands `uri` (track, episode, album, playlist or artist top tracks)
     /// and starts its first item at `start_ms`.
     pub async fn load(
@@ -354,7 +374,9 @@ impl SpotPlayer {
                 ..Default::default()
             };
             let request = match uri {
-                SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } => {
+                SpotifyUri::Track { .. }
+                | SpotifyUri::Episode { .. }
+                | SpotifyUri::Local { .. } => {
                     LoadRequest::from_tracks(vec![canonical(&uri)], options)
                 }
                 _ => LoadRequest::from_context_uri(canonical(&uri), options),
@@ -363,7 +385,10 @@ impl SpotPlayer {
             return Ok(());
         }
         if let Some((connect, target)) = self.remote_for_load() {
-            let single = matches!(uri, SpotifyUri::Track { .. } | SpotifyUri::Episode { .. });
+            let single = matches!(
+                uri,
+                SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } | SpotifyUri::Local { .. }
+            );
             let request = PlayRequest {
                 context_uri: (!single).then(|| canonical(&uri)),
                 tracks: if single {
@@ -727,7 +752,7 @@ impl SpotPlayer {
         let tuning = {
             let mut tuning = lock(&self.tuning);
             change(&mut tuning);
-            *tuning
+            tuning.clone()
         };
         // From here the old player's writes and events are dropped.
         let epoch = self.epoch.next();
@@ -920,7 +945,7 @@ impl SpotPlayer {
                 owner: self.owner.clone(),
             },
         };
-        let tuning = *lock(&self.tuning);
+        let tuning = lock(&self.tuning).clone();
         let player = Player::new(
             player_config(tuning),
             session,
@@ -1068,6 +1093,7 @@ fn player_config(tuning: Tuning) -> PlayerConfig {
     let config = PlayerConfig {
         bitrate,
         position_update_interval: Some(POSITION_INTERVAL),
+        local_file_directories: tuning.local_folders,
         ..PlayerConfig::default()
     };
     let Some(preset) = tuning.normalisation else {
@@ -1349,9 +1375,12 @@ fn seed() -> u64 {
 /// Up Next takes single items only, not contexts.
 pub(crate) fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
     match SpotifyUri::from_uri(uri) {
-        Ok(uri @ (SpotifyUri::Track { .. } | SpotifyUri::Episode { .. })) => Ok(uri),
+        Ok(
+            uri
+            @ (SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } | SpotifyUri::Local { .. }),
+        ) => Ok(uri),
         Ok(other) => Err(PlayerError::InvalidUri {
-            message: format!("not a track or episode: {}", canonical(&other)),
+            message: format!("not a track, episode or local file: {}", canonical(&other)),
         }),
         Err(e) => Err(PlayerError::InvalidUri {
             message: e.to_string(),
@@ -1370,7 +1399,9 @@ async fn resolve(session: &Session, uri: &SpotifyUri) -> Result<Vec<SpotifyUri>,
         message: e.to_string(),
     };
     match uri {
-        SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } => Ok(vec![uri.clone()]),
+        SpotifyUri::Track { .. } | SpotifyUri::Episode { .. } | SpotifyUri::Local { .. } => {
+            Ok(vec![uri.clone()])
+        }
         SpotifyUri::Album { .. } => {
             let album = Album::get(session, uri).await.map_err(metadata)?;
             Ok(album.tracks().cloned().collect())
@@ -2017,6 +2048,7 @@ mod tests {
             player_config(Tuning {
                 normalisation,
                 bitrate: Bitrate::Kbps320,
+                local_folders: Vec::new(),
             })
         };
         assert!(!tuned(None).normalisation);
@@ -2039,6 +2071,7 @@ mod tests {
             let config = player_config(Tuning {
                 normalisation,
                 bitrate,
+                local_folders: Vec::new(),
             });
             assert_eq!(config.bitrate, expected);
             assert!(config.normalisation, "bitrate must not reset normalisation");
@@ -2049,9 +2082,24 @@ mod tests {
     }
 
     #[test]
-    fn playable_accepts_tracks_and_episodes_only() {
+    fn player_config_scans_local_folders() {
+        let folders = vec![
+            PathBuf::from("/Users/me/Music"),
+            PathBuf::from("/Volumes/x"),
+        ];
+        let config = player_config(Tuning {
+            normalisation: None,
+            bitrate: Bitrate::Kbps320,
+            local_folders: folders.clone(),
+        });
+        assert_eq!(config.local_file_directories, folders);
+    }
+
+    #[test]
+    fn playable_accepts_tracks_episodes_and_local_files_only() {
         assert!(playable("spotify:track:4uLU6hMCjMI75M1A2tKUQ0").is_ok());
         assert!(playable("spotify:episode:4uLU6hMCjMI75M1A2tKUQ0").is_ok());
+        assert!(playable("spotify:local:Daft+Punk:Discovery:One+More+Time:320").is_ok());
         for uri in ["spotify:album:4uLU6hMCjMI75M1A2tKUQ0", "nonsense"] {
             assert!(matches!(playable(uri), Err(PlayerError::InvalidUri { .. })));
         }
