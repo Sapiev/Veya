@@ -6,6 +6,17 @@
 	<array>
 		<string>_spotify-connect._tcp</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Veya Link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>veya</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>

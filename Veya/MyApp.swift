@@ -112,13 +112,17 @@ import SwiftUI
             AccountCommands(session: session, signOutFailed: $signOutFailed)
             NavigationCommands()
             MainWindowCommands()
+            PlaybackCommands(activeSession: activeSession)
             QuitCommand()
-            CommandGroup(after: .help) {
-                Button("Export Diagnostics…") {
-                    Task { await Diagnostics.export() }
-                }
-            }
+            HelpCommands()
         }
+
+        Window("Keyboard Shortcuts", id: KeyboardShortcutsView.windowID) {
+            KeyboardShortcutsView()
+        }
+        .windowResizability(.contentSize)
+        // Help opens it; without this the Window menu lists it a second time.
+        .commandsRemoved()
 
         Settings {
             SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar) {
