@@ -17,6 +17,7 @@ enum Scenario: String {
     case connectDevices
     case remoteControl
     case playlistConflict
+    case localFiles
 }
 
 @MainActor
