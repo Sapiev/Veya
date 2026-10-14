@@ -3,7 +3,7 @@ import XCTest
 /// PBI-307: the Home screen. PBI-105: the scenario's Song 3 is region locked, so it never plays.
 final class HomeUITests: XCTestCase {
     private static let sections = ["Made for you", "Artists you follow", "Recently Played"]
-    private static let connectWebAPI = "Connect Spotify Web API in Settings to see Recently Played and Jump Back In."
+    private static let connectWebAPI = "Connect Spotify Web API in Settings to see Recently Played."
 
     @MainActor private func home(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -59,8 +59,20 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Daily Mix 1, Made for you"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts["Made for you"].exists)
         XCTAssertFalse(app.staticTexts["Recently Played"].exists)
-        XCTAssertFalse(app.buttons["Road Trip, Songs for the road"].exists)
         XCTAssertFalse(app.buttons["Song 2, Test Artist"].exists)
+        // Jump Back In comes from spclient, which needs no Web API scope.
+        XCTAssertTrue(app.buttons["Road Trip, Songs for the road"].exists)
+    }
+
+    /// spclient's recent contexts span more than the Web API's last 50 tracks.
+    @MainActor func testJumpBackInShowsEveryRecentContext() {
+        let app = home()
+        let quickTiles = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Jump back in'")).firstMatch
+
+        XCTAssertTrue(quickTiles.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Road Trip, Songs for the road"].waitForExistence(timeout: XCUIApplication.timeout))
+        // The scenario's Web API plays name 3 contexts, spclient 5.
+        XCTAssertGreaterThan(quickTiles.buttons.count, 3)
     }
 
     @MainActor func testNothingToShowIsADesignedEmptyState() {

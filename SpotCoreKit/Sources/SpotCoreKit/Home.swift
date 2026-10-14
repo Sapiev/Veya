@@ -19,6 +19,13 @@ public struct WebAPIRecentlyPlayed: RecentlyPlayedProvider {
     }
 }
 
+/// "Jump Back In" contexts, newest first; `HomeService` reads them from spclient.
+public protocol RecentContextsProvider: Sendable {
+    func recentContexts() async throws -> [String]
+}
+
+extension HomeService: RecentContextsProvider {}
+
 /// A "Jump Back In" context: playlists have no `MetadataItem` case.
 public enum HomeTile: Equatable, Sendable {
     case item(MetadataItem)
@@ -46,6 +53,7 @@ public final class HomeModel {
     @ObservationIgnored private let metadata: any MetadataServiceProtocol
     @ObservationIgnored private let playlists: any PlaylistServiceProtocol
     @ObservationIgnored private let recent: any RecentlyPlayedProvider
+    @ObservationIgnored private let recentContexts: any RecentContextsProvider
     @ObservationIgnored private let limit: Int
     @ObservationIgnored private let log: HomeLog
     @ObservationIgnored private var running: Task<Void, Never>?
@@ -58,12 +66,14 @@ public final class HomeModel {
         metadata: any MetadataServiceProtocol,
         playlists: any PlaylistServiceProtocol,
         recentlyPlayed: any RecentlyPlayedProvider,
+        recentContexts: any RecentContextsProvider,
         limit: Int = 20,
         log: @escaping HomeLog = { logMessage(level: $0, category: "home", message: $1) }
     ) {
         self.metadata = metadata
         self.playlists = playlists
         recent = recentlyPlayed
+        self.recentContexts = recentContexts
         self.limit = limit
         self.log = log
     }
@@ -86,25 +96,38 @@ public final class HomeModel {
         return task
     }
 
+    /// Jump Back In prefers spclient's contexts and falls back to the Web
+    /// API's, so either source failing alone still fills it.
     private func loadRecent(_ mine: Int) async -> Bool {
-        do {
-            let plays = try await recent.recentlyPlayed()
-            let tracks = (try? await metadata.items(uris: Array(plays.tracks.prefix(limit)))) ?? []
-            let tiles = await tiles(Array(plays.contexts.prefix(limit)))
-            guard mine == generation else { return true }
-            recentlyPlayed = tracks.filter(\.isAvailable)
-            jumpBackIn = tiles
+        async let playsLoaded = Self.attempt { try await self.recent.recentlyPlayed() }
+        async let contextsLoaded = Self.attempt { try await self.recentContexts.recentContexts() }
+        let (plays, primary) = await (playsLoaded, contextsLoaded)
+        let fallback = (try? plays.get().contexts) ?? []
+        let contexts = (try? primary.get()).flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+        async let tracksLoaded = recentTracks(plays)
+        async let tilesLoaded = tiles(Array(contexts.prefix(limit)))
+        let (tracks, tiles) = await (tracksLoaded, tilesLoaded)
+        guard mine == generation else { return true }
+        if case let .failure(error) = primary {
+            log(.warn, "Couldn't load recent contexts: \(Self.summary(error))")
+        }
+        jumpBackIn = tiles
+        recentlyPlayed = tracks.filter(\.isAvailable)
+        switch plays {
+        case .success:
             recentlyPlayedNeedsSignIn = false
             return true
-        } catch {
-            guard mine == generation else { return true }
+        case let .failure(error):
             log(.warn, "Couldn't load recently played: \(Self.summary(error))")
-            recentlyPlayed = []
-            jumpBackIn = []
             recentlyPlayedNeedsSignIn = Self.needsSignIn(error)
             // A sign-in hint is shown in place of the section, so Home has not failed.
-            return recentlyPlayedNeedsSignIn
+            return recentlyPlayedNeedsSignIn || !contexts.isEmpty
         }
+    }
+
+    private func recentTracks(_ plays: Result<RecentlyPlayed, any Error>) async -> [MetadataItem] {
+        guard let uris = try? plays.get().tracks, !uris.isEmpty else { return [] }
+        return (try? await metadata.items(uris: Array(uris.prefix(limit)))) ?? []
     }
 
     private func loadMadeForYou(_ mine: Int) async -> Bool {
@@ -158,6 +181,10 @@ public final class HomeModel {
         }
     }
 
+    private static func attempt<T>(_ body: () async throws -> T) async -> Result<T, any Error> {
+        do { return try await .success(body()) } catch { return .failure(error) }
+    }
+
     private static func needsSignIn(_ error: any Error) -> Bool {
         switch error {
         case HomeError.MissingScope, WebAPITokenError.notAvailable, WebAPITokenError.rejected: true
@@ -172,6 +199,7 @@ public final class HomeModel {
         case HomeError.Network: "Network"
         case HomeError.Request: "Request"
         case HomeError.Malformed: "Malformed"
+        case HomeError.Spclient: "Spclient"
         default: String(describing: type(of: error))
         }
     }
