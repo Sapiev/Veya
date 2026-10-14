@@ -746,9 +746,13 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-201, PBI-403
 
-- [ ] Budgets enforced in CI performance tests: cold launch < 1 s, idle RAM < 120 MB, RAM during playback < 200 MB, CPU during playback < 3 % on M1.
-- [ ] Instruments templates (Time Profiler, Allocations, Energy) documented in `docs/performance.md`.
-- [ ] Comparison table vs the official desktop app published in the README.
+**Status:** In progress (feat/pbi-803-performance).
+
+**UI tests:** `PerformanceUITests` (cold launch, idle, playback), checked by `scripts/check-performance-budget.sh` in CI.
+
+- [x] Budgets enforced in CI performance tests: cold launch < 1 s, idle RAM < 120 MB, RAM during playback < 200 MB, CPU during playback < 3 % on M1. (Debug build on the UI test fakes, so librespot decoding is profiled by hand; playback CPU fell from ~17 % to ~0.6 % by moving the scrubber and equalizer off `TimelineView`.)
+- [x] Instruments templates (Time Profiler, Allocations, Energy) documented in `docs/performance.md`. (Energy uses the Activity Monitor template; Power Profiler is iOS-only.)
+- [ ] Comparison table vs the official desktop app published in the README. (Needs both apps measured signed in on real playback; procedure in `docs/performance.md`.)
 
 #### PBI-804 · Opt-in crash reporting
 

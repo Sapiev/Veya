@@ -25,6 +25,9 @@ for the roadmap, architecture and PBIs.
 - macOS integration: Now Playing / media keys, menu bar mini-player, Dock
   menu, notifications, Shortcuts/AppleScript.
 - Lyrics, playlist editing, offline-friendly caching of metadata and artwork.
+- Light on memory and battery, held to a budget in CI: launch under 1 s, under
+  120 MB idle, under 200 MB and 3 % CPU playing. See
+  [docs/performance.md](docs/performance.md).
 
 ## Non-goals
 
