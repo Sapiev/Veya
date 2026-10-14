@@ -917,6 +917,26 @@
         }
       }
     },
+    "Collapse Sidebar" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwiń pasek boczny"
+          }
+        }
+      }
+    },
+    "Collapsed" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwinięty"
+          }
+        }
+      }
+    },
     "Compilations" : {
       "localizations" : {
         "pl" : {
@@ -1575,6 +1595,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Błędy"
+          }
+        }
+      }
+    },
+    "Expand Sidebar" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozwiń pasek boczny"
+          }
+        }
+      }
+    },
+    "Expanded" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozwinięty"
           }
         }
       }
@@ -3193,6 +3233,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Prywatna"
+          }
+        }
+      }
+    },
+    "Private, Playing" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prywatna, odtwarzanie"
           }
         }
       }

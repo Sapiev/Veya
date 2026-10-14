@@ -67,6 +67,39 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
     }
 
+    /// Compact sidebar: icons only, rows still named for VoiceOver and still navigating.
+    @MainActor func testCompactSidebarShowsIconsThatStillNavigate() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        let sidebar = app.outlines.firstMatch
+        let fullWidth = sidebar.frame.width
+
+        app.menuItem("View", "Collapse Sidebar").click()
+        XCTAssertTrue(sidebar.staticTexts["Home"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertLessThan(sidebar.frame.width, fullWidth / 2)
+        let liked = sidebar.images["Liked Songs"]
+        XCTAssertTrue(liked.exists)
+        // Section titles give way to hairline dividers that VoiceOver still names, leaving square cells with bigger icons.
+        XCTAssertLessThanOrEqual(sidebar.staticTexts["Playlists"].frame.height, 2)
+        XCTAssertFalse(app.sidebarItem("Albums").exists)
+        XCTAssertEqual(liked.frame.width, liked.frame.height, accuracy: 12)
+        XCTAssertGreaterThanOrEqual(liked.frame.height, 36)
+        // Cells laid out at full width must not keep their old inset after the collapse.
+        XCTAssertEqual(liked.frame.midX, sidebar.frame.midX, accuracy: 1)
+        XCTAssertTrue(app.buttons["New Playlist"].exists)
+        try assertAuditPasses(app, "Compact sidebar")
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = "compact-sidebar"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        liked.click()
+        XCTAssertTrue(app.trackList.waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.buttons["Expand Sidebar"].click()
+        XCTAssertTrue(app.sidebarItem("Home").waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
     /// With the sidebar hidden the window buttons sit over the page, so the top bar starts past them.
     @MainActor func testTopBarClearsWindowButtonsWithSidebarHidden() {
         let app = XCUIApplication.launch(.signedIn)

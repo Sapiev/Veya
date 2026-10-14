@@ -7,6 +7,8 @@ nonisolated enum Theme {
     static let s5: CGFloat = 20, s6: CGFloat = 24, s8: CGFloat = 32, s12: CGFloat = 48
 
     static let sidebarWidth: CGFloat = 248, queueWidth: CGFloat = 290
+    /// Icon-only sidebar; still wider than the window buttons that sit inside it.
+    static let compactSidebarWidth: CGFloat = 80
     /// Room the window buttons take at the top leading corner (`TrafficLightInset`: 20 pt in, three 14 pt buttons 8 pt apart).
     static let windowButtonsWidth: CGFloat = 72
     static let panelRadius: CGFloat = 14, cardRadius: CGFloat = 8, smallRadius: CGFloat = 6

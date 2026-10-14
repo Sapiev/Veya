@@ -7,6 +7,7 @@ extension FocusedValues {
     @Entry var navigationHistory: NavigationHistory?
     @Entry var queueVisible: Binding<Bool>?
     @Entry var sidebarVisible: Binding<Bool>?
+    @Entry var sidebarCompact: Binding<Bool>?
     @Entry var newPlaylist: WindowAction?
     @Entry var newFolder: WindowAction?
     @Entry var openLink: WindowAction?
@@ -37,6 +38,7 @@ struct AppShell: View {
     private let recentSearches: RecentSearches
     private let webAPI: WebAPIConnection
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
+    @SceneStorage("sidebarCompact") private var sidebarCompact = false
     @SceneStorage("queueVisible") private var queueVisible = false
     /// The full Now Playing view's open tab; nil while it is closed.
     @State private var nowPlayingTab: NowPlayingView.Tab?
@@ -64,10 +66,10 @@ struct AppShell: View {
         HStack(spacing: 0) {
             if sidebarVisible {
                 Sidebar(
-                    selection: selection, playlists: playlists, library: library, player: player,
+                    selection: selection, compact: $sidebarCompact, playlists: playlists, library: library, player: player,
                     newPlaylist: newPlaylist, newFolder: newFolder
                 )
-                    .frame(width: Theme.sidebarWidth)
+                    .frame(width: sidebarCompact ? Theme.compactSidebarWidth : Theme.sidebarWidth)
                     .glassPanel(cornerRadius: Theme.panelRadius)
                     .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
                     .padding([.leading, .vertical], Theme.s2)
@@ -143,6 +145,7 @@ struct AppShell: View {
         .background(TrafficLightInset())
         .ignoresSafeArea()
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarVisible)
+        .animation(reduceMotion ? nil : Theme.standard, value: sidebarCompact)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
         .overlay {
             if let nowPlayingTab, let player {
@@ -158,6 +161,7 @@ struct AppShell: View {
         .focusedSceneValue(\.navigationHistory, history)
         .focusedSceneValue(\.queueVisible, $queueVisible)
         .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
+        .focusedSceneValue(\.sidebarCompact, $sidebarCompact)
         .focusedSceneValue(\.focusSearch, action(focusSearch))
         .focusedSceneValue(\.newPlaylist, action(newPlaylist))
         .focusedSceneValue(\.newFolder, action(newFolder))
@@ -633,6 +637,7 @@ struct NavigationCommands: Commands {
     @FocusedValue(\.focusSearch) private var focusSearch
     @FocusedValue(\.queueVisible) private var queueVisible
     @FocusedValue(\.sidebarVisible) private var sidebarVisible
+    @FocusedValue(\.sidebarCompact) private var sidebarCompact
     @FocusedValue(\.newPlaylist) private var newPlaylist
     @FocusedValue(\.newFolder) private var newFolder
     @FocusedValue(\.openLink) private var openLink
@@ -656,6 +661,10 @@ struct NavigationCommands: Commands {
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
             .disabled(sidebarVisible == nil)
+            Button(sidebarCompact?.wrappedValue == true ? "Expand Sidebar" : "Collapse Sidebar") {
+                sidebarCompact?.wrappedValue.toggle()
+            }
+            .disabled(sidebarCompact == nil || sidebarVisible?.wrappedValue == false)
             // ⌥⌘I is the system's Show Inspector shortcut; the queue panel plays that role.
             Button(queueVisible?.wrappedValue == true ? "Hide Queue" : "Show Queue") {
                 queueVisible?.wrappedValue.toggle()
