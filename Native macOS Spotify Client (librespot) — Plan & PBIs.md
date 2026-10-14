@@ -770,14 +770,16 @@ veya/
 
 ### E9 · Release and community
 
-#### PBI-901 · Code signing and notarization
+#### PBI-901 · Code signing and release builds
 
-**Story:** As a user, I want to open the app without Gatekeeper warnings so that installation is easy and safe.
+**Story:** As a user, I want a signed release that needs at most a one-time Gatekeeper approval so that installation is easy and safe. (Decision 2026-10-14: no paid Apple Developer account, so no Developer ID or notarization.)
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M2 · **Depends on:** PBI-005
 
-- [ ] Tag push triggers a release workflow: archive, sign with Developer ID, notarize with `notarytool`, staple, build DMG.
-- [ ] Secrets stored in GitHub encrypted secrets; reproducible build instructions for people who build from source.
+**Status:** In progress (merged to develop; first tagged release pending one-time setup in docs/release.md)
+
+- [ ] Tag push triggers a release workflow: archive, sign with the project's self-signed certificate (stable identity keeps Keychain sign-in across updates), build DMG; not notarized. (`.github/workflows/release.yml` + `scripts/release.sh`; ad hoc and self-signed paths verified locally, workflow unverified until the secrets exist and a tag is pushed.)
+- [ ] Secrets stored in GitHub encrypted secrets; reproducible build instructions for people who build from source. (Instructions, `scripts/make-signing-certificate.sh` and secret list in `docs/release.md`; secrets not yet added to the repository.)
 
 #### PBI-902 · Auto-update with Sparkle
 
@@ -785,8 +787,12 @@ veya/
 
 **Priority:** Must · **Estimate:** 3 · **Milestone:** M3 · **Depends on:** PBI-901
 
-- [ ] Sparkle 2 with EdDSA-signed appcast hosted on GitHub Pages; stable and beta channels.
-- [ ] Release notes generated from the changelog.
+**Status:** In progress (merged to develop; first tagged release pending one-time setup in docs/release.md)
+
+**UI tests:** `UpdatesUITests` (Check for Updates menu item, Settings › Advanced update preferences).
+
+- [ ] Sparkle 2 with EdDSA-signed appcast hosted on GitHub Pages; stable and beta channels. (App, appcast script and workflow done; needs the EdDSA key pair, `SPARKLE_PUBLIC_ED_KEY` and a `gh-pages` branch, see `docs/release.md`.)
+- [x] Release notes generated from the changelog. (`CHANGELOG.md` entry, extracted by `scripts/changelog-section.sh`, feeds the GitHub release and the appcast item; a tag without an entry fails.)
 
 #### PBI-903 · Homebrew cask
 
@@ -794,7 +800,9 @@ veya/
 
 **Priority:** Should · **Estimate:** 1 · **Milestone:** M4 · **Depends on:** PBI-901
 
-- [ ] Cask submitted to homebrew-cask (or a project tap until it qualifies), updated automatically on release.
+**Status:** In progress (merged to develop; first tagged release pending one-time setup in docs/release.md)
+
+- [ ] Cask in the project tap `Sapiev/homebrew-veya`, updated automatically on release; homebrew-cask is out while releases are not notarized. (Cask template `packaging/homebrew/veya.rb` with first-launch caveat passes `brew style`; the tap repository does not exist yet.)
 
 #### PBI-904 · Documentation and website
 
