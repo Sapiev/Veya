@@ -199,6 +199,10 @@ private extension Tile {
     }
 
     init(_ page: PlaylistPage) {
+        if page.likedSongs {
+            self.init(uri: page.uri, title: String(localized: "Liked Songs"), artwork: page.artwork, route: .likedSongs)
+            return
+        }
         self.init(
             uri: page.uri, title: page.name, subtitle: page.description.isEmpty ? nil : page.description,
             artwork: page.artwork, route: .playlist(uri: page.uri)

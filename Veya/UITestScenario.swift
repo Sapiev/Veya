@@ -366,6 +366,8 @@
         tracks: [likedSongURI(5)], playability: .playable, artwork: [], year: 2025, copyrights: []
     )
     private nonisolated let scenarioPlaylistURI = "spotify:playlist:uitest"
+    /// Spotify's playlist mirror of Liked Songs, which spclient lists among recent contexts.
+    private nonisolated let scenarioLikedMirrorURI = "spotify:playlist:uitestlikedmirror"
     /// Spotify-owned, so Home lists it under Made for You.
     private nonisolated let scenarioMixURI = "spotify:playlist:uitestmix"
 
@@ -624,6 +626,7 @@
             var local: [String] = []
             var revision = 0
             var hasPicture = false
+            var likedSongs = false
         }
 
         private struct State {
@@ -651,6 +654,7 @@
                 state.playlists = [
                     scenarioPlaylistURI: Playlist(name: "Road Trip", description: "Songs for the road", owner: "ui-test", songs: [1, 2, 5]),
                     scenarioMixURI: Playlist(name: "Daily Mix 1", description: "Made for you", owner: "spotify", songs: [4, 6]),
+                    scenarioLikedMirrorURI: Playlist(name: "Liked Songs", description: "", owner: "spotify", songs: [1], likedSongs: true),
                 ]
                 state.conflictNext = conflict
                 if localFiles {
@@ -690,7 +694,7 @@
             } + playlist.local.map { PlaylistTrack(uri: $0, addedBy: "ui-test", addedAt: 1_760_000_000) }
             return PlaylistPage(
                 uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
-                owner: playlist.owner, ownerName: "UI Test", collaborative: false, editable: editable,
+                owner: playlist.owner, ownerName: "UI Test", collaborative: false, editable: editable, likedSongs: playlist.likedSongs,
                 artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
                 total: UInt32(playlist.songs.count + playlist.local.count), offset: from, tracks: tracks
             )
@@ -835,7 +839,7 @@
         func recentContexts() async throws -> [String] {
             switch fill {
             case .liked:
-                [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri, scenarioSingle.uri, scenarioShow.uri]
+                [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri, scenarioSingle.uri, scenarioShow.uri, scenarioLikedMirrorURI]
             case .empty:
                 []
             case .failing:
