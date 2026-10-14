@@ -579,26 +579,36 @@ private struct TrafficLightInset: NSViewRepresentable {
             place()
         }
 
+        /// AppKit ignores moving a button from inside its own frame notification (`setFrameOrigin:ignoreRentry:`),
+        /// so the last button it resets (zoom) is put back in the layout pass, before the window draws.
         private func place() {
-            DispatchQueue.main.async { [weak self] in
-                guard let window = self?.window, !window.styleMask.contains(.fullScreen),
-                      let close = window.standardWindowButton(.closeButton),
-                      let container = close.superview?.superview else { return }
-                let top: CGFloat = 18, left: CGFloat = 20, gap: CGFloat = 8
-                // The titlebar container clips its buttons, so it grows to reach them.
-                let height = close.frame.height + 2 * top
-                let frame = NSRect(
-                    x: container.frame.minX, y: window.frame.height - height,
-                    width: container.frame.width, height: height
-                )
-                // Setting only on change keeps the frame observers from looping.
-                if container.frame != frame { container.frame = frame }
-                for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
-                    guard let button = window.standardWindowButton(kind) else { continue }
-                    let y = (button.superview?.frame.height ?? height) - top - button.frame.height
-                    let origin = NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y)
-                    if button.frame.origin != origin { button.setFrameOrigin(origin) }
-                }
+            apply()
+            needsLayout = true
+        }
+
+        override func layout() {
+            super.layout()
+            apply()
+        }
+
+        private func apply() {
+            guard let window, !window.styleMask.contains(.fullScreen),
+                  let close = window.standardWindowButton(.closeButton),
+                  let container = close.superview?.superview else { return }
+            let top: CGFloat = 18, left: CGFloat = 20, gap: CGFloat = 8
+            // The titlebar container clips its buttons, so it grows to reach them.
+            let height = close.frame.height + 2 * top
+            let frame = NSRect(
+                x: container.frame.minX, y: window.frame.height - height,
+                width: container.frame.width, height: height
+            )
+            // Setting only on change keeps the frame observers from looping.
+            if container.frame != frame { container.frame = frame }
+            for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+                guard let button = window.standardWindowButton(kind) else { continue }
+                let y = (button.superview?.frame.height ?? height) - top - button.frame.height
+                let origin = NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y)
+                if button.frame.origin != origin { button.setFrameOrigin(origin) }
             }
         }
     }
