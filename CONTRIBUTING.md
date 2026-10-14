@@ -41,6 +41,9 @@ Do not pick a team in Xcode's Signing & Capabilities tab. Xcode writes it
 into `project.pbxproj`, where it overrides every contributor's
 `Local.xcconfig`.
 
+Release builds, signing and building a DMG from source:
+[docs/release.md](docs/release.md).
+
 ## Making a change
 
 1. Fork and create a branch off `main`.
