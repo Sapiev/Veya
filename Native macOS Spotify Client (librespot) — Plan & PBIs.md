@@ -760,8 +760,13 @@ veya/
 
 **Priority:** Could · **Estimate:** 2 · **Milestone:** M4 · **Depends on:** PBI-006
 
-- [ ] Off by default; asked once after the first crash.
-- [ ] Uses MetricKit diagnostics and/or a self-hostable service (e.g. Sentry); payloads contain no account identifiers.
+**Status:** In review (feat/pbi-804-crash-reporting).
+
+**UI tests:** `CrashReportingUITests` (question after a crash, Settings › Advanced switch).
+
+- [x] Off by default; asked once after the first crash. (Asked when MetricKit delivers the first crash; the answer is kept and can be changed in Settings › Advanced.)
+- [x] Uses MetricKit diagnostics and/or a self-hostable service (e.g. Sentry); payloads contain no account identifiers. (MetricKit only, nothing uploaded: kept reports stay on the Mac, redacted, and go out only inside Export Diagnostics.)
+- [ ] Follow-up: send opted-in reports to a self-hosted Sentry. (Not started; reports are local-only until then. Payloads must stay free of account identifiers.)
 
 ### E9 · Release and community
 

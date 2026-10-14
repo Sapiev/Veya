@@ -45,6 +45,11 @@ Diagnostics**: it saves a zip of the last 24 hours of logs, with tokens,
 usernames and email addresses redacted, wherever you choose. Nothing is
 uploaded; you decide whether to attach it to an issue.
 
+After Veya first crashes, it asks once whether to keep crash reports. They are
+off by default. If you say yes, MetricKit crash reports (no account details,
+redacted like the logs) are kept under `Logs/Veya/Crashes` and added to the
+diagnostics zip. Turning them off in **Settings > Advanced** deletes them.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the

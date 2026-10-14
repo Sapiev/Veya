@@ -1,13 +1,14 @@
 import Foundation
 
 /// Builds the zip behind Help > Export Diagnostics: the last 24 hours of
-/// redacted logs plus non-identifying system info. Nothing is uploaded.
+/// redacted logs, non-identifying system info and any crash reports the user
+/// chose to keep. Nothing is uploaded.
 public enum DiagnosticsArchive {
     public static let logWindowSeconds: UInt64 = 24 * 60 * 60
 
     /// Writes the archive into a fresh temporary directory and returns its URL.
     /// The caller moves it into place and deletes the parent directory.
-    public static func make(named name: String, appVersion: String) throws -> URL {
+    public static func make(named name: String, appVersion: String, crashReports: URL? = nil) throws -> URL {
         let fileManager = FileManager.default
         let parent = fileManager.temporaryDirectory
             .appending(path: "VeyaDiagnostics-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -17,6 +18,9 @@ public enum DiagnosticsArchive {
             let logs = try recentLogs(windowSeconds: logWindowSeconds)
             try Data(logs.utf8).write(to: folder.appending(path: "logs.txt"))
             try Data(systemInfo(appVersion: appVersion).utf8).write(to: folder.appending(path: "system.txt"))
+            if let crashReports, fileManager.fileExists(atPath: crashReports.path(percentEncoded: false)) {
+                try fileManager.copyItem(at: crashReports, to: folder.appending(path: "Crashes"))
+            }
             return try zip(folder, into: parent)
         } catch {
             try? fileManager.removeItem(at: parent)

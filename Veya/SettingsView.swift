@@ -19,6 +19,7 @@ struct SettingsView: View {
     let webAPI: WebAPIConnection
     let settings: PlaybackSettings
     let menuBar: MenuBarSettings
+    let crashReports: CrashReports
     let signOut: () -> Void
     @AppStorage(Self.tabKey) private var tab = Tab.general
 
@@ -39,7 +40,7 @@ struct SettingsView: View {
             AccountSettingsTab(session: session, webAPI: webAPI, signOut: signOut)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
                 .tag(Tab.account)
-            AdvancedSettingsTab()
+            AdvancedSettingsTab(crashReports: crashReports)
                 .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
                 .tag(Tab.advanced)
         }
@@ -439,6 +440,7 @@ private struct WebAPISection: View {
 }
 
 private struct AdvancedSettingsTab: View {
+    @Bindable var crashReports: CrashReports
     @AppStorage(Diagnostics.levelKey) private var levelName = Diagnostics.defaultLevel.storedName
 
     var body: some View {
@@ -452,6 +454,11 @@ private struct AdvancedSettingsTab: View {
             .onChange(of: levelName) { _, name in
                 Diagnostics.startLogging(level: LogLevel(storedName: name) ?? Diagnostics.defaultLevel)
             }
+            Toggle(isOn: $crashReports.keepsReports) {
+                Text("Keep crash reports")
+                Text("Kept on this Mac and included when you export diagnostics. Turning this off deletes them.")
+            }
+            .accessibilityLabel("Keep crash reports")
         }
         .formStyle(.grouped)
     }

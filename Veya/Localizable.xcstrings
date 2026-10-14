@@ -1421,6 +1421,16 @@
         }
       }
     },
+    "Don't Keep" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie zachowuj"
+          }
+        }
+      }
+    },
     "Double-click or press Return to play" : {
       "localizations" : {
         "pl" : {
@@ -1827,12 +1837,52 @@
         }
       }
     },
+    "Keep Crash Reports" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zachowuj raporty awarii"
+          }
+        }
+      }
+    },
+    "Keep crash reports" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zachowuj raporty awarii"
+          }
+        }
+      }
+    },
+    "Keep crash reports on this Mac so they're included when you export diagnostics? They contain no account details and are never sent automatically. You can change this in Settings › Advanced." : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zachowywać raporty awarii na tym Macu, aby trafiały do eksportu diagnostyki? Nie zawierają danych konta i nigdy nie są wysyłane automatycznie. Możesz to zmienić w Ustawieniach › Zaawansowane."
+          }
+        }
+      }
+    },
     "Keep running in menu bar only" : {
       "localizations" : {
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Działaj dalej tylko na pasku menu"
+          }
+        }
+      }
+    },
+    "Kept on this Mac and included when you export diagnostics. Turning this off deletes them." : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przechowywane na tym Macu i dołączane do eksportu diagnostyki. Wyłączenie tej opcji je usuwa."
           }
         }
       }
@@ -4168,6 +4218,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Veya wymaga Spotify Premium"
+          }
+        }
+      }
+    },
+    "Veya Quit Unexpectedly" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Veya nieoczekiwanie zakończyła działanie"
           }
         }
       }

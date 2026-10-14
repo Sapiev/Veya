@@ -20,12 +20,16 @@ import SwiftUI
     @State private var settings: PlaybackSettings
     private let defaults: UserDefaults
     @State private var menuBar: MenuBarSettings
+    @State private var crashReports: CrashReports
 
     init() {
         let dependencies = AppDependencies.make()
         defaults = dependencies.defaults
         _menuBar = State(initialValue: MenuBarSettings(defaults: dependencies.defaults))
         Diagnostics.startLogging(level: Diagnostics.savedLevel(in: dependencies.defaults))
+        let crashReports = CrashReports(defaults: dependencies.defaults, directory: dependencies.crashReportsDirectory)
+        _crashReports = State(initialValue: crashReports)
+        dependencies.crashDiagnostics { crashReports.received($0) }
         let settings = PlaybackSettings(defaults: dependencies.defaults)
         _settings = State(initialValue: settings)
         artworkLoader = dependencies.artworkLoader
@@ -108,6 +112,12 @@ import SwiftUI
             } message: {
                 Text("The saved sign-in is still in the Keychain, so Veya may sign in again at launch.")
             }
+            .alert("Veya Quit Unexpectedly", isPresented: $crashReports.asksForConsent) {
+                Button("Keep Crash Reports") { crashReports.answer(keep: true) }
+                Button("Don't Keep", role: .cancel) { crashReports.answer(keep: false) }
+            } message: {
+                Text("Keep crash reports on this Mac so they're included when you export diagnostics? They contain no account details and are never sent automatically. You can change this in Settings › Advanced.")
+            }
         }
         // The ambient wash runs under the traffic lights; the sidebar panel and floating capsules are the chrome.
         .windowStyle(.hiddenTitleBar)
@@ -117,7 +127,7 @@ import SwiftUI
             MainWindowCommands()
             PlaybackCommands(activeSession: activeSession)
             QuitCommand()
-            HelpCommands()
+            HelpCommands(crashReports: crashReports.directory)
         }
 
         Window("Keyboard Shortcuts", id: KeyboardShortcutsView.windowID) {
@@ -128,7 +138,7 @@ import SwiftUI
         .commandsRemoved()
 
         Settings {
-            SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar) {
+            SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar, crashReports: crashReports) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .modifier(ConcreteInk())
