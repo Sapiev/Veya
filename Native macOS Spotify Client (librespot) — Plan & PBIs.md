@@ -760,7 +760,7 @@ veya/
 
 **Priority:** Could · **Estimate:** 2 · **Milestone:** M4 · **Depends on:** PBI-006
 
-**Status:** In review (feat/pbi-804-crash-reporting).
+**Status:** Done (merged to develop; Sentry upload is a follow-up).
 
 **UI tests:** `CrashReportingUITests` (question after a crash, Settings › Advanced switch).
 
