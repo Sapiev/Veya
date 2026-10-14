@@ -746,7 +746,7 @@ veya/
 
 **Priority:** Must · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-201, PBI-403
 
-**Status:** In progress (feat/pbi-803-performance).
+**Status:** In progress (merged to develop; README comparison table pending).
 
 **UI tests:** `PerformanceUITests` (cold launch, idle, playback), checked by `scripts/check-performance-budget.sh` in CI.
 
