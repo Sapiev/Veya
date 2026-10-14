@@ -37,12 +37,13 @@ extension XCTestCase {
         let shot = XCUIScreen.main.screenshot()
         let pixels = try XCTUnwrap(ScreenPixels(shot))
         var found: [String] = []
-        func visit(_ node: XCUIElementSnapshot, clip: CGRect) {
+        func visit(_ node: XCUIElementSnapshot, clip: CGRect, covered: [CGRect]) {
             let clips = [.window, .scrollView, .outline, .table].contains(node.elementType)
             let clip = clips ? clip.intersection(node.frame) : clip
             let text = (node.value as? String) ?? node.label
             if node.elementType == .staticText, !text.trimmingCharacters(in: .whitespaces).isEmpty,
-               clip.insetBy(dx: -1, dy: -1).contains(node.frame), node.frame.width >= 4, node.frame.height >= 4 {
+               clip.insetBy(dx: -1, dy: -1).contains(node.frame), node.frame.width >= 4, node.frame.height >= 4,
+               !covered.contains(where: { $0.intersects(node.frame) }) {
                 let ratio = pixels.contrast(in: node.frame)
                 // About 18 pt type and up is large text in WCAG.
                 let minimum = node.frame.height >= 22 ? 3.0 : 4.5
@@ -50,9 +51,13 @@ extension XCTestCase {
                     found.append(String(format: "Contrast %.1f:1 for '%@' %@", ratio, text, "\(node.frame)"))
                 }
             }
-            node.children.forEach { visit($0, clip: clip) }
+            node.children.forEach { visit($0, clip: clip, covered: covered) }
         }
-        visit(try app.snapshot(), clip: .infinite)
+        // The app lists its windows front to back; text under a window in front draws that window's pixels.
+        let windows = try app.snapshot().children
+        for (index, window) in windows.enumerated() {
+            visit(window, clip: .infinite, covered: windows.prefix(index).filter { $0.elementType == .window }.map(\.frame))
+        }
         return found
     }
 }
