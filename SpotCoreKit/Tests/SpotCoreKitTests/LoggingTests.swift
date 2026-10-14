@@ -35,17 +35,22 @@ private final class CollectingSink: LogSink {
         #expect(try recentLogs(windowSeconds: 60).contains("WARN\tveya/tests\tAuthenticated as '<redacted>' !"))
     }
 
-    @Test func archiveZipsRedactedLogsAndSystemInfo() throws {
+    @Test func archiveZipsRedactedLogsSystemInfoAndKeptCrashReports() throws {
         try configure(sink: CollectingSink())
         defer { try? FileManager.default.removeItem(at: logDir) }
         logMessage(level: .info, category: "tests", message: "access_token=secret123")
+        let crashes = FileManager.default.temporaryDirectory.appending(path: "Crashes-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: crashes) }
+        try Data("{}".utf8).write(to: crashes.appending(path: "1.json"))
 
-        let zip = try DiagnosticsArchive.make(named: "Veya Diagnostics", appVersion: "1.0 (1)")
+        let zip = try DiagnosticsArchive.make(named: "Veya Diagnostics", appVersion: "1.0 (1)", crashReports: crashes)
         defer { try? FileManager.default.removeItem(at: zip.deletingLastPathComponent()) }
 
         let listing = try run("/usr/bin/unzip", "-l", zip.path)
         #expect(listing.contains("Veya Diagnostics/logs.txt"))
         #expect(listing.contains("Veya Diagnostics/system.txt"))
+        #expect(listing.contains("Veya Diagnostics/Crashes/1.json"))
         let logs = try run("/usr/bin/unzip", "-p", zip.path, "Veya Diagnostics/logs.txt")
         #expect(logs.contains("access_token=<redacted>"))
         #expect(!logs.contains("secret123"))
