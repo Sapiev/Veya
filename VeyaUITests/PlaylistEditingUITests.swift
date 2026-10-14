@@ -232,10 +232,6 @@ final class PlaylistEditingUITests: XCTestCase {
 
 @MainActor
 private extension XCUIApplication {
-    var trackList: XCUIElement {
-        outlines["trackList"]
-    }
-
     /// Waits until the track list shows exactly `titles`, in order.
     func waitForSongs(_ titles: [String]) -> Bool {
         let deadline = Date().addingTimeInterval(Self.timeout)

@@ -140,9 +140,3 @@ final class AccessibilityPlaybackUITests: XCTestCase {
         try assertAuditPasses(app, "Devices popover")
     }
 }
-
-private extension XCUIApplication {
-    var trackList: XCUIElement {
-        outlines["trackList"]
-    }
-}

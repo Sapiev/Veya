@@ -146,10 +146,6 @@ final class DetailPagesUITests: XCTestCase {
 }
 
 private extension XCUIApplication {
-    var trackList: XCUIElement {
-        outlines["trackList"]
-    }
-
     var artistPage: XCUIElement {
         scrollViews.containing(.staticText, identifier: "routeTitle").firstMatch
     }

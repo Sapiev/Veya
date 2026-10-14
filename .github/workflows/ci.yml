@@ -104,6 +104,10 @@ jobs:
           -destination 'platform=macOS'
           -only-testing:VeyaUITests
           -clonedSourcePackagesDirPath "$SPM_DIR"
+          -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"
+      # PBI-803: PerformanceUITests record the metrics; the budgets live in the script.
+      - name: Performance budget
+        run: scripts/check-performance-budget.sh "$RUNNER_TEMP/ui-tests.xcresult"
       # The scheme pre-action ignores its exit code and logs here instead.
       - name: Upload xcframework pre-action log
         if: failure()

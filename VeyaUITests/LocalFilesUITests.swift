@@ -62,9 +62,3 @@ final class LocalFilesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Couldn't Play “Hi-Res Song”"].waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 }
-
-private extension XCUIApplication {
-    var trackList: XCUIElement {
-        outlines["trackList"]
-    }
-}
