@@ -52,6 +52,18 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Road Trip"))
     }
 
+    /// Spotify lists Liked Songs among recents as its own playlist; the tile opens Veya's Liked Songs page.
+    @MainActor func testLikedSongsInJumpBackInOpensLikedSongs() {
+        let app = home()
+        let tile = app.buttons["Liked Songs"]
+        XCTAssertTrue(tile.waitForExistence(timeout: XCUIApplication.timeout))
+
+        tile.click()
+
+        XCTAssertTrue(app.showsRoute("Liked Songs"))
+        XCTAssertTrue(app.trackList.waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
     @MainActor func testMissingScopeHidesRecentSectionsAndAsksToConnectWebAPI() {
         let app = home(.recentlyPlayedNeedsSignIn)
 

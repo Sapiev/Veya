@@ -137,6 +137,10 @@ pub struct PlaylistPage {
     /// Owned by the user or collaborative.
     #[serde(default)]
     pub editable: bool,
+    /// Spotify's playlist mirror of the user's Liked Songs, which recents list in its place.
+    #[serde(default)]
+    #[uniffi(default = false)]
+    pub liked_songs: bool,
     /// Smallest first; empty when the playlist has no picture.
     pub artwork: Vec<Artwork>,
     pub total: u32,
@@ -959,6 +963,8 @@ fn decode_folder_name(name: &str) -> String {
         .into_owned()
 }
 
+const LIKED_SONGS_FORMAT: &str = "liked-songs";
+
 fn page_of(
     uri: String,
     content: &SelectedListContent,
@@ -976,6 +982,7 @@ fn page_of(
         owner_name: content.owner_username().to_owned(),
         collaborative: attributes.collaborative(),
         editable: content.owner_username() == username || attributes.collaborative(),
+        liked_songs: attributes.format() == LIKED_SONGS_FORMAT,
         artwork: artwork(attributes.picture(), &attributes.picture_size, image_url),
         total: u32::try_from(content.length()).unwrap_or(0),
         offset: u32::try_from(contents.pos()).unwrap_or(0),
@@ -1141,6 +1148,16 @@ mod tests {
     }
 
     #[test]
+    fn liked_songs_mirror_is_flagged_by_its_format() {
+        let mut content = SelectedListContent::new();
+        content
+            .attributes
+            .mut_or_insert_default()
+            .set_format(LIKED_SONGS_FORMAT.into());
+        assert!(page_of("u".into(), &content, "", "me").liked_songs);
+    }
+
+    #[test]
     fn page_maps_attributes_window_and_tracks() {
         let mut content = SelectedListContent::new();
         content.set_revision(vec![0x01, 0xab]);
@@ -1172,6 +1189,7 @@ mod tests {
             ("spotify", 250, 100)
         );
         assert!(page.artwork.is_empty());
+        assert!(!page.liked_songs);
         assert_eq!(
             page.tracks,
             vec![PlaylistTrack {
@@ -1279,6 +1297,7 @@ mod tests {
             owner_name: "Owner".into(),
             collaborative: false,
             editable: false,
+            liked_songs: false,
             artwork: Vec::new(),
             total,
             offset,

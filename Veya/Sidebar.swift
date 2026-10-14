@@ -2,8 +2,10 @@ import SpotCoreKit
 import SwiftUI
 
 /// Home and Search, then playlists, followed artists, saved albums and followed podcasts.
+/// Compact shows only each row's icon; its name is the tooltip and VoiceOver label.
 struct Sidebar: View {
     @Binding var selection: Route?
+    @Binding var compact: Bool
     let playlists: PlaylistModel
     let library: LibraryModel
     let player: PlayerModel?
@@ -22,22 +24,39 @@ struct Sidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             list
+                // A fresh list per mode: cells laid out at full width keep their old inset after collapsing.
+                .id(compact)
                 // Clears the traffic lights, which sit inside the panel.
                 .padding(.top, 40)
             PanelEdge()
-            Button(action: newPlaylist) {
-                Label {
-                    Text("New Playlist")
-                } icon: {
-                    Image(systemName: "plus").foregroundStyle(.tint)
+            HStack(spacing: Theme.s2) {
+                Button(action: newPlaylist) {
+                    Label {
+                        Text("New Playlist")
+                    } icon: {
+                        Image(systemName: "plus").foregroundStyle(.tint)
+                    }
+                        .labelStyle(SidebarLabelStyle(compact: compact))
+                        .scaledFont(size: 13)
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: compact ? .center : .leading)
+                        .contentShape(.rect)
                 }
-                    .scaledFont(size: 13)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .help("New Playlist")
+                Button { compact.toggle() } label: {
+                    Image(systemName: "sidebar.left")
+                        .scaledFont(size: 13)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: compact ? .infinity : nil, minHeight: 32)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel(compact ? "Expand Sidebar" : "Collapse Sidebar")
+                .help(compact ? "Expand Sidebar" : "Collapse Sidebar")
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, Theme.s4)
+            .padding(.horizontal, compact ? Theme.s2 : Theme.s4)
             .padding(.vertical, Theme.s2)
         }
+        .environment(\.sidebarCompact, compact)
     }
 
     private var list: some View {
@@ -148,16 +167,20 @@ struct Sidebar: View {
         Section {
             ForEach((library.items[kind] ?? []).prefix(Self.sectionLimit), id: \.uri) { item in
                 row(Text(library.sidebarName(item.uri)), kind.route(item.uri)) {
-                    let art = ArtworkView(artwork: library.sidebarArtwork(item.uri), side: 24)
-                    if kind == .artists { art.clipShape(Circle()) } else { art.clipShape(RoundedRectangle(cornerRadius: 4)) }
+                    let art = ArtworkView(artwork: library.sidebarArtwork(item.uri), side: thumbSide(compact))
+                    if kind == .artists { art.clipShape(Circle()) } else { art.clipShape(RoundedRectangle(cornerRadius: thumbRadius(compact))) }
                 }
             }
         } header: {
-            Button { selection = route } label: {
-                SidebarHeader(title: title, selected: selection == route)
+            if compact {
+                SidebarHeader(title: title)
+            } else {
+                Button { selection = route } label: {
+                    SidebarHeader(title: title, selected: selection == route)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows all of them")
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("Shows all of them")
         }
     }
 
@@ -168,6 +191,7 @@ struct Sidebar: View {
 
     private func symbol(_ name: String) -> some View {
         Image(systemName: name)
+            .scaledFont(size: compact ? 18 : 13)
             .foregroundStyle(Color(palette.tintText))
             .accessibilityHidden(true)
     }
@@ -190,7 +214,18 @@ private struct PlaylistRows: View {
 
     var body: some View {
         ForEach(nodes) { node in
-            if let children = node.children {
+            if let children = node.children, compact {
+                // No disclosure triangle, which would crowd the narrow cell; a click opens the folder in place.
+                let open = expanded.contains(node.id)
+                Button { isExpanded(node.id).wrappedValue.toggle() } label: {
+                    SidebarRow(title: Text(node.name), selected: false, playing: false, thumb: SymbolTile(systemImage: open ? "folder.fill" : "folder"))
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(open ? Text("Expanded") : Text("Collapsed"))
+                if open {
+                    PlaylistRows(nodes: children, expanded: $expanded, playlists: playlists, selection: selection, nowPlaying: nowPlaying)
+                }
+            } else if let children = node.children {
                 DisclosureGroup(isExpanded: isExpanded(node.id)) {
                     PlaylistRows(nodes: children, expanded: $expanded, playlists: playlists, selection: selection, nowPlaying: nowPlaying)
                 } label: {
@@ -207,12 +242,14 @@ private struct PlaylistRows: View {
         }
     }
 
+    @Environment(\.sidebarCompact) private var compact
+
     @ViewBuilder private func thumb(_ uri: String) -> some View {
         let artwork = playlists.artwork[uri] ?? []
         if artwork.isEmpty {
             SymbolTile(systemImage: "music.note")
         } else {
-            ArtworkView(artwork: artwork, side: 24).clipShape(RoundedRectangle(cornerRadius: 4))
+            ArtworkView(artwork: artwork, side: thumbSide(compact)).clipShape(RoundedRectangle(cornerRadius: thumbRadius(compact)))
         }
     }
 
@@ -224,16 +261,60 @@ private struct PlaylistRows: View {
     }
 }
 
+private struct SidebarLabelStyle: LabelStyle {
+    let compact: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        if compact { Label(configuration).labelStyle(.iconOnly) } else { Label(configuration) }
+    }
+}
+
+private extension EnvironmentValues {
+    @Entry var sidebarCompact = false
+}
+
+/// Row icon side: bigger in the icon-only sidebar, which has room once names are gone.
+private func thumbSide(_ compact: Bool) -> CGFloat { compact ? 36 : 24 }
+private func thumbRadius(_ compact: Bool) -> CGFloat { compact ? 6 : 4 }
 private struct SidebarRow<Thumb: View>: View {
     let title: Text
     let selected: Bool
     let playing: Bool
     let thumb: Thumb
     var isPrivate = false
+    @Environment(\.sidebarCompact) private var compact
 
     var body: some View {
+        if compact {
+            // The icon stands for the row: named for VoiceOver with the hidden lock and playing state.
+            row
+                .help(title)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title)
+                .accessibilityValue(state)
+                .accessibilityAddTraits(.isImage)
+        } else {
+            row
+        }
+    }
+
+    @ViewBuilder private var row: some View {
+        if compact {
+            // A square cell: the bigger icon centered, the equalizer on its corner.
+            thumb.frame(width: thumbSide(true), height: thumbSide(true))
+                .overlay(alignment: .bottomTrailing) {
+                    if playing { Equalizer(animating: true).offset(x: 6, y: 4) }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .listRowInsets(EdgeInsets())
+        } else {
+            full
+        }
+    }
+
+    private var full: some View {
         HStack(spacing: Theme.s2) {
-            thumb.frame(width: 24, height: 24)
+            thumb.frame(width: thumbSide(false), height: thumbSide(false))
             title
                 .scaledFont(size: 13, weight: selected ? .semibold : .regular)
                 .lineLimit(1)
@@ -250,33 +331,65 @@ private struct SidebarRow<Thumb: View>: View {
         }
         .frame(minHeight: 28)
     }
+
+    private var state: Text {
+        switch (isPrivate, playing) {
+        case (true, true): Text("Private, Playing")
+        case (true, false): Text("Private")
+        case (false, true): Text("Playing")
+        case (false, false): Text(verbatim: "")
+        }
+    }
 }
 
 private struct SidebarHeader: View {
     let title: LocalizedStringResource
     var selected = false
+    @Environment(\.sidebarCompact) private var compact
+    @Environment(\.colorSchemeContrast) private var contrast
 
-    var body: some View {
+    @ViewBuilder var body: some View {
+        if compact {
+            // The divider stands in for the title, which still names the section for VoiceOver.
+            // The panel's footer edge, inset from the panel sides.
+            let increased = contrast == .increased
+            Rectangle()
+                .fill(PanelEdge.color(increased))
+                .frame(height: PanelEdge.width(increased))
+                // Section headers already sit 12 pt further from the leading edge; this evens the margins.
+                .padding(.trailing, Theme.s3)
+                .accessibilityLabel(Text(title))
+                .accessibilityAddTraits(.isHeader)
+                .background(HostingGroupLabel(label: String(localized: title)))
+        } else {
+            label
+        }
+    }
+
+    private var label: some View {
         Text(title)
             .scaledFont(size: 11, weight: .semibold)
+            .lineLimit(1)
             .foregroundStyle(selected ? .primary : .secondary)
             .accessibilityAddTraits(.isHeader)
             .background(HostingGroupLabel(label: String(localized: title)))
     }
 }
 
-/// A 24 pt rounded tile behind a symbol, for rows without artwork.
+/// A rounded tile behind a symbol, for rows without artwork.
 private struct SymbolTile: View {
     let systemImage: String
     var fill: Color = .fillStrong
     var ink: Color = .secondary
 
+    @Environment(\.sidebarCompact) private var compact
+
     var body: some View {
-        RoundedRectangle(cornerRadius: 4)
+        RoundedRectangle(cornerRadius: thumbRadius(compact))
             .fill(fill)
             .overlay {
                 Image(systemName: systemImage)
-                    .scaledFont(size: 11, weight: .semibold)
+                    .scaledFont(size: compact ? 16 : 11, weight: .semibold)
                     .foregroundStyle(ink)
             }
             .accessibilityHidden(true)
