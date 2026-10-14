@@ -43,6 +43,8 @@
         case playlistConflict
         /// Signed in with two local folders chosen and a Local Mix playlist of local files (PBI-703).
         case localFiles
+        /// Signed in; MetricKit delivers a crash from the last run, before the user chose about crash reports (PBI-804).
+        case crashedLastTime
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -103,7 +105,11 @@
                 defaults: defaults,
                 episodeProgress: ScenarioEpisodeProgress(),
                 choosePhoto: { Self.photo() },
-                localNetworkAccess: { [allowed = self != .localNetworkDenied] in AsyncStream { $0.yield(allowed) } }
+                localNetworkAccess: { [allowed = self != .localNetworkDenied] in AsyncStream { $0.yield(allowed) } },
+                crashReportsDirectory: FileManager.default.temporaryDirectory.appending(path: "ui-test-crashes"),
+                crashDiagnostics: { [crashed = self == .crashedLastTime] received in
+                    if crashed { received([#"{"diagnosticMetaData":{"signal":11}}"#]) }
+                }
             )
         }
 

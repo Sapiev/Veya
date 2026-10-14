@@ -1,4 +1,5 @@
 import AppKit
+import MetricKit
 import OSLog
 import SpotCoreKit
 import UniformTypeIdentifiers
@@ -40,7 +41,9 @@ enum Diagnostics {
         }
     }
 
-    static func export() async {
+    static let crashReportsDirectory = URL.libraryDirectory.appending(path: "Logs/Veya/Crashes", directoryHint: .isDirectory)
+
+    static func export(crashReports: URL) async {
         let localDay = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
         let name = "Veya Diagnostics \(Date.now.formatted(localDay))"
         let panel = NSSavePanel()
@@ -51,7 +54,7 @@ enum Diagnostics {
         let appVersion = appVersion
         do {
             let archive = try await Task.detached {
-                try DiagnosticsArchive.make(named: name, appVersion: appVersion)
+                try DiagnosticsArchive.make(named: name, appVersion: appVersion, crashReports: crashReports)
             }.value
             defer { try? FileManager.default.removeItem(at: archive.deletingLastPathComponent()) }
             // Written in place rather than moved: the sandbox grants only this
@@ -81,5 +84,28 @@ extension LogLevel {
     init?(storedName: String) {
         guard let level = Self.choices.first(where: { $0.storedName == storedName }) else { return nil }
         self = level
+    }
+}
+
+/// Hands each launch's MetricKit crash diagnostics to `CrashReports`.
+final class MetricKitCrashes: NSObject, MXMetricManagerSubscriber {
+    /// MetricKit does not document keeping its subscribers alive.
+    private static var subscriber: MetricKitCrashes?
+    private let received: @MainActor ([String]) -> Void
+
+    private init(received: @escaping @MainActor ([String]) -> Void) {
+        self.received = received
+    }
+
+    static func subscribe(_ received: @escaping @MainActor ([String]) -> Void) {
+        let subscriber = MetricKitCrashes(received: received)
+        Self.subscriber = subscriber
+        MXMetricManager.shared.add(subscriber)
+    }
+
+    nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        let reports = payloads.flatMap { $0.crashDiagnostics ?? [] }
+            .map { String(decoding: $0.jsonRepresentation(), as: UTF8.self) }
+        Task { @MainActor in received(reports) }
     }
 }

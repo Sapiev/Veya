@@ -21,6 +21,9 @@ struct AppDependencies {
     var choosePhoto: (@MainActor () async -> URL?)?
     /// `nil` probes the real local network permission.
     var localNetworkAccess: (@Sendable () -> AsyncStream<Bool>)?
+    var crashReportsDirectory = Diagnostics.crashReportsDirectory
+    /// Calls back with each delivery of crash diagnostics as JSON.
+    var crashDiagnostics: @MainActor (@escaping @MainActor ([String]) -> Void) -> Void = MetricKitCrashes.subscribe
 
     static func make() -> AppDependencies {
         #if DEBUG

@@ -42,13 +42,14 @@ struct PlaybackCommands: Commands {
 
 /// Help menu: the shortcut list and the diagnostics export.
 struct HelpCommands: Commands {
+    let crashReports: URL
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(after: .help) {
             Button("Keyboard Shortcuts") { openWindow(id: KeyboardShortcutsView.windowID) }
             Button("Export Diagnostics…") {
-                Task { await Diagnostics.export() }
+                Task { await Diagnostics.export(crashReports: crashReports) }
             }
         }
     }
