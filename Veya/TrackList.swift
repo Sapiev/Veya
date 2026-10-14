@@ -545,27 +545,74 @@ struct Equalizer: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        TimelineView(.animation(paused: !animating || reduceMotion)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
-            HStack(alignment: .bottom, spacing: 2) {
-                ForEach(0 ..< 3, id: \.self) { bar in
-                    RoundedRectangle(cornerRadius: 1)
-                        .frame(width: 3, height: reduceMotion ? [8, 14, 10][bar] : Self.height(time, bar))
-                }
-            }
-            .frame(height: 14, alignment: .bottom)
+        EqualizerBars(animating: animating && !reduceMotion, color: palette.tintText)
+            .frame(width: 13, height: 14)
+    }
+}
+
+/// Core Animation bounces the bars in the render server; a SwiftUI TimelineView redrew
+/// the row every frame, ~13 % CPU during playback (PBI-803).
+private struct EqualizerBars: NSViewRepresentable {
+    let animating: Bool
+    let color: RGB
+
+    private static let still: [CGFloat] = [8, 14, 10]
+
+    /// Speaks for itself: a SwiftUI accessibilityRepresentation over an AppKit view
+    /// fails the audit's parent/child check in a table row.
+    final class BarsView: NSView {
+        override func isAccessibilityElement() -> Bool {
+            true
         }
-        .foregroundStyle(Color(palette.tintText))
-        .accessibilityRepresentation {
-            Image(systemName: "speaker.wave.2.fill")
-                .accessibilityLabel("Now Playing")
+
+        override func accessibilityRole() -> NSAccessibility.Role? {
+            .image
+        }
+
+        override func accessibilityLabel() -> String? {
+            String(localized: "Now Playing")
         }
     }
 
-    /// 4 to 14 pt over a 0.9 s cycle, each bar a third of a cycle behind the last.
-    private static func height(_ time: TimeInterval, _ bar: Int) -> CGFloat {
-        let phase = time / 0.9 + Double(bar) / 3
-        return 4 + 10 * (0.5 - 0.5 * cos(2 * .pi * phase))
+    func makeNSView(context _: Context) -> BarsView {
+        let view = BarsView()
+        view.wantsLayer = true
+        for index in Self.still.indices {
+            let bar = CALayer()
+            bar.anchorPoint = CGPoint(x: 0, y: 0)
+            bar.position = CGPoint(x: CGFloat(index) * 5, y: 0)
+            bar.cornerRadius = 1
+            view.layer?.addSublayer(bar)
+        }
+        return view
+    }
+
+    func updateNSView(_ view: BarsView, context _: Context) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (index, bar) in (view.layer?.sublayers ?? []).enumerated() {
+            bar.bounds = CGRect(x: 0, y: 0, width: 3, height: Self.still[index])
+            bar.backgroundColor = CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1)
+            if !animating {
+                bar.removeAnimation(forKey: "bounce")
+            } else if bar.animation(forKey: "bounce") == nil {
+                bar.add(Self.bounce(index), forKey: "bounce")
+            }
+        }
+        CATransaction.commit()
+    }
+
+    /// 4 to 14 pt and back over 0.9 s, each bar a third of a cycle behind the last.
+    private static func bounce(_ index: Int) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "bounds.size.height")
+        animation.fromValue = 4
+        animation.toValue = 14
+        animation.duration = 0.45
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.timeOffset = 0.3 * Double(index)
+        return animation
     }
 }
 

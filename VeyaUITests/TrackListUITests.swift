@@ -196,9 +196,3 @@ final class TrackListUITests: XCTestCase {
         XCTAssertTrue(app.trackList.staticTexts["Song 2"].exists)
     }
 }
-
-private extension XCUIApplication {
-    var trackList: XCUIElement {
-        outlines["trackList"]
-    }
-}

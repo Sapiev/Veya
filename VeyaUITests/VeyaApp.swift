@@ -28,6 +28,13 @@ extension XCUIApplication {
     /// Launches Veya against in-memory fakes; it never reaches Spotify or the Keychain.
     /// `locale` ("pl_PL") runs the app in that language and region's formats instead of the Mac's.
     static func launch(_ scenario: Scenario, locale: String? = nil) -> XCUIApplication {
+        let app = configured(scenario, locale: locale)
+        app.launch()
+        return app
+    }
+
+    /// As `launch`, for a caller that launches the app itself, such as a launch metric.
+    static func configured(_ scenario: Scenario, locale: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["VEYA_UI_TEST_SCENARIO"] = scenario.rawValue
         if let locale, let language = locale.split(separator: "_").first {
@@ -36,7 +43,6 @@ extension XCUIApplication {
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         // Tests share the app's defaults, so pin the main window over any frame a user saved; AppKit fits it to the screen.
         app.launchArguments += ["-NSWindow Frame main", "0 0 1200 2000"]
-        app.launch()
         return app
     }
 
@@ -51,6 +57,11 @@ extension XCUIApplication {
     /// A sidebar row by name; "Albums", "Artists" and "Podcasts" are section headers that open the full page.
     func sidebarItem(_ name: String) -> XCUIElement {
         ["Albums", "Artists", "Podcasts"].contains(name) ? outlines.buttons[name] : outlines.staticTexts[name]
+    }
+
+    /// The track list on Liked Songs, a playlist or an album.
+    var trackList: XCUIElement {
+        outlines["trackList"]
     }
 
     /// The heading of the screen the main window shows.
