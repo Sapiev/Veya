@@ -21,6 +21,7 @@ import SwiftUI
     private let defaults: UserDefaults
     @State private var menuBar: MenuBarSettings
     @State private var crashReports: CrashReports
+    @State private var updates: Updates
 
     init() {
         let dependencies = AppDependencies.make()
@@ -29,6 +30,7 @@ import SwiftUI
         Diagnostics.startLogging(level: Diagnostics.savedLevel(in: dependencies.defaults))
         let crashReports = CrashReports(defaults: dependencies.defaults, directory: dependencies.crashReportsDirectory)
         _crashReports = State(initialValue: crashReports)
+        _updates = State(initialValue: Updates(defaults: dependencies.defaults))
         dependencies.crashDiagnostics { crashReports.received($0) }
         let settings = PlaybackSettings(defaults: dependencies.defaults)
         _settings = State(initialValue: settings)
@@ -122,6 +124,7 @@ import SwiftUI
         // The ambient wash runs under the traffic lights; the sidebar panel and floating capsules are the chrome.
         .windowStyle(.hiddenTitleBar)
         .commands {
+            UpdateCommands(updates: updates)
             AccountCommands(session: session, signOutFailed: $signOutFailed)
             NavigationCommands()
             MainWindowCommands()
@@ -138,7 +141,7 @@ import SwiftUI
         .commandsRemoved()
 
         Settings {
-            SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar, crashReports: crashReports) {
+            SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar, crashReports: crashReports, updates: updates) {
                 AccountCommands.signOut(session, failed: $signOutFailed)
             }
             .modifier(ConcreteInk())
