@@ -288,11 +288,12 @@ struct Scrubber: View {
     var large = false
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var dragged: Double?
+    @State private var now = Date.now
 
     var body: some View {
         let duration = Double(player.nowPlaying?.durationMs ?? 0)
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !player.isPlaying || dragged != nil)) { context in
-            let position = min(dragged ?? Double(player.position(at: context.date)), duration)
+        Group {
+            let position = min(dragged ?? Double(player.position(at: now)), duration)
             let elapsed = Text(Self.format(position)).accessibilityIdentifier("elapsed")
             let slider = ThinSlider(
                 value: Binding(get: { position }, set: { dragged = $0 }),
@@ -328,6 +329,15 @@ struct Scrubber: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             }
+        }
+        // A sleeping task, not a TimelineView: a running TimelineView keeps the display link
+        // firing every frame whatever its schedule, ~9 % CPU during playback (PBI-803).
+        // Each tick relays out the window, so it wakes once a second, when the elapsed time turns over.
+        .task(id: player.isPlaying && dragged == nil) {
+            guard player.isPlaying, dragged == nil else { return }
+            repeat {
+                now = .now
+            } while await (try? Task.sleep(for: .milliseconds(1000 - player.position(at: now) % 1000))) != nil
         }
     }
 
