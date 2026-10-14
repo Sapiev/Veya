@@ -38,13 +38,21 @@ final class NavigationUITests: XCTestCase {
     }
 
     /// The window buttons sit inside the floating sidebar panel, 20 pt in and 18 pt down as in the design.
-    /// A click re-lays out the titlebar, so they must stay there afterwards too.
+    /// A click or a new page title re-lays out the titlebar, so they must stay there afterwards too.
     @MainActor func testWindowButtonsSitInsideTheSidebarPanel() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
 
         assertWindowButtonsInset(app)
         app.staticTexts["greeting"].click()
+        assertWindowButtonsInset(app)
+        for page in ["Liked Songs", "Road Trip"] {
+            app.sidebarItem(page).click()
+            XCTAssertTrue(app.showsRoute(page), page)
+            assertWindowButtonsInset(app)
+        }
+        app.sidebarItem("Home").click()
+        XCTAssertTrue(app.staticTexts["greeting"].waitForExistence(timeout: XCUIApplication.timeout))
         assertWindowButtonsInset(app)
     }
 
