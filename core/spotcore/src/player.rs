@@ -413,12 +413,15 @@ impl SpotPlayer {
 
     /// Plays a list the app already holds (Liked Songs, a sorted playlist)
     /// from `uris[start_index]`. `context_uri`, when given, seeds autoplay
-    /// radio once the list runs out.
+    /// radio once the list runs out. `in_context_order`: `uris` are the
+    /// context's tracks in its own order, so Connect and Remote mode play the
+    /// context itself and Spotify records the plays under it.
     pub fn load_tracks(
         &self,
         uris: Vec<String>,
         start_index: u32,
         context_uri: Option<String>,
+        in_context_order: bool,
         autoplay: bool,
     ) -> Result<(), PlayerError> {
         let tracks = uris
@@ -435,20 +438,29 @@ impl SpotPlayer {
         if start_index as usize >= tracks.len() {
             return Err(PlayerError::OutOfRange { index: start_index });
         }
+        let spotify_context = list_context(context.as_ref(), in_context_order);
         if let Some(connect) = self.connect_mode() {
-            // shortcut: Spirc takes no context for a track list, so radio after
-            // it follows Spirc's own autoplay; pass `context` if that misfires.
-            let options = LoadRequestOptions {
+            let mut options = LoadRequestOptions {
                 start_playing: autoplay,
-                playing_track: Some(PlayingTrack::Index(start_index)),
                 ..Default::default()
             };
-            connect.spirc(|s| s.load(LoadRequest::from_tracks(uris, options)));
+            let request = match spotify_context {
+                Some(context) => {
+                    options.playing_track =
+                        Some(PlayingTrack::Uri(uris[start_index as usize].clone()));
+                    LoadRequest::from_context_uri(context, options)
+                }
+                None => {
+                    options.playing_track = Some(PlayingTrack::Index(start_index));
+                    LoadRequest::from_tracks(uris, options)
+                }
+            };
+            connect.spirc(|s| s.load(request));
             return Ok(());
         }
         if let Some((connect, target)) = self.remote_for_load() {
             let request = PlayRequest {
-                context_uri: None,
+                context_uri: spotify_context,
                 tracks: uris,
                 start_index,
                 seek_to: 0,
@@ -899,6 +911,15 @@ impl SpotPlayer {
 
     pub(crate) fn attach_connect(&self, connect: Weak<SpotConnect>) {
         *lock(&self.connect) = connect;
+    }
+
+    /// Nothing plays or is loaded on this Mac, and the user has chosen nothing yet.
+    pub(crate) fn is_untouched(&self) -> bool {
+        let state = lock(&self.state);
+        state.choice == 0
+            && state.queue.current().is_none()
+            && self.owner.get() == Role::Local
+            && !self.owner.is_remote()
     }
 
     pub(crate) fn volume(&self) -> u16 {
@@ -1372,6 +1393,26 @@ fn seed() -> u64 {
         .map_or(0, |d| d.as_nanos() as u64)
 }
 
+/// Contexts Spotify can play by uri, as Spirc's `from_context_uri` and the
+/// connect-state play command take them.
+pub(crate) fn is_spotify_context(uri: &SpotifyUri) -> bool {
+    matches!(
+        uri,
+        SpotifyUri::Album { .. }
+            | SpotifyUri::Artist { .. }
+            | SpotifyUri::Playlist { .. }
+            | SpotifyUri::Show { .. }
+    )
+}
+
+/// The context to play a held list as: only a list in the context's own
+/// order, as a sorted or filtered one would play in another order.
+fn list_context(context: Option<&SpotifyUri>, in_context_order: bool) -> Option<String> {
+    context
+        .filter(|uri| in_context_order && is_spotify_context(uri))
+        .map(canonical)
+}
+
 /// Up Next takes single items only, not contexts.
 pub(crate) fn playable(uri: &str) -> Result<SpotifyUri, PlayerError> {
     match SpotifyUri::from_uri(uri) {
@@ -1643,6 +1684,22 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn list_context_plays_only_a_list_in_the_contexts_order() {
+        let playlist = SpotifyUri::from_uri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M").unwrap();
+        assert_eq!(
+            list_context(Some(&playlist), true).as_deref(),
+            Some("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
+        );
+        assert_eq!(
+            list_context(Some(&playlist), false),
+            None,
+            "sorted or filtered"
+        );
+        assert_eq!(list_context(None, true), None, "Liked Songs");
+        assert_eq!(list_context(Some(&track(1)), true), None, "not a context");
     }
 
     #[test]

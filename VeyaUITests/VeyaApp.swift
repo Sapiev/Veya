@@ -20,6 +20,7 @@ enum Scenario: String {
     case playlistConflict
     case localFiles
     case crashedLastTime
+    case restoredPlayback
 }
 
 @MainActor

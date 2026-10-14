@@ -15,6 +15,18 @@ final class StubRecentlyPlayed: RecentlyPlayedProvider {
     }
 }
 
+final class StubRecentContexts: RecentContextsProvider {
+    private let result: Result<[String], HomeError>
+
+    init(_ result: Result<[String], HomeError>) {
+        self.result = result
+    }
+
+    func recentContexts() async throws -> [String] {
+        try result.get()
+    }
+}
+
 /// A call from a cancelled (superseded) load waits for `release` and then
 /// answers `stale`; any other call answers `fresh` at once.
 final class SupersededRecentlyPlayed: RecentlyPlayedProvider {
@@ -129,6 +141,7 @@ private let history = RecentlyPlayed(tracks: [track1, goneTrack, track2], contex
 @MainActor
 private func model(
     recent: Result<RecentlyPlayed, HomeError> = .success(history),
+    contexts: Result<[String], HomeError> = .success([]),
     rootlist list: Result<[RootlistEntry], PlaylistError> = .success(rootlist),
     log: @escaping HomeLog = { _, _ in }
 ) -> HomeModel {
@@ -136,6 +149,7 @@ private func model(
         metadata: StubMetadata([track(track1), track(track2), albumItem]),
         playlists: StubPlaylists(rootlist: list, pages: [page(mix), page(weekly), page(mine, owner: "me")]),
         recentlyPlayed: StubRecentlyPlayed(recent),
+        recentContexts: StubRecentContexts(contexts),
         log: log
     )
 }
@@ -179,6 +193,7 @@ struct HomeModelTests {
             metadata: StubMetadata([]),
             playlists: StubPlaylists(rootlist: .success(rootlist), pages: [page(weekly)]),
             recentlyPlayed: WebAPIRecentlyPlayed { throw WebAPITokenError.notAvailable },
+            recentContexts: StubRecentContexts(.success([])),
             log: { _, _ in }
         )
 
@@ -226,6 +241,54 @@ struct HomeModelTests {
         #expect(home.state == .failed)
     }
 
+    @Test func recentContextsReplaceWebAPIContextsWhenNonEmpty() async {
+        let home = model(contexts: .success([album, mine]))
+
+        await home.load().value
+
+        #expect(home.jumpBackIn == [.item(albumItem), .playlist(page(mine, owner: "me"))])
+        #expect(home.recentlyPlayed == [track(track1), track(track2)])
+    }
+
+    @Test func webAPIContextsAreTheFallbackWhenRecentContextsFailOrAreEmpty() async {
+        var logged: [String] = []
+        let failed = model(contexts: .failure(.Spclient(message: "x"))) { logged.append($1) }
+        let empty = model(contexts: .success([]))
+
+        await failed.load().value
+        await empty.load().value
+
+        #expect(failed.jumpBackIn == [.playlist(page(mix)), .item(albumItem)])
+        #expect(empty.jumpBackIn == [.playlist(page(mix)), .item(albumItem)])
+        #expect(failed.state == .loaded)
+        #expect(logged == ["Couldn't load recent contexts: Spclient"])
+    }
+
+    @Test func recentContextsFillJumpBackInWhenWebAPIFails() async {
+        let home = model(
+            recent: .failure(.Network(message: "x")), contexts: .success([album]), rootlist: .failure(.Request(message: "x"))
+        )
+
+        await home.load().value
+
+        #expect(home.jumpBackIn == [.item(albumItem)])
+        #expect(home.recentlyPlayed.isEmpty)
+        #expect(!home.recentlyPlayedNeedsSignIn)
+        #expect(home.state == .loaded)
+    }
+
+    @Test func everySourceFailingFails() async {
+        let home = model(
+            recent: .failure(.Network(message: "x")), contexts: .failure(.Spclient(message: "x")),
+            rootlist: .failure(.Request(message: "x"))
+        )
+
+        await home.load().value
+
+        #expect(home.state == .failed)
+        #expect(home.jumpBackIn.isEmpty)
+    }
+
     @Test func olderLoadFinishingLastDoesNotOverwriteNewer() async {
         let recent = SupersededRecentlyPlayed(
             stale: history, fresh: RecentlyPlayed(tracks: [track2], contexts: [])
@@ -234,6 +297,7 @@ struct HomeModelTests {
             metadata: StubMetadata([track(track1), track(track2), albumItem]),
             playlists: StubPlaylists(rootlist: .success(rootlist), pages: [page(mix), page(weekly)]),
             recentlyPlayed: recent,
+            recentContexts: StubRecentContexts(.success([])),
             log: { _, _ in }
         )
 
@@ -255,6 +319,7 @@ struct HomeModelTests {
             metadata: FailingMetadata(),
             playlists: StubPlaylists(rootlist: .success(rootlist), pages: [page(mix), page(weekly)]),
             recentlyPlayed: StubRecentlyPlayed(.success(history)),
+            recentContexts: StubRecentContexts(.success([])),
             log: { logged.append($1) }
         )
 
@@ -270,6 +335,7 @@ struct HomeModelTests {
             metadata: StubMetadata([track(track1), track(track2), albumItem]),
             playlists: StubPlaylists(rootlist: .success(rootlist), pages: [page(mix), page(weekly)]),
             recentlyPlayed: StubRecentlyPlayed(.success(history)),
+            recentContexts: StubRecentContexts(.success([])),
             limit: 1,
             log: { _, _ in }
         )

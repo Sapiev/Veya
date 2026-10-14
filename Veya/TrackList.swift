@@ -13,6 +13,8 @@ struct TrackList: View {
     let entries: [TrackEntry]
     /// Seeds autoplay radio after the list; nil for lists without a Spotify URI.
     let context: String?
+    /// `entries` are all of `context`'s tracks in its order, not a filtered subset.
+    var entriesInContextOrder = true
     let library: LibraryModel
     let player: PlayerModel?
     let playlists: PlaylistModel
@@ -209,15 +211,17 @@ struct TrackList: View {
         let rows = entries.enumerated().map { offset, entry in
             Row(number: offset + 1, entry: entry, item: library.metadata[entry.uri])
         }
-        return sortOrder == [KeyPathComparator(\Row.number)] ? rows : rows.sorted(using: sortOrder)
+        return isUnsorted ? rows : rows.sorted(using: sortOrder)
     }
+
+    private var isUnsorted: Bool { sortOrder == [KeyPathComparator(\Row.number)] }
 
     /// Plays the list in its shown order from the first playable of `ids`,
     /// leaving out rows known to be unplayable; refuses when `ids` has none.
     private func play(_ ids: Set<Row.ID>, in rows: [Row]) {
         let playable = rows.filter(\.playable)
         if let index = playable.firstIndex(where: { ids.contains($0.id) }) {
-            player?.play(playable.map(\.uri), from: index, context: context)
+            player?.play(playable.map(\.uri), from: index, context: context, inContextOrder: entriesInContextOrder && isUnsorted)
         }
     }
 

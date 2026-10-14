@@ -100,7 +100,7 @@ import SwiftUI
                 webAPI: webAPI,
                 recentSearches: recentSearches
             ) {
-                AccountCommands.signOut(session, failed: $signOutFailed)
+                AccountCommands.signOut(session, settings: settings, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
             .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = PhotoChooser(choose: choosePhoto) } }
@@ -109,7 +109,7 @@ import SwiftUI
             .onAppear { NSApp.setActivationPolicy(.regular) }
             .onDisappear { menuBar.windowClosed() }
             .alert("Couldn't Sign Out Completely", isPresented: $signOutFailed) {
-                Button("Try Again") { AccountCommands.signOut(session, failed: $signOutFailed) }
+                Button("Try Again") { AccountCommands.signOut(session, settings: settings, failed: $signOutFailed) }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("The saved sign-in is still in the Keychain, so Veya may sign in again at launch.")
@@ -125,7 +125,7 @@ import SwiftUI
         .windowStyle(.hiddenTitleBar)
         .commands {
             UpdateCommands(updates: updates)
-            AccountCommands(session: session, signOutFailed: $signOutFailed)
+            AccountCommands(session: session, settings: settings, signOutFailed: $signOutFailed)
             NavigationCommands()
             MainWindowCommands()
             PlaybackCommands(activeSession: activeSession)
@@ -142,7 +142,7 @@ import SwiftUI
 
         Settings {
             SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar, crashReports: crashReports, updates: updates) {
-                AccountCommands.signOut(session, failed: $signOutFailed)
+                AccountCommands.signOut(session, settings: settings, failed: $signOutFailed)
             }
             .modifier(ConcreteInk())
             .defaultAppStorage(defaults)
@@ -207,6 +207,7 @@ private struct MainWindowCommands: Commands {
 
 private struct AccountCommands: Commands {
     let session: SessionModel
+    let settings: PlaybackSettings
     @Binding var signOutFailed: Bool
     @Environment(\.openWindow) private var openWindow
 
@@ -214,13 +215,15 @@ private struct AccountCommands: Commands {
         CommandMenu("Account") {
             Button("Sign Out") {
                 openWindow(id: "main")
-                Self.signOut(session, failed: $signOutFailed)
+                Self.signOut(session, settings: settings, failed: $signOutFailed)
             }
             .disabled(session.state == .signedOut)
         }
     }
 
-    static func signOut(_ session: SessionModel, failed: Binding<Bool>) {
+    /// The saved playback is cleared after the player's teardown saved it; another account may sign in next.
+    static func signOut(_ session: SessionModel, settings: PlaybackSettings, failed: Binding<Bool>) {
         session.signOut { failed.wrappedValue = true }
+        settings.lastPlayback = nil
     }
 }

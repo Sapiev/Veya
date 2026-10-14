@@ -51,6 +51,15 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Mute"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
+    /// PBI-501: launch shows the account's last track paused where it stopped, ready to resume.
+    @MainActor func testLaunchShowsTheRestoredTrackPaused() {
+        let app = XCUIApplication.launch(.restoredPlayback)
+
+        XCTAssertTrue(app.staticTexts["Test Track"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.buttons["Play"].exists)
+        XCTAssertEqual(app.staticTexts["elapsed"].firstMatch.value as? String, "1:35")
+    }
+
     @MainActor func testPlayAndPauseFollowThePlayer() {
         let app = XCUIApplication.launch(.signedIn)
         let play = app.buttons["Play"]

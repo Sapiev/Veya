@@ -59,8 +59,8 @@ final class FakePlayer: SpotPlayerProtocol {
         record("load \(uri) \(startMs)")
         if failsLoad { throw LoadFailed() }
     }
-    func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, autoplay _: Bool) throws {
-        record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")")
+    func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, inContextOrder: Bool, autoplay _: Bool) throws {
+        record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")\(inContextOrder ? " in order" : "")")
     }
     func moveInQueue(from: UInt32, to: UInt32) throws {
         record("move \(from) \(to)")
@@ -294,6 +294,102 @@ struct PlayerModelTests {
         #expect(devices.order == ["start", "shutdown", "start"], "the old device finished unregistering first")
     }
 
+    /// PBI-501: only the first Connect device restores the last playback, with the Web API token.
+    @Test func firstConnectDeviceRestoresTheLastPlaybackOnce() async {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        let devices = ConnectStarts()
+        let player = PlayerModel(
+            player: FakePlayer(), engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, restoreToken: { "web-token" }, clock: Date.init, log: { _, _ in }
+        )
+        await player.connectStart?.value
+        settings.connectDeviceName = "Den"
+        while devices.started.count < 2 {
+            await Task.yield()
+        }
+        await player.connectStart?.value
+        while devices.made[0].restores.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(devices.made.map(\.restores) == [["web-token"], []])
+    }
+
+    /// PBI-501: this Mac's playback is saved on track change, pause, every 5 s of play and quit.
+    @Test func localPlaybackIsSavedForTheNextLaunch() {
+        let clock = Clock()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(clock: clock, settings: settings)
+        let at = { (ms: UInt32) in
+            SavedPlayback(
+                trackUri: trackURI, contextUri: nil, positionMs: ms,
+                savedAtMs: Int64(clock.now.timeIntervalSince1970 * 1000)
+            )
+        }
+        player.apply(.loading(uri: trackURI, positionMs: 0))
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+        #expect(settings.lastPlayback == at(0))
+
+        player.apply(.playing(uri: trackURI, positionMs: 0))
+        clock.now += 3
+        player.apply(.position(uri: trackURI, positionMs: 3000))
+        #expect(settings.lastPlayback?.positionMs == 0, "throttled")
+        clock.now += 3
+        player.apply(.position(uri: trackURI, positionMs: 6000))
+        #expect(settings.lastPlayback == at(6000))
+
+        clock.now += 1
+        player.apply(.paused(uri: trackURI, positionMs: 7000))
+        #expect(settings.lastPlayback == at(7000))
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback == at(7000), "persisted")
+
+        player.apply(.remoteChanged(deviceName: "Phone", volume: nil))
+        clock.now += 1
+        player.apply(.paused(uri: trackURI, positionMs: 9000))
+        #expect(settings.lastPlayback?.positionMs == 7000, "Remote mode plays elsewhere")
+
+        player.apply(.remoteChanged(deviceName: nil, volume: nil))
+        player.teardown()
+        #expect(settings.lastPlayback == at(9000), "saved on quit")
+    }
+
+    /// PBI-501: the restore gets the saved playback.
+    @Test func restoreGetsTheSavedPlayback() async {
+        let settings = PlaybackSettings(defaults: defaults)
+        let saved = SavedPlayback(trackUri: trackURI, contextUri: "spotify:album:1", positionMs: 5, savedAtMs: 9)
+        settings.lastPlayback = saved
+        let devices = ConnectStarts()
+        let player = PlayerModel(
+            player: FakePlayer(), engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, restoreToken: { "web-token" }, clock: Date.init, log: { _, _ in }
+        )
+        await player.connectStart?.value
+        while devices.made[0].restores.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(devices.made[0].restoredFrom == [saved])
+    }
+
+    /// PBI-501: without a Web API token the restore is skipped and logged.
+    @Test func restoreWithoutATokenIsSkipped() async {
+        struct NoToken: Error {}
+        let devices = ConnectStarts()
+        var logged: [String] = []
+        let player = PlayerModel(
+            player: FakePlayer(), engine: nil, metadata: StubMetadata([trackItem]),
+            settings: PlaybackSettings(defaults: defaults), startConnect: devices.start,
+            restoreToken: { throw NoToken() }, clock: Date.init, log: { logged.append($1) }
+        )
+        await player.connectStart?.value
+        while logged.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(logged == ["Skipped restoring the last playback: NoToken"])
+        #expect(devices.made.map(\.restores) == [[]])
+    }
+
     /// PBI-501: Spirc's player takes bitrate and loudness at start, so a change restarts Connect.
     @Test func tuningChangeRestartsConnectAfterThePlayerIsRetuned() async {
         let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
@@ -425,9 +521,12 @@ struct PlayerModelTests {
         let fake = FakePlayer()
         let player = model(fake)
         player.play(["a", "b", "c"], from: 1, context: "spotify:playlist:1")
+        player.play(["c", "a"], from: 1, context: "spotify:playlist:1", inContextOrder: true)
         player.play(["a"], from: 0)
         player.play(["a"], from: 3)
-        #expect(fake.recorded == ["loadTracks a,b,c 1 spotify:playlist:1", "loadTracks a 0 -"])
+        #expect(fake.recorded == [
+            "loadTracks a,b,c 1 spotify:playlist:1", "loadTracks c,a 1 spotify:playlist:1 in order", "loadTracks a 0 -",
+        ])
     }
 
     @Test func playOneItemLoadsItFromTheStartPositionAsTheContext() async {
@@ -520,7 +619,9 @@ struct PlayerModelTests {
 }
 
 final class FakeConnect: SpotConnectProtocol, Sendable {
-    private let calls = OSAllocatedUnfairLock<(shutdowns: Int, transfers: [String])>(initialState: (0, []))
+    private let calls = OSAllocatedUnfairLock<
+        (shutdowns: Int, transfers: [String], restores: [String], restoredFrom: [SavedPlayback?])
+    >(initialState: (0, [], [], []))
     private let log: ConnectStarts
     private let failsTransfer: Bool
 
@@ -531,6 +632,15 @@ final class FakeConnect: SpotConnectProtocol, Sendable {
 
     var shutdowns: Int { calls.withLock { $0.shutdowns } }
     var transfers: [String] { calls.withLock { $0.transfers } }
+    var restores: [String] { calls.withLock { $0.restores } }
+    var restoredFrom: [SavedPlayback?] { calls.withLock { $0.restoredFrom } }
+
+    func restoreLastPlayback(accessToken: String, saved: SavedPlayback?) async {
+        calls.withLock {
+            $0.restores.append(accessToken)
+            $0.restoredFrom.append(saved)
+        }
+    }
 
     func shutdown() async {
         await Task.yield()

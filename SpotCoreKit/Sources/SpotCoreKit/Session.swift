@@ -19,6 +19,8 @@ public protocol SessionHandle: AnyObject, Sendable {
     func makeSearch(accessToken: @escaping @Sendable () async throws -> String) -> any SearchServiceProtocol
     /// Web API plays; `accessToken` needs the `user-read-recently-played` scope.
     func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider
+    /// spclient's recently played contexts, for Jump Back In.
+    func makeRecentContexts() -> any RecentContextsProvider
     /// Starts audio output and a player whose events go to `observer`.
     @MainActor func makePlayer(observer: any PlayerObserver, settings: PlaybackSettings) async throws -> PlayerConnection
 }
@@ -42,6 +44,10 @@ extension SpotSession: SessionHandle {
 
     public func makeRecentlyPlayed(accessToken: @escaping @Sendable () async throws -> String) -> any RecentlyPlayedProvider {
         WebAPIRecentlyPlayed(accessToken: accessToken)
+    }
+
+    public func makeRecentContexts() -> any RecentContextsProvider {
+        HomeService(session: self)
     }
 }
 

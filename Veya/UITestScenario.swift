@@ -45,6 +45,8 @@
         case localFiles
         /// Signed in; MetricKit delivers a crash from the last run, before the user chose about crash reports (PBI-804).
         case crashedLastTime
+        /// Signed in; Connect restored the account's last track paused at 1:35, as at launch (PBI-501).
+        case restoredPlayback
 
         static let environmentKey = "VEYA_UI_TEST_SCENARIO"
 
@@ -283,6 +285,10 @@
             ScenarioRecentlyPlayed(fill: library, scope: recentlyPlayedScope)
         }
 
+        func makeRecentContexts() -> any RecentContextsProvider {
+            ScenarioRecentContexts(fill: library)
+        }
+
         @MainActor
         func makePlayer(observer: any PlayerObserver, settings _: PlaybackSettings) async throws -> PlayerConnection {
             if remote {
@@ -291,7 +297,8 @@
                 }
             }
             guard connectDevices else {
-                return PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil)
+                let restoredAtMs: UInt32 = UITestScenario.current() == .restoredPlayback ? 95_000 : 0
+                return PlayerConnection(player: ScenarioPlayer(observer: observer, restoredAtMs: restoredAtMs), engine: nil)
             }
             return PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil) { _, _ in
                 ScenarioConnect(observer: observer)
@@ -409,6 +416,8 @@
 
         func shutdown() async {}
 
+        func restoreLastPlayback(accessToken: String, saved: SavedPlayback?) async {}
+
         func transfer(deviceId: String) async throws {
             if deviceId == "tv" {
                 throw ConnectError.Transfer(message: "ui-test")
@@ -468,7 +477,7 @@
         func addToQueue(uri _: String) throws {}
         func clearQueue() {}
         func load(uri _: String, startMs _: UInt32, autoplay _: Bool) async throws {}
-        func loadTracks(uris _: [String], startIndex _: UInt32, contextUri _: String?, autoplay _: Bool) throws {}
+        func loadTracks(uris _: [String], startIndex _: UInt32, contextUri _: String?, inContextOrder _: Bool, autoplay _: Bool) throws {}
         func moveInQueue(from _: UInt32, to _: UInt32) throws {}
         func playNext(uri _: String) throws {}
         func previous() {}
@@ -497,10 +506,10 @@
             nextFromContext: [likedSongURI(7), likedSongURI(8)], shuffle: false, repeat: .off, autoplay: true
         ))
 
-        init(observer: any PlayerObserver) {
+        init(observer: any PlayerObserver, restoredAtMs: UInt32 = 0) {
             self.observer = observer
             observer.onEvent(event: .trackChanged(uri: scenarioTrackURI, name: "Test Track", durationMs: 180_000))
-            observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0))
+            observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: restoredAtMs))
         }
 
         func play() { observer.onEvent(event: .playing(uri: scenarioTrackURI, positionMs: 0)) }
@@ -516,7 +525,7 @@
             observer.onEvent(event: .trackChanged(uri: uri, name: episode?.title ?? "", durationMs: episode?.durationMs ?? 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: startMs))
         }
-        func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, autoplay _: Bool) throws {
+        func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, inContextOrder _: Bool, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
             if uri == scenarioLocalTracks[1].uri {
                 return observer.onEvent(event: .unavailable(uri: uri))
@@ -815,6 +824,22 @@
                 return RecentlyPlayed(tracks: [], contexts: [])
             case .failing:
                 throw HomeError.Network(message: "ui-test")
+            }
+        }
+    }
+
+    /// spclient's contexts: more than the Web API's, and no Web API scope needed.
+    private nonisolated struct ScenarioRecentContexts: RecentContextsProvider {
+        let fill: LibraryFill
+
+        func recentContexts() async throws -> [String] {
+            switch fill {
+            case .liked:
+                [scenarioAlbum.uri, scenarioPlaylistURI, scenarioArtist.uri, scenarioSingle.uri, scenarioShow.uri]
+            case .empty:
+                []
+            case .failing:
+                throw HomeError.Spclient(message: "ui-test")
             }
         }
     }

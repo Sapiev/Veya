@@ -205,7 +205,8 @@ struct PlaylistPageView: View {
                     ContentUnavailableView.search(text: filter)
                 } else {
                     TrackList(
-                        entries: entries, context: uri, library: library, player: player, playlists: playlists, history: history,
+                        entries: entries, context: uri, entriesInContextOrder: filter.isEmpty,
+                        library: library, player: player, playlists: playlists, history: history,
                         // A filtered list's rows aren't the playlist's positions.
                         editablePlaylist: page?.editable == true && filter.isEmpty ? uri : nil
                     )
@@ -559,13 +560,13 @@ private struct PageActions<Extra: View>: View {
         HStack(spacing: Theme.s4) {
             Group {
                 PlayFab(label: "Play", large: true) {
-                    player?.play(uris, from: 0, context: context)
+                    player?.play(uris, from: 0, context: context, inContextOrder: true)
                 }
                 // The now-playing bar has its own Play and Shuffle buttons.
                 .accessibilityIdentifier("pagePlay")
                 IconButton(label: "Shuffle", systemImage: "shuffle") {
                     player?.setShuffle(true)
-                    player?.play(uris, from: Int.random(in: uris.indices), context: context)
+                    player?.play(uris, from: Int.random(in: uris.indices), context: context, inContextOrder: true)
                 }
                 .accessibilityIdentifier("pageShuffle")
             }
@@ -651,7 +652,7 @@ private struct TopTracks: View {
             if case let .track(track) = library.metadata[uri] { track.playability == .playable } else { true }
         }
         if let start = playable.firstIndex(of: uris[index]) {
-            player?.play(playable, from: start, context: context)
+            player?.play(playable, from: start, context: context, inContextOrder: true)
         }
     }
 }

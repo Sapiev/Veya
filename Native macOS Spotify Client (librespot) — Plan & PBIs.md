@@ -448,11 +448,12 @@ veya/
 
 **Priority:** Could · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-**Status:** In progress (merged to develop) - `HomeView` shows the `HomeModel` sections as card rows, hides empty ones, and asks accounts without `user-read-recently-played` to sign in again (`HomeModel.recentlyPlayedNeedsSignIn`); `HomeUITests`.
+**Status:** In review (feat/home-recents-and-launch-restore) - `HomeView` shows the `HomeModel` sections as card rows, hides empty ones, and asks accounts without `user-read-recently-played` to sign in again (`HomeModel.recentlyPlayedNeedsSignIn`); `HomeUITests`.
 
 - [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account. ("Made for you" is the Spotify-owned playlists in the root list because the Web API closed its browse endpoints to new apps; `HomeView` and `HomeUITests` written, Swift not compiled or run: written in a Linux container)
 - [x] Artist and track radio via librespot's `get_radio_for_track`.
 - [ ] Sections that cannot be fetched are hidden, not shown empty. (`HomeView` hides empty sections and shows a sign-in-again note for `MissingScope`; `HomeUITests`, Swift not compiled or run: written in a Linux container)
+- [ ] Jump Back In lists up to 50 recent contexts from spclient `recently-played/v3`, falling back to the Web API's contexts when it fails or is empty. (`HomeService.recent_contexts`, `HomeModelTests`, `HomeUITests/testJumpBackInShowsEveryRecentContext` pass; endpoint shape not yet checked against a live account)
 
 #### PBI-308 · Persistent metadata cache
 
@@ -580,12 +581,14 @@ veya/
 **Story:** As a user, I want my Mac to show up in the Spotify app on my phone so that I can start music on it remotely.
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M3 · **Depends on:** PBI-103, PBI-203
-**Status:** In progress (merged to develop) - ADR-009 hybrid: `SpotConnect` runs `Spirc` on a second session for the signed-in account beside the local player.
+**Status:** In review (feat/home-recents-and-launch-restore) - ADR-009 hybrid: `SpotConnect` runs `Spirc` on a second session for the signed-in account beside the local player.
 
 - [x] `spotcore` runs librespot-connect's `Spirc` with the signed-in session; device name defaults to the Mac's name (editable in Settings).
 - [ ] Remote play, pause, seek, skip, volume and queue changes from the phone are reflected in the app UI within 1 s. (Player events, volume and cluster queue updates are wired and unit tested; not yet checked with a real phone.)
 - [ ] Local actions update the remote device's view of the queue and position. (Transport, load, shuffle, repeat, volume and add to queue route to Spirc in Connect mode; play next, remove, reorder and clear return `ConnectQueueEdit` until a `set_queue` command lands; not yet checked with a real phone.)
 - [x] Optional zeroconf discovery on the LAN (Settings toggle, off by default) using mDNS.
+- [ ] Lists played in a context's own order load as that context, so Spotify history records the playlist or album. (`list_context` unit tested; not yet checked with a real account)
+- [ ] At launch, unless another device is playing, the account's last playback loads paused: a paused active device's `/me/player` item, context and position; with no other active device, the newer of this Mac's own saved playback (track, context, position, saved on track change, pause, every 5 s and quit) and the newest recently played track at 0:00; once per app launch, never over something the user already played here. Needs the `user-read-playback-state` scope (reconnect the Web API in Settings). (`restore_plan`, `newest`, `SavedPlayback::validated`, `current_playback_from`, `last_play_at` unit tested, `PlayerModelTests/localPlaybackIsSavedForTheNextLaunch`, `restoreGetsTheSavedPlayback`, `NowPlayingUITests/testLaunchShowsTheRestoredTrackPaused`; not yet checked with a real phone)
 
 #### PBI-502 · Device picker and transfer playback
 

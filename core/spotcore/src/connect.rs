@@ -9,18 +9,23 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use http::header::{CONTENT_TYPE, HeaderValue};
 use http::{HeaderMap, Method};
-use librespot_connect::{ConnectConfig, Spirc};
+use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
 use librespot_core::config::DeviceType;
 use librespot_core::dealer::manager::BoxedStreamResult;
 use librespot_core::dealer::protocol::Message;
 use librespot_core::{Session, SessionConfig};
 use librespot_discovery::Discovery;
 use librespot_protocol::connect::ClusterUpdate;
-use log::{info, warn};
+use log::{debug, info, warn};
 use tokio::sync::{mpsc, watch};
 
 use crate::devices::{ConnectDevice, ConnectError, DeviceList, TransferPort};
-use crate::player::{Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, playable};
+use crate::home::{
+    CurrentPlayback, HomeError, LastPlay, canonical, current_playback, is_playable_item, last_play,
+};
+use crate::player::{
+    Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, is_spotify_context, playable,
+};
 use crate::queue::RepeatMode;
 use crate::reconnect::{Connector, Link, Supervisor};
 use crate::remote::{
@@ -89,6 +94,139 @@ fn queue_snapshot(update: &ClusterUpdate, autoplay: bool) -> QueueSnapshot {
             RepeatMode::Off
         },
         autoplay,
+    }
+}
+
+/// The account's last playback, to load paused on this Mac at launch.
+#[derive(Debug, PartialEq)]
+struct Resume {
+    context: Option<String>,
+    track: String,
+    position_ms: u32,
+}
+
+impl Resume {
+    fn into_load(self) -> LoadRequest {
+        // A track list loads under Spirc's `spotify:web-api` context, whose
+        // autoplay request spclient rejects with 400; the item is its own context.
+        let context = self.context.unwrap_or_else(|| self.track.clone());
+        LoadRequest::from_context_uri(
+            context,
+            LoadRequestOptions {
+                start_playing: false,
+                seek_to: self.position_ms,
+                playing_track: Some(PlayingTrack::Uri(self.track)),
+                ..Default::default()
+            },
+        )
+    }
+}
+
+/// This Mac's own last playback, which the app saves as it plays. Read
+/// back from disk, so untrusted.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct SavedPlayback {
+    pub track_uri: String,
+    pub context_uri: Option<String>,
+    pub position_ms: u32,
+    /// Unix time in milliseconds.
+    pub saved_at_ms: i64,
+}
+
+/// A restore candidate and when it was played, in Unix milliseconds.
+#[derive(Debug, PartialEq)]
+struct Played {
+    resume: Resume,
+    at_ms: i64,
+}
+
+impl SavedPlayback {
+    fn validated(self) -> Option<Played> {
+        let track = canonical(&self.track_uri, is_playable_item)?;
+        let context = self
+            .context_uri
+            .and_then(|uri| canonical(&uri, is_spotify_context));
+        Some(Played {
+            resume: Resume {
+                context,
+                track,
+                position_ms: self.position_ms,
+            },
+            at_ms: self.saved_at_ms,
+        })
+    }
+}
+
+impl From<LastPlay> for Played {
+    fn from(play: LastPlay) -> Self {
+        Self {
+            resume: Resume {
+                context: play.context,
+                track: play.track,
+                position_ms: 0,
+            },
+            at_ms: play.played_at_ms,
+        }
+    }
+}
+
+/// What a launch restore loads, decided from `GET /me/player`.
+#[derive(Debug, PartialEq)]
+enum RestorePlan {
+    Skip,
+    Load(Resume),
+    /// No other device is active: the newer of this Mac's saved playback
+    /// and the account's last recorded play.
+    Newest,
+}
+
+/// Nothing is restored over playback on another device; a paused one gives
+/// its item. A `this_id` entry is stale, as this device just started.
+fn restore_plan(playback: Option<CurrentPlayback>, this_id: &str) -> RestorePlan {
+    let Some(playback) = playback else {
+        return RestorePlan::Newest;
+    };
+    match playback.device_id.as_deref() {
+        Some(id) if id != this_id => match (playback.is_playing, playback.item) {
+            (true, _) => RestorePlan::Skip,
+            (false, Some(track)) => RestorePlan::Load(Resume {
+                context: playback.context,
+                track,
+                position_ms: playback.progress_ms,
+            }),
+            (false, None) => RestorePlan::Newest,
+        },
+        None if playback.is_playing => RestorePlan::Skip,
+        _ => RestorePlan::Newest,
+    }
+}
+
+/// A tie goes to the saved playback, which keeps its position.
+fn newest(saved: Option<Played>, recent: Option<Played>) -> Option<Resume> {
+    match (saved, recent) {
+        (Some(saved), Some(recent)) if recent.at_ms > saved.at_ms => Some(recent.resume),
+        (saved, recent) => saved.or(recent).map(|played| played.resume),
+    }
+}
+
+async fn launch_resume(
+    access_token: &str,
+    this_id: &str,
+    saved: Option<SavedPlayback>,
+) -> Result<Option<Resume>, HomeError> {
+    match restore_plan(current_playback(access_token).await?, this_id) {
+        RestorePlan::Skip => Ok(None),
+        RestorePlan::Load(resume) => Ok(Some(resume)),
+        RestorePlan::Newest => {
+            let recent = last_play(access_token).await.unwrap_or_else(|e| {
+                warn!("cannot read recently played for the restore: {e}");
+                None
+            });
+            Ok(newest(
+                saved.and_then(SavedPlayback::validated),
+                recent.map(Played::from),
+            ))
+        }
     }
 }
 
@@ -329,6 +467,12 @@ async fn follow_cluster(
                 continue;
             }
         };
+        debug!(
+            "cluster update: active device {}, track {}, transfer data {} bytes",
+            !update.cluster.active_device_id.is_empty(),
+            !update.cluster.player_state.track.uri.is_empty(),
+            update.cluster.transfer_data.len()
+        );
         let queue_changed = {
             let mut queue = lock(&queue);
             let snapshot = Some(queue_snapshot(&update, false));
@@ -452,6 +596,8 @@ pub struct SpotConnect {
     outbox: mpsc::UnboundedSender<Outgoing>,
     /// Dropping it stops zeroconf.
     _zeroconf: Option<watch::Sender<bool>>,
+    /// Set by the first `restore_last_playback`.
+    restore_spent: AtomicBool,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -505,11 +651,41 @@ impl SpotConnect {
             player: Arc::clone(&player),
             outbox: start_outbox(),
             _zeroconf: zeroconf,
+            restore_spent: AtomicBool::new(false),
         });
         player.attach_connect(Arc::downgrade(&this));
         let follower: Weak<dyn ConnectivityFollower> = Arc::downgrade(&this) as _;
         session.set_follower(follower);
         Ok(this)
+    }
+
+    /// Loads the account's last playback paused, unless another device plays
+    /// or the user played something here. `access_token` is a Web API token
+    /// with `user-read-playback-state`; `saved` is this Mac's own last
+    /// playback. Runs once per instance; later calls, and reconnects, do nothing.
+    pub async fn restore_last_playback(&self, access_token: String, saved: Option<SavedPlayback>) {
+        if self.restore_spent.swap(true, SeqCst) {
+            return;
+        }
+        let this_id = self
+            .supervisor
+            .current_link()
+            .session
+            .device_id()
+            .to_owned();
+        let resume = match launch_resume(&access_token, &this_id, saved).await {
+            Ok(Some(resume)) => resume,
+            Ok(None) => return info!("no playback to restore"),
+            Err(e) => return warn!("cannot restore the last playback: {e}"),
+        };
+        if self.player.is_untouched() {
+            info!("restoring the last playback, paused");
+            // Spirc ignores a load until it is the active device.
+            self.spirc(|s| {
+                s.activate()?;
+                s.load(resume.into_load())
+            });
+        }
     }
 
     /// Hands the sink back to the local player and returns once the device
@@ -973,6 +1149,134 @@ mod tests {
                 autoplay: true,
             }
         );
+    }
+
+    const LAST_TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQA";
+    const LAST_PLAYLIST: &str = "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M";
+
+    fn playback(device: Option<&str>, is_playing: bool, item: Option<&str>) -> CurrentPlayback {
+        CurrentPlayback {
+            device_id: device.map(str::to_owned),
+            is_playing,
+            item: item.map(str::to_owned),
+            context: Some(LAST_PLAYLIST.to_owned()),
+            progress_ms: 95_000,
+        }
+    }
+
+    fn resume(track: &str, context: Option<&str>, position_ms: u32) -> Resume {
+        Resume {
+            context: context.map(str::to_owned),
+            track: track.to_owned(),
+            position_ms,
+        }
+    }
+
+    #[test]
+    fn restore_plan_skips_playback_on_another_device() {
+        let plan = |p| restore_plan(Some(p), "mac");
+        assert_eq!(
+            plan(playback(Some("phone"), true, Some(LAST_TRACK))),
+            RestorePlan::Skip
+        );
+        assert_eq!(
+            plan(playback(None, true, Some(LAST_TRACK))),
+            RestorePlan::Skip
+        );
+        assert_eq!(plan(playback(Some("phone"), true, None)), RestorePlan::Skip);
+    }
+
+    #[test]
+    fn restore_plan_resumes_the_item_of_a_paused_active_device() {
+        let plan = restore_plan(
+            Some(playback(Some("phone"), false, Some(LAST_TRACK))),
+            "mac",
+        );
+        assert_eq!(
+            plan,
+            RestorePlan::Load(resume(LAST_TRACK, Some(LAST_PLAYLIST), 95_000))
+        );
+    }
+
+    #[test]
+    fn restore_plan_without_another_active_device_takes_the_newest() {
+        assert_eq!(restore_plan(None, "mac"), RestorePlan::Newest);
+        for (device, playing, item) in [
+            (Some("phone"), false, None),
+            (None, false, Some(LAST_TRACK)),
+            (Some("mac"), true, Some(LAST_TRACK)),
+        ] {
+            let plan = restore_plan(Some(playback(device, playing, item)), "mac");
+            assert_eq!(plan, RestorePlan::Newest, "{device:?} {playing}");
+        }
+    }
+
+    const OTHER_TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQB";
+
+    fn saved(track: &str, context: Option<&str>, at_ms: i64) -> SavedPlayback {
+        SavedPlayback {
+            track_uri: track.to_owned(),
+            context_uri: context.map(str::to_owned),
+            position_ms: 30_000,
+            saved_at_ms: at_ms,
+        }
+    }
+
+    fn recent(at_ms: i64) -> Option<Played> {
+        Some(Played {
+            resume: resume(OTHER_TRACK, None, 0),
+            at_ms,
+        })
+    }
+
+    #[test]
+    fn newest_prefers_the_later_of_saved_and_recently_played() {
+        let mine = || saved(LAST_TRACK, Some(LAST_PLAYLIST), 2_000).validated();
+        let saved_resume = Some(resume(LAST_TRACK, Some(LAST_PLAYLIST), 30_000));
+        assert_eq!(newest(mine(), recent(1_000)), saved_resume, "saved newer");
+        assert_eq!(
+            newest(mine(), recent(2_000)),
+            saved_resume,
+            "a tie keeps saved"
+        );
+        assert_eq!(
+            newest(mine(), recent(3_000)),
+            Some(resume(OTHER_TRACK, None, 0)),
+            "recently played newer"
+        );
+        assert_eq!(newest(mine(), None), saved_resume);
+        assert_eq!(newest(None, recent(1)), Some(resume(OTHER_TRACK, None, 0)));
+        assert_eq!(newest(None, None), None);
+    }
+
+    #[test]
+    fn saved_playback_from_disk_is_validated() {
+        for bad in [
+            "",
+            "spotify:track:bad id",
+            LAST_PLAYLIST,
+            "spotify:local:a:b:c:1",
+        ] {
+            assert_eq!(saved(bad, None, 0).validated(), None, "{bad}");
+        }
+        let odd_context = saved(LAST_TRACK, Some("spotify:user:me:collection"), 5).validated();
+        assert_eq!(
+            odd_context,
+            Some(Played {
+                resume: resume(LAST_TRACK, None, 30_000),
+                at_ms: 5
+            })
+        );
+        let episode = "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk";
+        assert!(saved(episode, None, 0).validated().is_some());
+    }
+
+    #[test]
+    fn a_resume_without_a_context_loads_its_item_as_the_context() {
+        let load = resume(LAST_TRACK, None, 7).into_load();
+        let debug = format!("{load:?}");
+        assert!(debug.contains(&format!("Uri(\"{LAST_TRACK}\")")), "{debug}");
+        assert!(!debug.contains("Tracks"), "{debug}");
     }
 
     #[test]
