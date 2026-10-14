@@ -448,7 +448,7 @@ veya/
 
 **Priority:** Could · **Estimate:** 5 · **Milestone:** M3 · **Depends on:** PBI-303, PBI-304
 
-**Status:** In review (feat/home-recents-and-launch-restore) - `HomeView` shows the `HomeModel` sections as card rows, hides empty ones, and asks accounts without `user-read-recently-played` to sign in again (`HomeModel.recentlyPlayedNeedsSignIn`); `HomeUITests`.
+**Status:** In progress (merged to develop) - `HomeView` shows the `HomeModel` sections as card rows, hides empty ones, and asks accounts without `user-read-recently-played` to sign in again (`HomeModel.recentlyPlayedNeedsSignIn`); `HomeUITests`.
 
 - [ ] Home shows Recently Played, Jump Back In (recent contexts) and "Made for you" playlists available to the account. ("Made for you" is the Spotify-owned playlists in the root list because the Web API closed its browse endpoints to new apps; `HomeView` and `HomeUITests` written, Swift not compiled or run: written in a Linux container)
 - [x] Artist and track radio via librespot's `get_radio_for_track`.
@@ -581,7 +581,7 @@ veya/
 **Story:** As a user, I want my Mac to show up in the Spotify app on my phone so that I can start music on it remotely.
 
 **Priority:** Must · **Estimate:** 8 · **Milestone:** M3 · **Depends on:** PBI-103, PBI-203
-**Status:** In review (feat/home-recents-and-launch-restore) - ADR-009 hybrid: `SpotConnect` runs `Spirc` on a second session for the signed-in account beside the local player.
+**Status:** In progress (merged to develop) - ADR-009 hybrid: `SpotConnect` runs `Spirc` on a second session for the signed-in account beside the local player.
 
 - [x] `spotcore` runs librespot-connect's `Spirc` with the signed-in session; device name defaults to the Mac's name (editable in Settings).
 - [ ] Remote play, pause, seek, skip, volume and queue changes from the phone are reflected in the app UI within 1 s. (Player events, volume and cluster queue updates are wired and unit tested; not yet checked with a real phone.)
