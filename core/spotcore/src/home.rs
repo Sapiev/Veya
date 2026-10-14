@@ -1,15 +1,19 @@
-//! Home page sources: recently played from the Web API (librespot has no
-//! endpoint for it) and track or artist radio through spclient.
+//! Home page sources: recently played tracks from the Web API, recent
+//! contexts and track or artist radio through spclient.
 
 use std::sync::Arc;
 
+use http::Method;
 use librespot_core::SpotifyUri;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
 
 use crate::account::web_api_client;
+use crate::player::is_spotify_context;
 use crate::session::SpotSession;
 
 const RECENTLY_PLAYED_URL: &str = "https://api.spotify.com/v1/me/player/recently-played";
+const PLAYER_URL: &str = "https://api.spotify.com/v1/me/player";
 /// The Web API's maximum page size for recently played.
 const RECENTLY_PLAYED_LIMIT: u32 = 50;
 
@@ -63,6 +67,7 @@ struct History {
 struct Play {
     track: Option<UriOnly>,
     context: Option<UriOnly>,
+    played_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -77,9 +82,60 @@ pub async fn recently_played(access_token: String) -> Result<RecentlyPlayed, Hom
 }
 
 async fn recently_played_at(url: &str, access_token: &str) -> Result<RecentlyPlayed, HomeError> {
+    Ok(distinct_plays(history_at(url, access_token).await?))
+}
+
+/// The newest recorded play with a valid track.
+#[derive(Debug, PartialEq)]
+pub(crate) struct LastPlay {
+    pub track: String,
+    /// Only a playable context.
+    pub context: Option<String>,
+    /// Unix milliseconds; `i64::MIN` when the server sent none or garbage.
+    pub played_at_ms: i64,
+}
+
+pub(crate) async fn last_play(access_token: &str) -> Result<Option<LastPlay>, HomeError> {
+    last_play_at(RECENTLY_PLAYED_URL, access_token).await
+}
+
+async fn last_play_at(url: &str, access_token: &str) -> Result<Option<LastPlay>, HomeError> {
+    let plays = history_at(url, access_token).await?;
+    Ok(plays.into_iter().find_map(|play| {
+        Some(LastPlay {
+            track: canonical(&play.track?.uri, is_track)?,
+            context: play
+                .context
+                .and_then(|c| canonical(&c.uri, is_spotify_context)),
+            played_at_ms: play
+                .played_at
+                .as_deref()
+                .and_then(unix_ms)
+                .unwrap_or(i64::MIN),
+        })
+    }))
+}
+
+fn unix_ms(rfc3339: &str) -> Option<i64> {
+    let at = time::OffsetDateTime::parse(rfc3339, &time::format_description::well_known::Rfc3339)
+        .ok()?;
+    i64::try_from(at.unix_timestamp_nanos() / 1_000_000).ok()
+}
+
+async fn history_at(url: &str, access_token: &str) -> Result<Vec<Play>, HomeError> {
+    let body = web_api_get(
+        &format!("{url}?limit={RECENTLY_PLAYED_LIMIT}"),
+        access_token,
+    )
+    .await?;
+    let history: History = serde_json::from_slice(&body)?;
+    Ok(history.items)
+}
+
+async fn web_api_get(url: &str, access_token: &str) -> Result<Vec<u8>, HomeError> {
     let http = web_api_client().map_err(network)?;
     let response = http
-        .get(format!("{url}?limit={RECENTLY_PLAYED_LIMIT}"))
+        .get(url)
         .bearer_auth(access_token)
         .send()
         .await
@@ -89,9 +145,77 @@ async fn recently_played_at(url: &str, access_token: &str) -> Result<RecentlyPla
         403 => return Err(HomeError::MissingScope),
         status => return Err(HomeError::Request { status }),
     }
-    let body = response.bytes().await.map_err(network)?;
-    let history: History = serde_json::from_slice(&body)?;
-    Ok(distinct_plays(history.items))
+    Ok(response.bytes().await.map_err(network)?.to_vec())
+}
+
+/// The account's playback state per `GET /me/player`, validated.
+#[derive(Debug, PartialEq)]
+pub(crate) struct CurrentPlayback {
+    pub device_id: Option<String>,
+    pub is_playing: bool,
+    /// A track or episode.
+    pub item: Option<String>,
+    pub context: Option<String>,
+    /// Within the item's duration.
+    pub progress_ms: u32,
+}
+
+#[derive(Deserialize)]
+struct PlayerJson {
+    device: Option<DeviceJson>,
+    #[serde(default)]
+    is_playing: bool,
+    progress_ms: Option<i64>,
+    item: Option<ItemJson>,
+    context: Option<UriOnly>,
+}
+
+#[derive(Deserialize)]
+struct DeviceJson {
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ItemJson {
+    uri: Option<String>,
+    duration_ms: Option<i64>,
+}
+
+/// Needs the `user-read-playback-state` scope; `None` when the account has no
+/// playback session.
+pub(crate) async fn current_playback(
+    access_token: &str,
+) -> Result<Option<CurrentPlayback>, HomeError> {
+    current_playback_from(&web_api_get(PLAYER_URL, access_token).await?)
+}
+
+/// Server text is untrusted: URIs must parse as the expected kinds, and the
+/// progress is clamped to the item.
+fn current_playback_from(body: &[u8]) -> Result<Option<CurrentPlayback>, HomeError> {
+    // 204 No Content: no playback session.
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(None);
+    }
+    let json: PlayerJson = serde_json::from_slice(body)?;
+    let item = json
+        .item
+        .as_ref()
+        .and_then(|item| canonical(item.uri.as_deref()?, is_playable_item));
+    let end = json
+        .item
+        .and_then(|item| item.duration_ms)
+        .filter(|&ms| ms > 0)
+        .unwrap_or(i64::from(u32::MAX));
+    let progress_ms = json.progress_ms.unwrap_or(0).clamp(0, end);
+    Ok(Some(CurrentPlayback {
+        device_id: json.device.and_then(|d| d.id).filter(|id| !id.is_empty()),
+        is_playing: json.is_playing,
+        item,
+        context: json
+            .context
+            .and_then(|c| canonical(&c.uri, is_spotify_context)),
+        progress_ms: u32::try_from(progress_ms).unwrap_or(u32::MAX),
+    }))
 }
 
 /// Server text is untrusted: only URIs that parse as the expected kinds pass.
@@ -107,7 +231,8 @@ fn distinct_plays(plays: Vec<Play>) -> RecentlyPlayed {
         );
         push_new(
             &mut recent.contexts,
-            play.context.and_then(|c| canonical(&c.uri, is_context)),
+            play.context
+                .and_then(|c| canonical(&c.uri, is_spotify_context)),
         );
     }
     recent
@@ -119,7 +244,7 @@ fn push_new(list: &mut Vec<String>, uri: Option<String>) {
     }
 }
 
-fn canonical(uri: &str, accept: fn(&SpotifyUri) -> bool) -> Option<String> {
+pub(crate) fn canonical(uri: &str, accept: fn(&SpotifyUri) -> bool) -> Option<String> {
     let parsed = SpotifyUri::from_uri(uri).ok().filter(accept)?;
     parsed.to_uri().ok()
 }
@@ -128,14 +253,8 @@ fn is_track(uri: &SpotifyUri) -> bool {
     matches!(uri, SpotifyUri::Track { .. })
 }
 
-fn is_context(uri: &SpotifyUri) -> bool {
-    matches!(
-        uri,
-        SpotifyUri::Album { .. }
-            | SpotifyUri::Artist { .. }
-            | SpotifyUri::Playlist { .. }
-            | SpotifyUri::Show { .. }
-    )
+pub(crate) fn is_playable_item(uri: &SpotifyUri) -> bool {
+    matches!(uri, SpotifyUri::Track { .. } | SpotifyUri::Episode { .. })
 }
 
 fn is_radio_seed(uri: &SpotifyUri) -> bool {
@@ -146,6 +265,14 @@ fn is_radio_seed(uri: &SpotifyUri) -> bool {
 #[serde(rename_all = "camelCase")]
 struct Radio {
     media_items: Vec<UriOnly>,
+}
+
+/// spclient's recently played contexts, newest first.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayContexts {
+    #[serde(default)]
+    play_contexts: Vec<UriOnly>,
 }
 
 #[derive(uniffi::Object)]
@@ -177,6 +304,31 @@ impl HomeService {
             .await?;
         radio_playlist(&body)
     }
+
+    /// Distinct albums, playlists, artists and shows played from, newest
+    /// first. Unlike the Web API's last 50 tracks, this spans many contexts.
+    pub async fn recent_contexts(&self) -> Result<Vec<String>, HomeError> {
+        let session = self.session.current_session();
+        let user = utf8_percent_encode(&session.username(), NON_ALPHANUMERIC).to_string();
+        let endpoint = format!(
+            "/recently-played/v3/user/{user}/recently-played?format=json&offset=0&limit=50&filter=default,collection-new-episodes&market=from_token"
+        );
+        let body = session
+            .spclient()
+            .request_as_json(&Method::GET, &endpoint, None, None)
+            .await?;
+        recent_contexts(&body)
+    }
+}
+
+/// Server text is untrusted: only URIs that parse as contexts pass.
+fn recent_contexts(body: &[u8]) -> Result<Vec<String>, HomeError> {
+    let history: PlayContexts = serde_json::from_slice(body)?;
+    let mut contexts = Vec::new();
+    for context in history.play_contexts {
+        push_new(&mut contexts, canonical(&context.uri, is_spotify_context));
+    }
+    Ok(contexts)
 }
 
 fn radio_playlist(body: &[u8]) -> Result<String, HomeError> {
@@ -259,6 +411,138 @@ mod tests {
         drop(listener);
         let error = recently_played_at(&base, "at").await.unwrap_err();
         assert!(matches!(error, HomeError::Network { .. }), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn last_play_is_the_newest_valid_track_with_its_context() {
+        let items = [
+            play("spotify:track:bad id", Some(LIST)),
+            play(T2, Some("spotify:user:me:collection")),
+            play(T1, Some(ALBUM)),
+        ];
+        let body = format!(r#"{{"items":[{}]}}"#, items.join(","));
+        let (base, _server) = fake_web_api(vec![("200 OK", body)]).await;
+        assert_eq!(
+            last_play_at(&base, "at").await.unwrap(),
+            Some(LastPlay {
+                track: T2.to_owned(),
+                context: None,
+                played_at_ms: 1_791_540_000_000,
+            })
+        );
+        let undated = r#"{"items":[{"track":{"uri":"spotify:track:4uLU6hMCjMI75M1A2tKUQC"},"played_at":"yesterday"}]}"#;
+        let (base, _server) = fake_web_api(vec![("200 OK", undated.to_owned())]).await;
+        let play = last_play_at(&base, "at").await.unwrap().unwrap();
+        assert_eq!(play.played_at_ms, i64::MIN);
+
+        let (base, _server) = fake_web_api(vec![("200 OK", r#"{"items":[]}"#.to_owned())]).await;
+        assert_eq!(last_play_at(&base, "at").await.unwrap(), None);
+    }
+
+    #[test]
+    fn current_playback_of_no_session_is_none() {
+        assert_eq!(current_playback_from(b"").unwrap(), None);
+        assert_eq!(current_playback_from(b" \n").unwrap(), None);
+    }
+
+    #[test]
+    fn current_playback_reads_playing_and_paused_state() {
+        let body = |playing: bool, progress: i64| {
+            format!(
+                r#"{{"device":{{"id":"phone","name":"n"}},"is_playing":{playing},"progress_ms":{progress},"item":{{"uri":"{T1}","duration_ms":200000,"type":"track"}},"context":{{"uri":"{LIST}","type":"playlist"}},"currently_playing_type":"track"}}"#
+            )
+        };
+        let read = |body: String| current_playback_from(body.as_bytes()).unwrap().unwrap();
+        assert_eq!(
+            read(body(true, 95_000)),
+            CurrentPlayback {
+                device_id: Some("phone".to_owned()),
+                is_playing: true,
+                item: Some(T1.to_owned()),
+                context: Some(LIST.to_owned()),
+                progress_ms: 95_000,
+            }
+        );
+        let paused = read(body(false, 900_000));
+        assert!(!paused.is_playing);
+        assert_eq!(paused.progress_ms, 200_000, "clamped to the item");
+        assert_eq!(read(body(false, -5)).progress_ms, 0);
+    }
+
+    #[test]
+    fn current_playback_drops_invalid_uris_and_tolerates_missing_fields() {
+        let body = format!(
+            r#"{{"device":{{"id":null}},"item":{{"uri":"spotify:local:a:b:c:1"}},"context":{{"uri":"{T1}"}}}}"#
+        );
+        let playback = current_playback_from(body.as_bytes()).unwrap().unwrap();
+        assert_eq!(
+            playback,
+            CurrentPlayback {
+                device_id: None,
+                is_playing: false,
+                item: None,
+                context: None,
+                progress_ms: 0,
+            }
+        );
+        let episode = r#"{"item":{"uri":"spotify:episode:4rOoJ6Egrf8K2IrywzwOMk"},"item_extra":1}"#;
+        let item = current_playback_from(episode.as_bytes())
+            .unwrap()
+            .unwrap()
+            .item;
+        assert_eq!(
+            item.as_deref(),
+            Some("spotify:episode:4rOoJ6Egrf8K2IrywzwOMk")
+        );
+        let bad = r#"{"item":{"uri":"spotify:track:bad id"},"context":null}"#;
+        assert_eq!(
+            current_playback_from(bad.as_bytes()).unwrap().unwrap().item,
+            None
+        );
+    }
+
+    #[test]
+    fn current_playback_malformed_json_is_malformed() {
+        for body in ["<html>", r#"{"is_playing":"yes"}"#, "[]"] {
+            let error = current_playback_from(body.as_bytes()).unwrap_err();
+            assert!(matches!(error, HomeError::Malformed { .. }), "{body}");
+        }
+    }
+
+    #[test]
+    fn recent_contexts_dedupe_in_order_and_drop_unsupported() {
+        let body = format!(
+            r#"{{"playContexts":[
+                {{"uri":"{LIST}","lastPlayedTime":3,"lastPlayedTrackUri":"{T1}"}},
+                {{"uri":"{ALBUM}","lastPlayedTime":2}},
+                {{"uri":"{LIST}","lastPlayedTime":1}},
+                {{"uri":"spotify:user:me:collection"}},
+                {{"uri":"spotify:collection"}},
+                {{"uri":"{T2}"}},
+                {{"uri":"garbage"}},
+                {{"uri":"spotify:artist:0OdUWJ0sBjDrqHygGUXeCF"}}
+            ],"extra":true}}"#
+        );
+
+        let contexts = recent_contexts(body.as_bytes()).unwrap();
+
+        assert_eq!(
+            contexts,
+            [LIST, ALBUM, "spotify:artist:0OdUWJ0sBjDrqHygGUXeCF"]
+        );
+    }
+
+    #[test]
+    fn recent_contexts_without_the_field_are_empty() {
+        assert!(recent_contexts(b"{}").unwrap().is_empty());
+    }
+
+    #[test]
+    fn recent_contexts_malformed_json_is_malformed() {
+        for body in ["not json", r#"{"playContexts":{}}"#] {
+            let error = recent_contexts(body.as_bytes()).unwrap_err();
+            assert!(matches!(error, HomeError::Malformed { .. }), "{body}");
+        }
     }
 
     #[test]

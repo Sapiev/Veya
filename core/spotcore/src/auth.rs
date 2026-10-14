@@ -33,10 +33,11 @@ const CALLBACK_PATH: &str = "/login";
 
 /// Minimum for streaming, library and playlist read/write; user-read-private
 /// carries the product and country checked at sign-in.
-const SCOPES: [&str; 10] = [
+const SCOPES: [&str; 11] = [
     "streaming",
     "user-read-private",
     "user-read-playback-position",
+    "user-read-playback-state",
     "user-read-recently-played",
     "user-library-read",
     "user-library-modify",

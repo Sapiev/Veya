@@ -115,6 +115,10 @@ public final class PlayerModel {
     /// Restarts run in order, so the last name and zeroconf choice win.
     @ObservationIgnored private(set) var connectStart: Task<Void, Never>?
     @ObservationIgnored private var connectDevice: (any SpotConnectProtocol)?
+    /// When `settings.lastPlayback` was last written.
+    @ObservationIgnored private var lastSaved = Date.distantPast
+    /// The Web API token for the launch restore, which the first Connect device runs.
+    @ObservationIgnored private var restoreToken: (@Sendable () async throws -> String)?
 
     private struct Applied: Equatable {
         var volume: UInt16
@@ -134,11 +138,13 @@ public final class PlayerModel {
         metadata: any MetadataServiceProtocol,
         settings: PlaybackSettings,
         startConnect: ConnectStarter? = nil,
+        restoreToken: (@Sendable () async throws -> String)? = nil,
         clock: @escaping () -> Date = Date.init,
         log: @escaping PlayerLog = { logMessage(level: $0, category: "player", message: $1) }
     ) {
         self.player = player
         self.startConnect = startConnect
+        self.restoreToken = restoreToken
         self.engine = engine
         self.metadata = metadata
         self.settings = settings
@@ -178,10 +184,12 @@ public final class PlayerModel {
     }
 
     /// Creates the session's player and applies its events until the model is released.
+    /// `restoreToken` is the Web API token behind the launch restore.
     public static func start(
         session: any SessionHandle,
         metadata: any MetadataServiceProtocol,
-        settings: PlaybackSettings
+        settings: PlaybackSettings,
+        restoreToken: (@Sendable () async throws -> String)? = nil
     ) async throws -> PlayerModel {
         let (stream, continuation) = AsyncStream.makeStream(of: PlaybackEvent.self)
         let connection = try await session.makePlayer(observer: PlaybackEventRelay(continuation), settings: settings)
@@ -190,7 +198,8 @@ public final class PlayerModel {
             engine: connection.engine,
             metadata: metadata,
             settings: settings,
-            startConnect: connection.startConnect
+            startConnect: connection.startConnect,
+            restoreToken: restoreToken
         )
         model.events = Task { [weak model] in
             for await event in stream {
@@ -226,11 +235,14 @@ public final class PlayerModel {
         case let .paused(_, position):
             report(position)
             isPlaying = false
+            saveLastPlayback()
         case let .position(_, position):
             report(position)
+            saveLastPlayback(throttled: true)
         case let .trackChanged(uri, name, durationMs):
             show(uri, title: name, durationMs: durationMs)
             refreshQueue()
+            saveLastPlayback()
         case .endOfTrack:
             break
         case let .unavailable(uri):
@@ -262,11 +274,15 @@ public final class PlayerModel {
     }
 
     /// Plays `uris` from `index`; `context` seeds radio once the list runs out.
-    public func play(_ uris: [String], from index: Int, context: String? = nil) {
+    /// `inContextOrder`: `uris` are `context`'s tracks in its own order, not sorted or filtered,
+    /// so Spotify can record the plays under the context.
+    public func play(_ uris: [String], from index: Int, context: String? = nil, inContextOrder: Bool = false) {
         guard uris.indices.contains(index) else { return }
         perform("play") {
             // `autoplay` here starts the track; radio after the list follows `PlaybackSettings.autoplay`.
-            try player.loadTracks(uris: uris, startIndex: UInt32(index), contextUri: context, autoplay: true)
+            try player.loadTracks(
+                uris: uris, startIndex: UInt32(index), contextUri: context, inContextOrder: inContextOrder, autoplay: true
+            )
         }
         self.context = context
         refreshQueue()
@@ -366,6 +382,7 @@ public final class PlayerModel {
     /// For sign-out and quit: stops only this Mac's playback and never
     /// commands a device it is controlling. Safe to repeat.
     public func teardown() {
+        saveLastPlayback()
         player.stopLocal()
         apply(.stopped)
     }
@@ -540,9 +557,41 @@ public final class PlayerModel {
                 guard !Task.isCancelled else { return await device.shutdown() }
                 connectDevice = device
                 hasConnect = true
+                restoreLastPlayback(on: device)
             } catch {
                 // Type name only: messages may carry server text.
                 log(.warn, "Couldn't start Spotify Connect: \(String(describing: type(of: error)))")
+            }
+        }
+    }
+
+    /// Saves this Mac's playback for the next launch's restore; Remote mode plays elsewhere.
+    /// shortcut: `context` is what Veya last started, so a remote that starts another context
+    /// here leaves it stale; read the cluster's context URI if restores land on the wrong track.
+    private func saveLastPlayback(throttled: Bool = false) {
+        guard playingOn == nil, let uri = nowPlaying?.uri, !uri.isEmpty else { return }
+        let now = clock()
+        if throttled, now.timeIntervalSince(lastSaved) < 5 { return }
+        lastSaved = now
+        settings.lastPlayback = SavedPlayback(
+            trackUri: uri,
+            contextUri: context,
+            positionMs: position(at: now),
+            savedAtMs: Int64(now.timeIntervalSince1970 * 1000)
+        )
+    }
+
+    /// Runs once, off the start task so a slow Web API holds up no restart.
+    private func restoreLastPlayback(on device: any SpotConnectProtocol) {
+        guard let token = restoreToken else { return }
+        restoreToken = nil
+        let log = log
+        Task {
+            do {
+                try await device.restoreLastPlayback(accessToken: token(), saved: settings.lastPlayback)
+            } catch {
+                // Type name only: messages may carry server text.
+                log(.info, "Skipped restoring the last playback: \(String(describing: type(of: error)))")
             }
         }
     }

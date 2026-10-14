@@ -76,6 +76,33 @@ public final class PlaybackSettings {
         didSet { defaults.set(zeroconf, forKey: Key.zeroconf) }
     }
 
+    /// This Mac's last playback, for the launch restore. One key, so each write replaces it whole.
+    public var lastPlayback: SavedPlayback? {
+        get {
+            guard let saved = defaults.dictionary(forKey: Key.lastPlayback),
+                  let track = saved["track"] as? String,
+                  let position = saved["positionMs"] as? Int,
+                  let savedAt = saved["savedAtMs"] as? Int64
+            else { return nil }
+            return SavedPlayback(
+                trackUri: track,
+                contextUri: saved["context"] as? String,
+                positionMs: UInt32(clamping: position),
+                savedAtMs: savedAt
+            )
+        }
+        set {
+            let stored = newValue.map { saved -> [String: Any] in
+                var stored: [String: Any] = [
+                    "track": saved.trackUri, "positionMs": Int(saved.positionMs), "savedAtMs": saved.savedAtMs,
+                ]
+                stored["context"] = saved.contextUri
+                return stored
+            }
+            defaults.set(stored, forKey: Key.lastPlayback)
+        }
+    }
+
     /// Folders scanned for `spotify:local:` files, in the order the user added them.
     public var localFolders: [URL] {
         folders.map(\.url)
@@ -187,6 +214,7 @@ public final class PlaybackSettings {
         static let connectDeviceName = "connect.deviceName"
         static let zeroconf = "connect.zeroconf"
         static let localFolders = "playback.localFolders"
+        static let lastPlayback = "playback.last"
     }
 }
 

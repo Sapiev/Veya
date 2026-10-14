@@ -16,10 +16,11 @@ public final class SessionScope {
     public let podcast: PodcastModel
     public private(set) var player: PlayerModel?
     @ObservationIgnored private let settings: PlaybackSettings
+    @ObservationIgnored private let accessToken: @Sendable () async throws -> String
     /// Hands the started player to the session owner, which stops it on sign out; false drops it.
     @ObservationIgnored private let attach: (PlayerModel) -> Bool
 
-    /// `accessToken` is the Web API token behind search and recently played.
+    /// `accessToken` is the Web API token behind search, recently played and the launch restore.
     public init(
         handle: any SessionHandle,
         metadataStore: MetadataStore?,
@@ -30,6 +31,7 @@ public final class SessionScope {
     ) {
         self.handle = handle
         self.settings = settings
+        self.accessToken = accessToken
         self.attach = attach
         let metadata = handle.makeMetadata(store: metadataStore)
         self.metadata = metadata
@@ -40,7 +42,8 @@ public final class SessionScope {
         home = HomeModel(
             metadata: metadata,
             playlists: playlistService,
-            recentlyPlayed: handle.makeRecentlyPlayed(accessToken: accessToken)
+            recentlyPlayed: handle.makeRecentlyPlayed(accessToken: accessToken),
+            recentContexts: handle.makeRecentContexts()
         )
         podcast = PodcastModel(metadata: metadata, progress: episodeProgress)
     }
@@ -55,7 +58,9 @@ public final class SessionScope {
 
     private func startPlayer() async {
         do {
-            let started = try await PlayerModel.start(session: handle, metadata: metadata, settings: settings)
+            let started = try await PlayerModel.start(
+                session: handle, metadata: metadata, settings: settings, restoreToken: accessToken
+            )
             if attach(started) { player = started }
         } catch {
             // Type name only: messages may carry server text.
