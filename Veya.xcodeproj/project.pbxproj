@@ -20,6 +20,7 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000131000000 /* SpotCoreKit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000160000000 /* SpotCoreKit */; };
+		000000000000000132000000 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000161000000 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				000000000000000131000000 /* SpotCoreKit in Frameworks */,
+				000000000000000132000000 /* Sparkle in Frameworks */,
 			);
 		};
 		000000000000000430000000 /* Frameworks */ = {
@@ -130,6 +132,7 @@
 			name = Veya;
 			packageProductDependencies = (
 				000000000000000160000000 /* SpotCoreKit */,
+				000000000000000161000000 /* Sparkle */,
 			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* Veya.app */;
@@ -187,6 +190,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				000000000000000300000000 /* XCLocalSwiftPackageReference "SpotCoreKit" */,
+				000000000000000310000000 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -463,11 +467,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		000000000000000310000000 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		000000000000000160000000 /* SpotCoreKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 000000000000000300000000 /* XCLocalSwiftPackageReference "SpotCoreKit" */;
 			productName = SpotCoreKit;
+		};
+		000000000000000161000000 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000310000000 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

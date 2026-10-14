@@ -23,5 +23,11 @@
 	<string>Veya.sdef</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Veya can advertise this Mac to Spotify apps on your network so they can play on it.</string>
+	<key>SUFeedURL</key>
+	<string>https://sapiev.github.io/Veya/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
 </dict>
 </plist>

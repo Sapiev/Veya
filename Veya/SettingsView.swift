@@ -20,6 +20,7 @@ struct SettingsView: View {
     let settings: PlaybackSettings
     let menuBar: MenuBarSettings
     let crashReports: CrashReports
+    let updates: Updates
     let signOut: () -> Void
     @AppStorage(Self.tabKey) private var tab = Tab.general
 
@@ -40,12 +41,20 @@ struct SettingsView: View {
             AccountSettingsTab(session: session, webAPI: webAPI, signOut: signOut)
                 .tabItem { Label("Account", systemImage: "person.crop.circle") }
                 .tag(Tab.account)
-            AdvancedSettingsTab(crashReports: crashReports)
+            AdvancedSettingsTab(crashReports: crashReports, updates: updates)
                 .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
                 .tag(Tab.advanced)
         }
-        .frame(width: 460, height: tab == .account ? 520 : 320)
+        .frame(width: 460, height: height)
         .background(HostingGroupLabel(label: String(localized: "Settings")))
+    }
+
+    private var height: CGFloat {
+        switch tab {
+        case .account: 520
+        case .advanced: 420
+        default: 320
+        }
     }
 }
 
@@ -441,6 +450,7 @@ private struct WebAPISection: View {
 
 private struct AdvancedSettingsTab: View {
     @Bindable var crashReports: CrashReports
+    let updates: Updates
     @AppStorage(Diagnostics.levelKey) private var levelName = Diagnostics.defaultLevel.storedName
 
     var body: some View {
@@ -459,6 +469,7 @@ private struct AdvancedSettingsTab: View {
                 Text("Kept on this Mac and included when you export diagnostics. Turning this off deletes them.")
             }
             .accessibilityLabel("Keep crash reports")
+            UpdatesSection(updates: updates)
         }
         .formStyle(.grouped)
     }
