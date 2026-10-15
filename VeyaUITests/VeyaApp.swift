@@ -29,14 +29,15 @@ extension XCUIApplication {
 
     /// Launches Veya against in-memory fakes; it never reaches Spotify or the Keychain.
     /// `locale` ("pl_PL") runs the app in that language and region's formats instead of the Mac's.
-    static func launch(_ scenario: Scenario, locale: String? = nil) -> XCUIApplication {
-        let app = configured(scenario, locale: locale)
+    /// `windowWidth` sizes the main window; below 900 AppKit holds it at the 900 pt minimum.
+    static func launch(_ scenario: Scenario, locale: String? = nil, windowWidth: Int = 1200) -> XCUIApplication {
+        let app = configured(scenario, locale: locale, windowWidth: windowWidth)
         app.launch()
         return app
     }
 
     /// As `launch`, for a caller that launches the app itself, such as a launch metric.
-    static func configured(_ scenario: Scenario, locale: String? = nil) -> XCUIApplication {
+    static func configured(_ scenario: Scenario, locale: String? = nil, windowWidth: Int = 1200) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["VEYA_UI_TEST_SCENARIO"] = scenario.rawValue
         if let locale, let language = locale.split(separator: "_").first {
@@ -44,7 +45,7 @@ extension XCUIApplication {
         }
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         // Tests share the app's defaults, so pin the main window over any frame a user saved; AppKit fits it to the screen.
-        app.launchArguments += ["-NSWindow Frame main", "0 0 1200 2000"]
+        app.launchArguments += ["-NSWindow Frame main", "0 0 \(windowWidth) 2000"]
         return app
     }
 

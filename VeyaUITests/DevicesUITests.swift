@@ -25,6 +25,7 @@ final class DevicesUITests: XCTestCase {
         XCTAssertEqual(device(app, "This Mac").value as? String, "Volume 100%")
         XCTAssertEqual(device(app, "Kitchen Speaker").value as? String, "Volume 50%")
         XCTAssertFalse(device(app, "Studio Mac").exists, "our own device is shown as This Mac")
+        attachScreenshot(of: app.popovers.firstMatch, named: "devices-active-tint")
     }
 
     @MainActor func testChoosingADeviceTransfersPlaybackToIt() {

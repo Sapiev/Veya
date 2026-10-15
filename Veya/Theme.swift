@@ -13,6 +13,11 @@ nonisolated enum Theme {
     static let windowButtonsWidth: CGFloat = 72
     static let panelRadius: CGFloat = 14, cardRadius: CGFloat = 8, smallRadius: CGFloat = 6
     static let playerHeight: CGFloat = 76, playerRadius: CGFloat = 22
+    /// The player bar's transport column at its narrowest: the transport buttons plus a little scrubber.
+    static let minPlayerCenter: CGFloat = 248
+    /// The narrowest page that fits the player bar's most compact layout (two 150 pt sides, the center, gaps and padding);
+    /// opening the queue hides the sidebar rather than squeeze the page below this.
+    static let minPageWidth: CGFloat = 632
 
     static let fast = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.16)
     static let standard = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.24)
