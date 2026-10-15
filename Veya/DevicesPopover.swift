@@ -146,11 +146,11 @@ private struct DeviceRow: View {
             Image(systemName: device.kind.symbol)
                 .scaledFont(size: 16)
                 .frame(width: 22)
-                .foregroundStyle(device.isActive ? Color.accentColor : .secondary)
+                .accentForeground(device.isActive, else: .secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
                     .lineLimit(1)
-                    .foregroundStyle(device.isActive ? Color.accentColor : .primary)
+                    .accentForeground(device.isActive)
                 if device.isActive {
                     Text("Playing")
                         .scaledFont(size: 10)
@@ -165,7 +165,7 @@ private struct DeviceRow: View {
                 .foregroundStyle(.secondary)
             if device.isActive {
                 Image(systemName: "checkmark")
-                    .foregroundStyle(Color.accentColor)
+                    .accentForeground()
             }
         }
         .padding(.horizontal, Theme.s2)
