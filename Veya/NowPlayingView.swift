@@ -11,9 +11,13 @@ struct NowPlayingView: View {
     let close: () -> Void
     @AppStorage("nowPlayingShowsPanes") private var showsPanes = true
     @AppStorage(Self.panesBackgroundKey) private var panesBackground = true
+    @State private var controlsShown = true
+    @State private var controlsHovered = false
+    @State private var controlsIdle = IdleTimer()
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     /// Read by the General settings tab; on by default.
     static let panesBackgroundKey = "nowPlaying.panesBackground"
@@ -54,6 +58,10 @@ struct NowPlayingView: View {
             }
             .background { backdrop(proxy.size) }
         }
+        .onContinuousHover { phase in
+            if case .active = phase { revealControls() }
+        }
+        .onAppear(perform: revealControls)
         .overlay(alignment: .topTrailing) {
             HStack(spacing: Theme.s2) {
                 let toggle: LocalizedStringKey = showsPanes ? "Hide Queue and Lyrics" : "Show Queue and Lyrics"
@@ -69,9 +77,12 @@ struct NowPlayingView: View {
                     .keyboardShortcut(.cancelAction)
                     .help("Close Now Playing")
             }
+            .onHover { controlsHovered = $0 }
+            .fades(visible: controlsVisible, reduceMotion: reduceMotion)
             .padding(.top, Theme.s3)
             .padding(.trailing, Theme.s4)
         }
+        .background(WindowButtonsFade(visible: controlsVisible, animated: !reduceMotion))
         // Asking for lyrics brings the panes back even when they were hidden last time.
         .onAppear { if tab == .lyrics { showsPanes = true } }
         .foregroundStyle(.white)
@@ -138,6 +149,8 @@ struct NowPlayingView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
+            .onHover { controlsHovered = $0 }
+            .fades(visible: controlsVisible, reduceMotion: reduceMotion)
             switch tab {
             case .queue:
                 queue
@@ -147,6 +160,16 @@ struct NowPlayingView: View {
                 LyricsPane(player: player, metadata: metadata, background: panesBackground)
             }
         }
+    }
+
+    /// VoiceOver users cannot see the pointer reveal, so the controls stay for them.
+    private var controlsVisible: Bool {
+        controlsShown || controlsHovered || voiceOver
+    }
+
+    private func revealControls() {
+        if !controlsShown { controlsShown = true }
+        controlsIdle.restart { controlsShown = false }
     }
 
     private var queue: some View {
@@ -187,5 +210,56 @@ struct NowPlayingView: View {
             QueueRow(uri: uri, library: library, onArtwork: true)
                 .task(id: uri) { QueuePanel.resolve(uris, from: offset, in: library) }
         }
+    }
+}
+
+/// Not observed: restarting on every pointer move must not redraw the view.
+@MainActor private final class IdleTimer {
+    private var task: Task<Void, Never>?
+
+    func restart(after delay: Duration = .seconds(2.5), _ fire: @escaping @MainActor () -> Void) {
+        task?.cancel()
+        task = Task {
+            try? await Task.sleep(for: delay)
+            if !Task.isCancelled { fire() }
+        }
+    }
+}
+
+private extension View {
+    /// Stays hit-testable: a click needs a pointer move, which reveals it, and keyboard shortcuts must keep working.
+    func fades(visible: Bool, reduceMotion: Bool) -> some View {
+        opacity(visible ? 1 : 0)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: visible)
+    }
+}
+
+/// Fades the window's close, minimize and zoom buttons with the view's own controls; leaving restores them.
+private struct WindowButtonsFade: NSViewRepresentable {
+    let visible: Bool
+    let animated: Bool
+
+    func makeNSView(context _: Context) -> NSView { Anchor() }
+
+    func updateNSView(_ view: NSView, context _: Context) {
+        let alpha: CGFloat = visible ? 1 : 0
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? 0.3 : 0
+            for button in Self.buttons(of: view.window) where button.alphaValue != alpha {
+                button.animator().alphaValue = alpha
+            }
+        }
+    }
+
+    /// Restores while the window is still reachable; by dismantle time it may be gone.
+    private final class Anchor: NSView {
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            if newWindow == nil { WindowButtonsFade.buttons(of: window).forEach { $0.alphaValue = 1 } }
+            super.viewWillMove(toWindow: newWindow)
+        }
+    }
+
+    fileprivate static func buttons(of window: NSWindow?) -> [NSButton] {
+        [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap { window?.standardWindowButton($0) }
     }
 }
