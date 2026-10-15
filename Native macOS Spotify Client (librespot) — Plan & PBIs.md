@@ -497,6 +497,7 @@ veya/
 - [x] Shows artwork, title, artists (each clickable), like button, play/pause, prev/next, shuffle, repeat, scrubber with elapsed/remaining, volume, queue and device buttons. (The queue button toggles a per-window flag that the PBI-406 inspector reads.)
 - [ ] Scrubber updates smoothly (interpolated between 1 s position events) and seeks on release. (Interpolation is unit-tested in `PlayerModelTests` and the slider seeks only on release; not yet watched against live playback.)
 - [x] Expanded "Now Playing" view with large artwork and lyrics tab (lyrics via PBI-701).
+- [x] The expanded view can hide the queue and lyrics so the artwork, title and controls center; the choice persists, and the Lyrics button brings them back. (`NowPlayingUITests.testQueueAndLyricsHideToCenterThePlayerAndStayHidden`.)
 
 #### PBI-403 · High-performance track list
 
@@ -573,6 +574,22 @@ veya/
 
 - [x] Welcome screen explains the app is unofficial and needs Premium, with a single Sign In button.
 - [x] Every list has a designed empty and error state (no blank pages). (Liked Songs, Albums, Artists, Podcasts, sidebar Playlists, Search and Recent Searches use `ContentUnavailableView` through `LoadStateView`/`FailedState`, with Try Again on failure. The playlist, album and artist pages (PBI-404) use `LoadStateView` for loading, unavailable and failed lookups; Home and the show page have no list yet and show their title until PBI-307 and PBI-306.)
+
+#### PBI-409 · Profiles and following playlists
+
+**Story:** As a user, I want to open my profile and my friends' profiles and follow or unfollow any playlist so that I can find a friend's playlist and keep it in my library.
+
+**Priority:** Should · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-304, PBI-404
+
+**Status:** In progress (merged to develop) - profiles, playlist follow heart and profile links done on the UI test fakes; not yet checked against a live account.
+
+**UI tests:** `ProfileUITests`.
+
+- [x] `PlaylistService::user_profile` reads a profile's public playlists and follows (`user-profile-view/v3`), dropping rows the app can't open; hidden follows leave the list empty. (`cargo test -p spotcore profile_keeps_openable_rows`.)
+- [x] Sidebar Profile row opens the signed-in user's profile; a playlist's "By <owner>" line opens the owner's; followed users open their profile, followed artists their page.
+- [x] A playlist the user doesn't own shows a heart that follows (adds to the root list top, idempotent) or unfollows it; the sidebar updates.
+- [x] Search finds a person by pasted profile link or `spotify:user:` URI (Spotify's Web API search has no user type); Open Link and opened URLs take them too. (`SpotifyLinkTests`, `ProfileUITests.testSearchingAProfileLinkOpensTheProfile`.)
+- [ ] Checked against a live account. (Only the in-memory fakes so far.)
 
 ### E5 · Spotify Connect
 
