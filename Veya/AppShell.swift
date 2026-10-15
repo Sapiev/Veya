@@ -40,6 +40,8 @@ struct AppShell: View {
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
     @AppStorage("sidebarCompact") private var sidebarCompact = false
     @SceneStorage("queueVisible") private var queueVisible = false
+    /// Nil until the first layout, so a restored window never animates its sidebar away.
+    @State private var windowWidth: CGFloat?
     /// The full Now Playing view's open tab; nil while it is closed.
     @State private var nowPlayingTab: NowPlayingView.Tab?
     @State private var creatingPlaylist = false
@@ -62,9 +64,31 @@ struct AppShell: View {
     private var library: LibraryModel { scope.library }
     private var player: PlayerModel? { scope.player }
 
+    /// Whether the sidebar, the queue and a `minPageWidth` page don't all fit side by side.
+    private var crowded: Bool {
+        guard let windowWidth else { return false }
+        let sidebar = (sidebarCompact ? Theme.compactSidebarWidth : Theme.sidebarWidth) + Theme.s2
+        return windowWidth - sidebar - (Theme.queueWidth + Theme.s2) < Theme.minPageWidth
+    }
+
+    /// The queue hides the sidebar while they crowd the page; closing it or widening the window brings it back.
+    private var sidebarShown: Bool {
+        sidebarVisible && !(queueVisible && crowded)
+    }
+
+    /// Showing the sidebar while it would crowd the queue closes the queue instead.
+    private var sidebarShownBinding: Binding<Bool> {
+        Binding {
+            sidebarShown
+        } set: { show in
+            sidebarVisible = show
+            if show, crowded { queueVisible = false }
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            if sidebarVisible {
+            if sidebarShown {
                 Sidebar(
                     selection: selection, compact: $sidebarCompact, playlists: playlists, library: library, player: player,
                     newPlaylist: newPlaylist, newFolder: newFolder
@@ -94,7 +118,7 @@ struct AppShell: View {
                     )
                 }
                 // With the sidebar hidden the window buttons sit over the page, so the bar starts past them.
-                .padding(.leading, sidebarVisible ? 0 : Theme.windowButtonsWidth)
+                .padding(.leading, sidebarShown ? 0 : Theme.windowButtonsWidth)
             }
             .overlay(alignment: .bottom) {
                 if let player {
@@ -144,7 +168,8 @@ struct AppShell: View {
         .background { AmbientBackground() }
         .background(TrafficLightInset())
         .ignoresSafeArea()
-        .animation(reduceMotion ? nil : Theme.standard, value: sidebarVisible)
+        .onGeometryChange(for: CGFloat.self, of: \.size.width) { windowWidth = $0 }
+        .animation(reduceMotion ? nil : Theme.standard, value: sidebarShown)
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarCompact)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
         .overlay {
@@ -160,7 +185,7 @@ struct AppShell: View {
         .animation(reduceMotion ? .easeInOut(duration: 0.2) : Theme.standard, value: nowPlayingTab)
         .focusedSceneValue(\.navigationHistory, history)
         .focusedSceneValue(\.queueVisible, $queueVisible)
-        .focusedSceneValue(\.sidebarVisible, $sidebarVisible)
+        .focusedSceneValue(\.sidebarVisible, sidebarShownBinding)
         .focusedSceneValue(\.sidebarCompact, $sidebarCompact)
         .focusedSceneValue(\.focusSearch, action(focusSearch))
         .focusedSceneValue(\.newPlaylist, action(newPlaylist))

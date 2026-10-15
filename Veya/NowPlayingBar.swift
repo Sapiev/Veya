@@ -11,11 +11,15 @@ struct NowPlayingBar: View {
     @Binding var expanded: NowPlayingView.Tab?
     /// The level to restore when unmuting.
     @State private var unmutedVolume: Double?
+    /// Five 36 pt buttons, the 96 pt volume slider and 2 pt between each.
+    private static let fullAccessoriesWidth: CGFloat = 5 * 36 + 96 + 5 * 2
 
     var body: some View {
         GeometryReader { proxy in
             let gap = Theme.s4
-            let center = max(320, (proxy.size.width - 2 * gap) * 1.4 / 3.4)
+            // The center gives way first, so the sides keep every accessory; below its minimum the accessories drop the volume.
+            let room = proxy.size.width - 2 * gap
+            let center = max(Theme.minPlayerCenter, min(room * 1.4 / 3.4, room - 2 * Self.fullAccessoriesWidth))
             let side = max(0, (proxy.size.width - 2 * gap - center) / 2)
             HStack(spacing: gap) {
                 track
@@ -75,7 +79,7 @@ struct NowPlayingBar: View {
             Label("Playing on \(device)", systemImage: "hifispeaker.2")
                 .labelStyle(.titleAndIcon)
                 .scaledFont(size: 11, weight: .medium)
-                .foregroundStyle(Color.accentColor)
+                .accentForeground()
                 .lineLimit(1)
         }
     }
@@ -87,7 +91,16 @@ struct NowPlayingBar: View {
     }
 
     /// Lyrics, queue, devices, mute, volume and full-window Now Playing (`.p-right`); the output device is in Settings.
+    /// A narrow bar raises the volume slider above the mute button on hover, then drops full-window, which the artwork also opens.
     private var accessories: some View {
+        ViewThatFits(in: .horizontal) {
+            accessoryButtons(inlineSlider: true, fullWindow: true)
+            accessoryButtons(inlineSlider: false, fullWindow: true)
+            accessoryButtons(inlineSlider: false, fullWindow: false)
+        }
+    }
+
+    private func accessoryButtons(inlineSlider: Bool, fullWindow: Bool) -> some View {
         HStack(spacing: 2) {
             Button("Lyrics", systemImage: "text.bubble") { expanded = .lyrics }
                 .buttonStyle(TransportButtonStyle())
@@ -100,33 +113,88 @@ struct NowPlayingBar: View {
             .buttonStyle(TransportButtonStyle(on: queueVisible))
             .help("Queue")
             DevicesButton(player: player)
-            let muted = player.volume == 0
-            Button(muted ? "Unmute" : "Mute", systemImage: muted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
-                if muted {
-                    player.volume = unmutedVolume ?? 0.5
-                } else {
-                    unmutedVolume = player.volume
-                    player.volume = 0
-                }
+            if inlineSlider {
+                muteButton
+                volumeSlider
+                    .frame(width: 96)
+            } else {
+                PopUpVolume { muteButton } slider: { volumeSlider }
+                    // VoiceOver and Full Keyboard Access never hover, so the button adjusts the volume itself.
+                    .accessibilityValue(volumeDescription)
+                    .accessibilityAdjustableAction { direction in
+                        let step = direction == .increment ? PlaybackCommands.volumeStep : -PlaybackCommands.volumeStep
+                        player.volume = min(max(player.volume + step, 0), 1)
+                    }
             }
-            .buttonStyle(TransportButtonStyle())
-            .help(muted ? "Unmute" : "Mute")
-            ThinSlider(
-                value: Binding(get: { player.volume }, set: { player.volume = $0 }),
-                in: 0 ... 1,
-                label: Text("Volume"),
-                valueDescription: player.volume.formatted(.percent.precision(.fractionLength(0)))
-            )
-            .frame(width: 96)
-            Button("Full-Window Now Playing", systemImage: "arrow.up.left.and.arrow.down.right") { expanded = .queue }
-                .buttonStyle(TransportButtonStyle())
-                .disabled(player.nowPlaying == nil)
-                .help("Full-Window Now Playing")
+            if fullWindow {
+                Button("Full-Window Now Playing", systemImage: "arrow.up.left.and.arrow.down.right") { expanded = .queue }
+                    .buttonStyle(TransportButtonStyle())
+                    .disabled(player.nowPlaying == nil)
+                    .help("Full-Window Now Playing")
+            }
         }
+        .fixedSize()
+    }
+
+    private var muteButton: some View {
+        let muted = player.volume == 0
+        return Button(muted ? "Unmute" : "Mute", systemImage: muted ? "speaker.slash.fill" : "speaker.wave.2.fill") {
+            if muted {
+                player.volume = unmutedVolume ?? 0.5
+            } else {
+                unmutedVolume = player.volume
+                player.volume = 0
+            }
+        }
+        .buttonStyle(TransportButtonStyle())
+        .help(muted ? "Unmute" : "Mute")
+    }
+
+    private var volumeDescription: String {
+        player.volume.formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    private var volumeSlider: some View {
+        ThinSlider(
+            value: Binding(get: { player.volume }, set: { player.volume = $0 }),
+            in: 0 ... 1,
+            label: Text("Volume"),
+            valueDescription: volumeDescription
+        )
     }
 }
 
-/// Saves or removes a playing track from Liked Songs; episodes have no like.
+/// The mute button with the volume slider standing upright above it while the pointer is over either.
+private struct PopUpVolume<Button: View, Slider: View>: View {
+    @ViewBuilder let button: Button
+    @ViewBuilder let slider: Slider
+    @State private var overButton = false
+    @State private var overSlider = false
+    @State private var shown = false
+
+    var body: some View {
+        button
+            .onHover { overButton = $0 }
+            // A popover, not an overlay: SwiftUI never hovers what is drawn outside the bar's bounds.
+            .popover(isPresented: $shown, arrowEdge: .top) {
+                slider
+                    .frame(width: 96)
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 20, height: 96)
+                    .padding(Theme.s3)
+                    .onHover { overSlider = $0 }
+            }
+            .task(id: overButton || overSlider) {
+                if overButton || overSlider {
+                    shown = true
+                } else if (try? await Task.sleep(for: .milliseconds(300))) != nil {
+                    // The grace period lets the pointer cross from the button to the popover.
+                    shown = false
+                }
+            }
+    }
+}
+
 struct LikeButton: View {
     let uri: String
     let library: LibraryModel
