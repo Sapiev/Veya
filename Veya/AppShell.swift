@@ -239,6 +239,8 @@ struct AppShell: View {
             PlaylistPageView(uri: uri, library: library, player: player, playlists: playlists, history: history)
         case let .show(uri):
             ShowPage(uri: uri, podcast: podcast, player: player)
+        case let .profile(username):
+            ProfilePage(username: username, playlists: playlists, history: history)
         }
     }
 

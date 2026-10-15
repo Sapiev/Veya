@@ -334,6 +334,8 @@ extension PlaylistServiceProtocol {
     func createPlaylist(name _: String, description _: String, folder _: String?) async throws -> String { throw unsupported }
     func createFolder(name _: String, folder _: String?) async throws -> String { throw unsupported }
     func deletePlaylist(uri _: String) async throws { throw unsupported }
+    func followPlaylist(uri _: String) async throws { throw unsupported }
+    func userProfile(username _: String?) async throws -> UserProfile { throw unsupported }
     func setPublic(uri _: String, public _: Bool) async throws { throw unsupported }
     func setPicture(uri _: String, jpeg _: Data) async throws { throw unsupported }
 }

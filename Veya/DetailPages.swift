@@ -238,7 +238,11 @@ struct PlaylistPageView: View {
         VStack(alignment: .leading, spacing: 0) {
             PageHero(kind: "Playlist", title: page.name, artwork: page.artwork, description: page.description) {
                 HStack(spacing: 0) {
-                    Text("By \(page.ownerName) · \(page.total) songs")
+                    // One button keeps the localized line, with its plural rules, whole.
+                    Button("By \(page.ownerName) · \(page.total) songs") { history.navigate(to: .profile(username: page.owner)) }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the owner's profile")
+                        .help("Open \(page.ownerName)'s Profile")
                     if page.editable {
                         Dot()
                         Text(playlists.isPublic(page.uri) ? "Public" : "Private")
@@ -252,6 +256,13 @@ struct PlaylistPageView: View {
             PageActions(uris: page.tracks.map(\.uri), context: page.uri, player: player) {
                 if page.editable {
                     IconButton(label: "Edit Details…", systemImage: "pencil") { editingDetails = true }
+                } else if !page.likedSongs {
+                    let followed = playlists.isFollowed(page.uri)
+                    IconButton(
+                        label: followed ? "Remove from Your Library" : "Save to Your Library",
+                        systemImage: followed ? "heart.fill" : "heart",
+                        isOn: followed
+                    ) { Task { await playlists.setFollowed(page.uri, !followed) } }
                 }
                 Spacer()
                 TextField("Filter", text: $filter)
@@ -400,6 +411,7 @@ struct PageHero<Subtitle: View>: View {
     let artwork: [Artwork]
     var round = false
     var description = ""
+    var topPadding: CGFloat = 56
     @ViewBuilder let subtitle: () -> Subtitle
 
     var body: some View {
@@ -441,7 +453,7 @@ struct PageHero<Subtitle: View>: View {
         }
         // The design's 340 pt hero starts under the 64 pt top bar; pages begin below the bar.
         .padding(.horizontal, Theme.s8)
-        .padding(.top, 56)
+        .padding(.top, topPadding)
         .padding(.bottom, Theme.s6)
         .frame(maxWidth: .infinity, minHeight: 276, alignment: .bottomLeading)
         // The shell draws the wash across the whole window, under the side panels too.

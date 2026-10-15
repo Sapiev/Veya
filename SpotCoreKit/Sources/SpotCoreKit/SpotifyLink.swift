@@ -11,9 +11,12 @@ public enum SpotifyLink: Equatable, Sendable {
         guard let parts = Self.typeAndID(text.trimmingCharacters(in: .whitespacesAndNewlines)),
               parts.count == 2,
               !parts[1].isEmpty,
-              parts[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
+              // Usernames also carry `.`, `_` and `-`; the core checks them again before they reach a path.
+              parts[1].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || (parts[0] == "user" && "._-".contains($0))) })
+        else { return nil }
         let uri = "spotify:\(parts[0]):\(parts[1])"
         switch parts[0] {
+        case "user": self = .page(.profile(username: parts[1]))
         case "track", "episode": self = .play(uri: uri)
         case "album": self = .page(.album(uri: uri))
         case "artist": self = .page(.artist(uri: uri))

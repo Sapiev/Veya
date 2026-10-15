@@ -9,6 +9,8 @@ struct SpotifyLinkTests {
         ("  http://open.spotify.com/show/abc123/\n", .page(.show(uri: "spotify:show:abc123"))),
         ("veya://track/11dFghVXANMlKmJXsNCbNl", .play(uri: "spotify:track:11dFghVXANMlKmJXsNCbNl")),
         ("spotify:episode:512ojhOuo1ktJprKbVcKyQ", .play(uri: "spotify:episode:512ojhOuo1ktJprKbVcKyQ")),
+        ("spotify:user:me", .page(.profile(username: "me"))),
+        ("https://open.spotify.com/user/first.last_1-2?si=x", .page(.profile(username: "first.last_1-2"))),
     ])
     func parsesSupportedLinks(text: String, link: SpotifyLink) {
         #expect(SpotifyLink(text) == link)
@@ -18,7 +20,8 @@ struct SpotifyLinkTests {
         "",
         "spotify:",
         "spotify:album:",
-        "spotify:user:me",
+        "spotify:user:a%2Fb",
+        "spotify:album:a.b",
         "spotify:album:abc:extra",
         "spotify:album:ab%2Fc",
         "https://example.com/album/abc",
