@@ -5,6 +5,7 @@ import SwiftUI
 struct LyricsPane: View {
     let player: PlayerModel
     let metadata: any MetadataServiceProtocol
+    var background = true
     @State private var loaded: (uri: String, phase: Phase)?
 
     private enum Phase {
@@ -51,7 +52,7 @@ struct LyricsPane: View {
                 }
             }
             .padding(Theme.s2)
-            .glassPanel(cornerRadius: Theme.panelRadius)
+            .glassPanel(cornerRadius: Theme.panelRadius, shown: background)
         case .none:
             ContentUnavailableView("No Lyrics", systemImage: "quote.bubble", description: Text("This track has no lyrics."))
         case .failed:

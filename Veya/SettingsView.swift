@@ -95,6 +95,7 @@ private struct GeneralSettingsTab: View {
     @AppStorage(ColorSource.cycleSecondsKey) private var cycleSeconds = ColorSource.defaultCycleSeconds
     @AppStorage(SettingsView.trackNotificationsKey) private var notifiesTrackChanges = false
     @AppStorage(TextSize.key) private var textSize = TextSize.standard
+    @AppStorage(NowPlayingView.panesBackgroundKey) private var panesBackground = true
     @State private var notificationsDenied = false
     @Bindable var menuBar: MenuBarSettings
 
@@ -156,6 +157,13 @@ private struct GeneralSettingsTab: View {
                     }
                     .accessibilityLabel("Cycle speed")
                 }
+            }
+            Section {
+                Toggle(isOn: $panesBackground) {
+                    Text("Panel behind queue and lyrics")
+                    Text("In full-window Now Playing. Off shows them straight on the artwork.")
+                }
+                .accessibilityLabel("Panel behind queue and lyrics")
             }
         }
         .formStyle(.grouped)

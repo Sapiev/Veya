@@ -140,4 +140,27 @@ final class NowPlayingUITests: XCTestCase {
 
         XCTAssertTrue(queue.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
+
+    /// The setting drops the panel behind the queue and lyrics; they stay readable on the artwork.
+    @MainActor func testPanesBackgroundCanBeTurnedOff() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey(",", modifierFlags: .command)
+        app.toolbars.buttons["General"].click()
+        let toggle = app.toggle("Panel behind queue and lyrics")
+        XCTAssertTrue(toggle.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(toggle.value as? Int, 1)
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 0)
+        app.typeKey("w", modifierFlags: .command)
+
+        app.buttons["Full-Window Now Playing"].click()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(app.scrollViews["nowPlayingQueue"].staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "now-playing-queue-no-panel")
+        try assertAuditPasses(app, "now-playing-no-panel")
+        app.radioButtons["Lyrics"].click()
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "now-playing-lyrics-no-panel")
+    }
 }

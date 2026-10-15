@@ -10,9 +10,13 @@ struct NowPlayingView: View {
     @State var tab: Tab
     let close: () -> Void
     @AppStorage("nowPlayingShowsPanes") private var showsPanes = true
+    @AppStorage(Self.panesBackgroundKey) private var panesBackground = true
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+
+    /// Read by the General settings tab; on by default.
+    static let panesBackgroundKey = "nowPlaying.panesBackground"
 
     enum Tab {
         case queue, lyrics
@@ -138,9 +142,9 @@ struct NowPlayingView: View {
             case .queue:
                 queue
                     .padding(Theme.s2)
-                    .glassPanel(cornerRadius: Theme.panelRadius)
+                    .glassPanel(cornerRadius: Theme.panelRadius, shown: panesBackground)
             case .lyrics:
-                LyricsPane(player: player, metadata: metadata)
+                LyricsPane(player: player, metadata: metadata, background: panesBackground)
             }
         }
     }
