@@ -38,7 +38,7 @@ struct AppShell: View {
     private let recentSearches: RecentSearches
     private let webAPI: WebAPIConnection
     @SceneStorage("sidebarVisible") private var sidebarVisible = true
-    @SceneStorage("sidebarCompact") private var sidebarCompact = false
+    @AppStorage("sidebarCompact") private var sidebarCompact = false
     @SceneStorage("queueVisible") private var queueVisible = false
     /// The full Now Playing view's open tab; nil while it is closed.
     @State private var nowPlayingTab: NowPlayingView.Tab?
