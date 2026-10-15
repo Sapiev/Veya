@@ -97,7 +97,7 @@ final class QueueUITests: XCTestCase {
     }
 }
 
-private extension XCUIApplication {
+extension XCUIApplication {
     var queue: XCUIElement {
         descendants(matching: .any)["queue"].firstMatch
     }
