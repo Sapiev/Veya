@@ -14,10 +14,7 @@ final class ProfileUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("UI Test"))
         XCTAssertTrue(app.buttons["Road Trip"].exists)
         try assertAuditPasses(app, "Profile")
-        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-        shot.name = "profile"
-        shot.lifetime = .keepAlways
-        add(shot)
+        attachScreenshot(of: app.windows.firstMatch, named: "profile")
 
         app.buttons["Fran"].click()
         XCTAssertTrue(app.showsRoute("Fran"))

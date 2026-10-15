@@ -87,10 +87,7 @@ final class TrackListUITests: XCTestCase {
         let row = sidebar.outlineRows.containing(NSPredicate(format: "label == 'Road Trip'")).firstMatch
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(app.showsRoute("Road Trip"))
-        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-        shot.name = "compact-sidebar-selection"
-        shot.lifetime = .keepAlways
-        add(shot)
+        attachScreenshot(of: app.windows.firstMatch, named: "compact-sidebar-selection")
 
         // Beside the icon, inside the rounded selection.
         let colors = try screenColors(y: row.frame.midY, x: [row.frame.minX + 14, row.frame.maxX - 14])
