@@ -62,6 +62,11 @@ Every change to what user sees/clicks in `Veya/` (screens, menus, buttons, banne
 - macOS static text string is its `value`, so predicates match `value`, not `label`; `staticTexts["exact text"]` matches either.
 - Query by visible text first; `.accessibilityIdentifier` only for elements without stable text.
 
+Visual changes are verified by screenshots you actually look at, not only green tests. Shell `screencapture` is blocked; instead:
+- In the test, `attachScreenshot(of: app.windows.firstMatch, named: "<name>")` (`VeyaUITests/Screenshot.swift`).
+- Run `scripts/ui-screenshots.sh -o <scratchpad>/shots VeyaUITests/<Class>[/<test>] ...`; it prints `<name>\t<png path>` per screenshot.
+- Read each PNG. Measure alignment/spacing numerically (pixels via a small `NSBitmapImageRep` script), not by eye.
+
 ## Accessibility
 
 Every new/changed UI element in `Veya/` accessible from day one (PBI-801 baseline), not retrofitted:
