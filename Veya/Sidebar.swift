@@ -63,6 +63,7 @@ struct Sidebar: View {
         List(selection: $selection) {
             row(Text("Home"), .home) { symbol("house") }
             row(Text("Search"), .search) { symbol("magnifyingglass") }
+            row(Text("Profile"), .profile(username: nil)) { symbol("person.crop.circle") }
             Section {
                 row(Text("Liked Songs"), .likedSongs) {
                     SymbolTile(systemImage: "heart.fill", fill: Color(palette.tint), ink: Color(palette.tintInk))

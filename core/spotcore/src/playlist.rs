@@ -34,6 +34,7 @@ const PUSH_URI: &str = "hm://playlist/";
 const PLAYLIST_PREFIX: &str = "spotify:playlist:";
 const IMAGE_UPLOAD_URL: &str = "https://image-upload.spotify.com/v4/playlist";
 const MAX_PICTURE_BYTES: usize = 256 * 1024;
+const PROFILE_PLAYLISTS: u32 = 200;
 /// Local file URIs carry artist, album and title, so allow far past 22-char ids.
 const MAX_LISTED_URI: usize = 2048;
 const START_GROUP: &str = "spotify:start-group:";
@@ -61,6 +62,8 @@ pub enum PlaylistError {
     InvalidImage,
     #[error("not in your library: {uri}")]
     NotInRootlist { uri: String },
+    #[error("not a username: {username}")]
+    InvalidUsername { username: String },
 }
 
 impl From<librespot_core::Error> for PlaylistError {
@@ -156,6 +159,28 @@ pub enum PlaylistChange {
     },
     /// A reconnect replaced the session and a push may have been missed.
     Resync,
+}
+
+/// A user's public profile, as anyone signed in can see it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct UserProfile {
+    pub username: String,
+    /// The display name; `username` when the profile has none.
+    pub name: String,
+    pub artwork: Vec<Artwork>,
+    pub followers: u64,
+    /// Public playlists in the order the profile shows them.
+    pub playlists: Vec<ProfileItem>,
+    /// Users and artists they follow; empty when they keep it private.
+    pub following: Vec<ProfileItem>,
+}
+
+/// A playlist, user or artist on a profile; `uri` is always one of those kinds.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ProfileItem {
+    pub uri: String,
+    pub name: String,
+    pub artwork: Vec<Artwork>,
 }
 
 #[derive(uniffi::Object)]
@@ -365,6 +390,40 @@ impl PlaylistService {
         let op = insert_op(&raw.items, folder.as_deref(), &folder_markers(&id, name))?;
         send_rootlist(&session, raw.revision, op).await?;
         Ok(format!("spotify:user:{}:folder:{id}", session.username()))
+    }
+
+    /// Adds the playlist to the top of the root list (follows it); a no-op when it's there already.
+    pub async fn follow_playlist(&self, uri: String) -> Result<(), PlaylistError> {
+        playlist_id(&uri)?;
+        let session = self.session.current_session();
+        let raw = raw_rootlist(&session).await?;
+        if raw.items.iter().any(|item| item.uri() == uri) {
+            return Ok(());
+        }
+        let op = insert_op(&raw.items, None, std::slice::from_ref(&uri))?;
+        send_rootlist(&session, raw.revision, op).await
+    }
+
+    /// `username`'s public profile, or the signed-in user's when `None`; who they
+    /// follow stays empty when it can't be read.
+    pub async fn user_profile(
+        &self,
+        username: Option<String>,
+    ) -> Result<UserProfile, PlaylistError> {
+        let session = self.session.current_session();
+        let username = username.unwrap_or_else(|| session.username());
+        if !is_username(&username) {
+            return Err(PlaylistError::InvalidUsername { username });
+        }
+        let spclient = session.spclient();
+        let (profile, following) = tokio::join!(
+            spclient.get_user_profile(&username, Some(PROFILE_PLAYLISTS), Some(0)),
+            spclient.get_user_following(&username),
+        );
+        let following = following
+            .inspect_err(|error| log::debug!("following lookup failed: {error}"))
+            .ok();
+        profile_of(&username, &profile?, following.as_deref())
     }
 
     /// Removes the playlist from the root list (unfollows it).
@@ -913,6 +972,84 @@ fn profile_name(json: &[u8]) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
+#[derive(Deserialize)]
+struct ProfileJson {
+    name: Option<String>,
+    image_url: Option<String>,
+    #[serde(default)]
+    followers_count: u64,
+    #[serde(default)]
+    public_playlists: Vec<ProfileItemJson>,
+}
+
+#[derive(Deserialize)]
+struct FollowingJson {
+    #[serde(default)]
+    profiles: Vec<ProfileItemJson>,
+}
+
+#[derive(Deserialize)]
+struct ProfileItemJson {
+    uri: String,
+    name: Option<String>,
+    image_url: Option<String>,
+}
+
+/// Untrusted JSON: rows whose URI isn't a playlist, user or artist the app can open are dropped.
+fn profile_of(
+    username: &str,
+    profile: &[u8],
+    following: Option<&[u8]>,
+) -> Result<UserProfile, PlaylistError> {
+    let profile: ProfileJson =
+        serde_json::from_slice(profile).map_err(|e| PlaylistError::Request {
+            message: format!("malformed profile: {e}"),
+        })?;
+    let following = following
+        .and_then(|json| serde_json::from_slice::<FollowingJson>(json).ok())
+        .map(|json| json.profiles)
+        .unwrap_or_default();
+    let items = |rows: Vec<ProfileItemJson>, opens: fn(&str) -> bool| {
+        rows.into_iter()
+            .filter(|row| opens(&row.uri))
+            .map(|row| ProfileItem {
+                name: row.name.unwrap_or_default(),
+                artwork: profile_artwork(row.image_url),
+                uri: row.uri,
+            })
+            .collect()
+    };
+    Ok(UserProfile {
+        username: username.to_owned(),
+        name: profile
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| username.to_owned()),
+        artwork: profile_artwork(profile.image_url),
+        followers: profile.followers_count,
+        playlists: items(profile.public_playlists, |uri| playlist_id(uri).is_ok()),
+        following: items(following, |uri| {
+            uri.strip_prefix("spotify:user:").is_some_and(is_username)
+                || uri
+                    .strip_prefix("spotify:artist:")
+                    .is_some_and(|id| id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+        }),
+    })
+}
+
+/// Only web images load; profiles also carry `spotify:` image URIs.
+fn profile_artwork(url: Option<String>) -> Vec<Artwork> {
+    url.filter(|url| url.starts_with("https://"))
+        .map(|url| Artwork {
+            url,
+            size: ArtworkSize::Default,
+            width: 0,
+            height: 0,
+        })
+        .into_iter()
+        .collect()
+}
+
 /// Rejects anything that is not a bare base62 id, since it lands in a path.
 fn playlist_id(uri: &str) -> Result<&str, PlaylistError> {
     uri.strip_prefix(PLAYLIST_PREFIX)
@@ -1275,6 +1412,35 @@ mod tests {
         assert_eq!(profile_name(br#"{"name":"  "}"#), None);
         assert_eq!(profile_name(br#"{"uri":"spotify:user:31abc"}"#), None);
         assert_eq!(profile_name(b"not json"), None);
+    }
+
+    #[test]
+    fn profile_keeps_openable_rows_and_survives_hidden_following() {
+        let profile = br#"{"uri":"spotify:user:friend","name":"Friend","image_url":"https://i.scdn.co/image/a",
+            "followers_count":7,"public_playlists":[
+                {"uri":"spotify:playlist:0123456789abcdefghijkl","name":"Mix","image_url":"spotify:mosaic:x"},
+                {"uri":"spotify:playlist:../../x","name":"Bad"}]}"#;
+        let following = br#"{"profiles":[
+            {"uri":"spotify:user:pal","name":"Pal"},
+            {"uri":"spotify:artist:0123456789abcdefghijkl","name":"Band"},
+            {"uri":"spotify:user:a/b","name":"Bad"},
+            {"uri":"spotify:show:0123456789abcdefghijkl","name":"Show"}]}"#;
+
+        let user = profile_of("friend", profile, Some(following)).unwrap();
+        assert_eq!((user.name.as_str(), user.followers), ("Friend", 7));
+        assert_eq!(user.artwork.len(), 1);
+        let uris = |items: &[ProfileItem]| items.iter().map(|i| i.uri.clone()).collect::<Vec<_>>();
+        assert_eq!(uris(&user.playlists), ["spotify:playlist:0123456789abcdefghijkl"]);
+        assert!(user.playlists[0].artwork.is_empty(), "spotify: images don't load");
+        assert_eq!(
+            uris(&user.following),
+            ["spotify:user:pal", "spotify:artist:0123456789abcdefghijkl"]
+        );
+
+        let hidden = profile_of("friend", br#"{"name":" "}"#, Some(b"forbidden")).unwrap();
+        assert_eq!(hidden.name, "friend");
+        assert!(hidden.following.is_empty() && hidden.playlists.is_empty());
+        assert!(profile_of("friend", b"not json", None).is_err());
     }
 
     #[test]

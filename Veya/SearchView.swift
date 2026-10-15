@@ -70,7 +70,9 @@ struct SearchField: View {
         case .up where onResults:
             move(by: -1)
         case .enter:
-            if onResults, let selection {
+            if onResults, case let .page(.profile(username))? = SpotifyLink(search.query) {
+                history.navigate(to: .profile(username: username))
+            } else if onResults, let selection {
                 search.open(selection, recent: recent, player: player, history: history)
             } else {
                 recent.add(search.query)
@@ -229,7 +231,19 @@ struct SearchView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if !webAPI.isConnected {
+        // Spotify's search has no people, so a pasted profile link stands in; it needs no Web API.
+        if case let .page(.profile(username))? = SpotifyLink(search.query) {
+            EmptyStateView(
+                title: "Profile Link",
+                systemImage: "person.crop.circle",
+                message: "Open the profile this link points to."
+            ) {
+                Button("Open Profile") { history.navigate(to: .profile(username: username)) }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+            }
+        } else if !webAPI.isConnected {
             EmptyStateView(
                 title: "Connect Spotify Web API to Search",
                 systemImage: "key",
@@ -373,6 +387,9 @@ struct SearchView: View {
                 }
             }
             .padding(.top, Theme.s2)
+            Text("Looking for a person? Paste their profile link.")
+                .foregroundStyle(.secondary)
+                .padding(.top, Theme.s4)
         }
         .scaledFont(size: 14)
         .padding(.vertical, Theme.s12)
