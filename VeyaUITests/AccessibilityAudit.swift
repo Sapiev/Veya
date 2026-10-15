@@ -11,6 +11,9 @@ extension XCTestCase {
         // text that draws at 5.6-9.5:1 and whose accessibility color is opaque, so its verdict tracks neither.
         try app.performAccessibilityAudit(for: XCUIAccessibilityAuditType.all.subtracting(.contrast)) { issue in
             guard let element = issue.element else {
+                // False positive: views under a `.isModal` overlay (Now Playing) leave the hosting view's children,
+                // but their AppKit-backed scroll views still claim it as parent; XCTest cannot resolve them.
+                if issue.auditType == .parentChild { return true }
                 issues.append("\(issue.compactDescription): \(issue.detailedDescription)")
                 return true
             }

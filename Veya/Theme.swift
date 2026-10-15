@@ -227,6 +227,8 @@ private struct GlassPanel: ViewModifier {
 
     func body(content: Content) -> some View {
         let increased = contrast == .increased
+        // Increase Contrast keeps the panel so text never sits straight on artwork.
+        let shown = shown || increased
         let fill: AnyShapeStyle = increased ? AnyShapeStyle(.windowBackground)
             : strong ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.ultraThinMaterial)
         content

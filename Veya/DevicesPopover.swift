@@ -68,6 +68,7 @@ private struct DeviceList: View {
         }
         .padding(Theme.s3)
         .frame(width: 280)
+        .background(PopoverAccessibilityLabel(label: String(localized: "Devices")))
         .arrowKeyList(player.devices.map(\.id), focus: $focused) { id in
             if player.canTransfer { player.transfer(to: id) }
         }
@@ -75,6 +76,31 @@ private struct DeviceList: View {
         .task { focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id }
         .task {
             for await allowed in localNetworkAccess() { localNetworkAllowed = allowed }
+        }
+    }
+}
+
+/// Names the popover window and its content view for VoiceOver; SwiftUI's `.popover` leaves both unlabeled.
+private struct PopoverAccessibilityLabel: NSViewRepresentable {
+    let label: String
+
+    func makeNSView(context _: Context) -> NSView { Anchor(label: label) }
+    func updateNSView(_: NSView, context _: Context) {}
+
+    private final class Anchor: NSView {
+        let label: String
+
+        init(label: String) {
+            self.label = label
+            super.init(frame: .zero)
+        }
+
+        required init?(coder _: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.setAccessibilityLabel(label)
+            window?.contentView?.setAccessibilityLabel(label)
         }
     }
 }

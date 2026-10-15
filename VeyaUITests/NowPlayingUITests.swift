@@ -135,7 +135,7 @@ final class NowPlayingUITests: XCTestCase {
             XCTAssertTrue(queue.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
         }
         // Escape works even after the controls fade.
-        XCTAssertTrue(app.buttons["Close Now Playing"].waitForNonExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["Close Now Playing"].waitForNonExistence(timeout: 10))
 
         app.typeKey(.escape, modifierFlags: [])
 
@@ -153,7 +153,7 @@ final class NowPlayingUITests: XCTestCase {
 
         let close = app.buttons["Close Now Playing"]
         let window = app.windows.firstMatch
-        XCTAssertTrue(queueTab.waitForNonExistence(timeout: 6))
+        XCTAssertTrue(queueTab.waitForNonExistence(timeout: 10))
         XCTAssertFalse(close.exists)
         attachScreenshot(of: window, named: "now-playing-controls-hidden")
 
@@ -163,6 +163,21 @@ final class NowPlayingUITests: XCTestCase {
         attachScreenshot(of: window, named: "now-playing-controls-shown")
         app.radioButtons["Lyrics"].click()
         XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// A key press reveals the faded controls, so keyboard focus never lands on something invisible.
+    @MainActor func testKeyPressRevealsFadedControls() {
+        let app = XCUIApplication.launch(.signedIn)
+        let open = app.buttons["Full-Window Now Playing"]
+        XCTAssertTrue(open.waitForExistence(timeout: XCUIApplication.timeout))
+        open.click()
+        let close = app.buttons["Close Now Playing"]
+        XCTAssertTrue(close.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+
+        app.typeKey(.tab, modifierFlags: [])
+
+        XCTAssertTrue(close.waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     /// The setting drops the panel behind the queue and lyrics; they stay readable on the artwork.

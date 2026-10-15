@@ -14,6 +14,7 @@ struct NowPlayingView: View {
     @State private var controlsShown = true
     @State private var controlsHovered = false
     @State private var controlsIdle = IdleTimer()
+    @State private var keyMonitor: Any?
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
@@ -81,6 +82,18 @@ struct NowPlayingView: View {
             .fades(visible: controlsVisible, reduceMotion: reduceMotion)
             .padding(.top, Theme.s3)
             .padding(.trailing, Theme.s4)
+        }
+        // Keyboard users move focus onto the controls, so they must not stay invisible.
+        // A monitor, since Tab moves focus through AppKit and never reaches `onKeyPress`.
+        .onAppear {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                revealControls()
+                return event
+            }
+        }
+        .onDisappear {
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
         }
         .background(WindowButtonsFade(visible: controlsVisible, animated: !reduceMotion))
         // Asking for lyrics brings the panes back even when they were hidden last time.
