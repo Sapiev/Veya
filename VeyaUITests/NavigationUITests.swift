@@ -96,10 +96,7 @@ final class NavigationUITests: XCTestCase {
         XCTAssertEqual(liked.frame.midX, sidebar.frame.midX, accuracy: 1)
         XCTAssertTrue(app.buttons["New Playlist"].exists)
         try assertAuditPasses(app, "Compact sidebar")
-        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
-        shot.name = "compact-sidebar"
-        shot.lifetime = .keepAlways
-        add(shot)
+        attachScreenshot(of: app.windows.firstMatch, named: "compact-sidebar")
 
         liked.click()
         XCTAssertTrue(app.trackList.waitForExistence(timeout: XCUIApplication.timeout))

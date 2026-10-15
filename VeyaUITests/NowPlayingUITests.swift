@@ -41,10 +41,7 @@ final class NowPlayingUITests: XCTestCase {
         let window = app.windows.firstMatch
         let artwork = app.sliders["Playback Position"].firstMatch
         XCTAssertEqual(artwork.frame.midX, window.frame.midX, accuracy: 2)
-        let shot = XCTAttachment(screenshot: window.screenshot())
-        shot.name = "now-playing-panes-hidden"
-        shot.lifetime = .keepAlways
-        add(shot)
+        attachScreenshot(of: window, named: "now-playing-panes-hidden")
 
         app.buttons["Close Now Playing"].click()
         open.click()
