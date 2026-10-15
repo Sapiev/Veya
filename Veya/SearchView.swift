@@ -128,6 +128,8 @@ struct ToolbarTextField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
+        field.cell = EditorHidingCell(textCell: "")
+        field.isEditable = true
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -152,6 +154,22 @@ struct ToolbarTextField: NSViewRepresentable {
                 if field.currentEditor() == nil { field.window?.makeFirstResponder(field) }
             }
         }
+    }
+
+    /// Inside a hosting view the shared field editor surfaces as its own element, claiming the
+    /// hosting view as parent though it is not listed there. The field already exposes the text.
+    private final class EditorHidingCell: NSTextFieldCell {
+        private lazy var editor: NSTextView = {
+            let editor = HiddenEditor()
+            editor.isFieldEditor = true
+            return editor
+        }()
+
+        override func fieldEditor(for _: NSView) -> NSTextView? { editor }
+    }
+
+    private final class HiddenEditor: NSTextView {
+        override func isAccessibilityElement() -> Bool { false }
     }
 
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
