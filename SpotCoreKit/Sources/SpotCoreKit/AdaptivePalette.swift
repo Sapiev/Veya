@@ -110,10 +110,10 @@ public struct AdaptivePalette: Equatable, Sendable {
         )
         tintInk = tint.contrast(with: .white) >= tint.contrast(with: .black) ? .white : .black
 
-        // Walk lightness until the accent reads as text: 4.5:1 on the wash, 3:1 on the glow.
+        // Walk lightness until the accent reads as small text on the wash and on the glow, which side panels show through.
         var lightness = dark ? max(accentLightness, 0.6) : min(accentLightness, 0.42)
         var text = RGB(hue: hue, saturation: saturation, lightness: lightness)
-        while text.contrast(with: ambient) < 4.5 || text.contrast(with: glow) < 3, lightness > 0.05, lightness < 0.95 {
+        while text.contrast(with: ambient) < 4.5 || text.contrast(with: glow) < 4.5, lightness > 0.05, lightness < 0.95 {
             lightness += dark ? 0.03 : -0.03
             text = RGB(hue: hue, saturation: saturation, lightness: lightness)
         }

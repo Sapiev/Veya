@@ -12,7 +12,8 @@ struct AdaptivePaletteTests {
         for accent in [Self.red, Self.navy, Self.grey, RGB.systemAccent, .white, .black] {
             let palette = AdaptivePalette(accent: accent, dominant: Self.navy, dark: dark)
             #expect(palette.tintText.contrast(with: palette.ambient) >= 4.5)
-            #expect(palette.tintText.contrast(with: palette.glow) >= 3)
+            // Side panels show the glow through their glass behind small text, such as the queue's playing title.
+            #expect(palette.tintText.contrast(with: palette.glow) >= 4.5)
         }
     }
 
