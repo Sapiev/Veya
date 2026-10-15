@@ -658,7 +658,6 @@ private struct SongRow: View {
     let addToQueue: () -> Void
     let toggleSaved: () -> Void
     @State private var hovering = false
-    @Environment(\.palette) private var palette
 
     var body: some View {
         HStack(spacing: Theme.s3) {
@@ -684,7 +683,7 @@ private struct SongRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(hit.name)
                     .scaledFont(size: 14, weight: .medium)
-                    .foregroundStyle(playing ? Color(palette.tintText) : Color.primary)
+                    .accentForeground(playing)
                     .lineLimit(1)
                 Text(hit.subtitle)
                     .scaledFont(size: 13)

@@ -63,7 +63,7 @@ extension XCTestCase {
 }
 
 /// A screenshot's pixels, addressed in screen points.
-private struct ScreenPixels {
+struct ScreenPixels {
     let rep: NSBitmapImageRep
     let scale: CGFloat
 

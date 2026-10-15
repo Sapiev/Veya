@@ -346,3 +346,27 @@ extension View {
         }
     }
 }
+
+extension View {
+    /// The accent foreground when `on`, else `fallback`; on an accent row selection, the ink drawn on the accent.
+    func accentForeground(_ on: Bool = true, else fallback: some ShapeStyle = .primary) -> some View {
+        modifier(AccentForeground(on: on, fallback: fallback))
+    }
+}
+
+private struct AccentForeground<Fallback: ShapeStyle>: ViewModifier {
+    let on: Bool
+    let fallback: Fallback
+    @Environment(\.backgroundProminence) private var prominence
+    @Environment(\.palette) private var palette
+
+    func body(content: Content) -> some View {
+        if prominence == .increased {
+            content.foregroundStyle(Color(palette.tintInk))
+        } else if on {
+            content.foregroundStyle(Color(palette.tintText))
+        } else {
+            content.foregroundStyle(fallback)
+        }
+    }
+}
