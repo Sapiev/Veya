@@ -5,6 +5,7 @@ import SwiftUI
 struct LyricsPane: View {
     let player: PlayerModel
     let metadata: any MetadataServiceProtocol
+    var background = true
     @State private var loaded: (uri: String, phase: Phase)?
 
     private enum Phase {
@@ -51,7 +52,7 @@ struct LyricsPane: View {
                 }
             }
             .padding(Theme.s2)
-            .glassPanel(cornerRadius: Theme.panelRadius)
+            .glassPanel(cornerRadius: Theme.panelRadius, shown: background)
         case .none:
             ContentUnavailableView("No Lyrics", systemImage: "quote.bubble", description: Text("This track has no lyrics."))
         case .failed:
@@ -81,7 +82,19 @@ private struct LyricsLines: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Theme.s4)
+                .padding(.horizontal, Theme.s4)
+                // As deep as the edge fade, so the first and last lines rest fully opaque.
+                .padding(.vertical, Theme.s12)
+            }
+            // Lines dissolve at both edges instead of ending at a hard cut.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Theme.s12)
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Theme.s12)
+                }
             }
             .arrowKeyList(lyrics.synced ? Array(lyrics.lines.indices) : [], focus: $focused) {
                 seek(lyrics.lines[$0].startMs)

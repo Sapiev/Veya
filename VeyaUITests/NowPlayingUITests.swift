@@ -134,10 +134,58 @@ final class NowPlayingUITests: XCTestCase {
         for text in ["Now Playing", "Next in Queue", "Song 5", "Next Up", "Song 7"] {
             XCTAssertTrue(queue.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
         }
-        XCTAssertTrue(app.buttons["Close Now Playing"].exists)
+        // Escape works even after the controls fade.
+        XCTAssertTrue(app.buttons["Close Now Playing"].waitForNonExistence(timeout: 6))
 
         app.typeKey(.escape, modifierFlags: [])
 
         XCTAssertTrue(queue.waitForNonExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// The Queue and Lyrics tabs, the top-right buttons and the window buttons fade while the pointer rests.
+    @MainActor func testQueueAndLyricsTabsHideWhileThePointerRests() {
+        let app = XCUIApplication.launch(.signedIn)
+        let open = app.buttons["Full-Window Now Playing"]
+        XCTAssertTrue(open.waitForExistence(timeout: XCUIApplication.timeout))
+        open.click()
+        let queueTab = app.radioButtons["Queue"]
+        XCTAssertTrue(queueTab.waitForExistence(timeout: XCUIApplication.timeout))
+
+        let close = app.buttons["Close Now Playing"]
+        let window = app.windows.firstMatch
+        XCTAssertTrue(queueTab.waitForNonExistence(timeout: 6))
+        XCTAssertFalse(close.exists)
+        attachScreenshot(of: window, named: "now-playing-controls-hidden")
+
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).hover()
+        XCTAssertTrue(queueTab.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(close.exists)
+        attachScreenshot(of: window, named: "now-playing-controls-shown")
+        app.radioButtons["Lyrics"].click()
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// The setting drops the panel behind the queue and lyrics; they stay readable on the artwork.
+    @MainActor func testPanesBackgroundCanBeTurnedOff() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey(",", modifierFlags: .command)
+        app.toolbars.buttons["General"].click()
+        let toggle = app.toggle("Panel behind queue and lyrics")
+        XCTAssertTrue(toggle.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(toggle.value as? Int, 1)
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 0)
+        app.typeKey("w", modifierFlags: .command)
+
+        app.buttons["Full-Window Now Playing"].click()
+        let window = app.windows.firstMatch
+        XCTAssertTrue(app.scrollViews["nowPlayingQueue"].staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "now-playing-queue-no-panel")
+        try assertAuditPasses(app, "now-playing-no-panel")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).hover()
+        app.radioButtons["Lyrics"].click()
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "now-playing-lyrics-no-panel")
     }
 }

@@ -212,8 +212,9 @@ struct AmbientBackground: View {
 
 extension View {
     /// A translucent panel with the design's hairline edge (`.glass`, `.glass-strong`).
-    func glassPanel(cornerRadius: CGFloat, strong: Bool = false) -> some View {
-        modifier(GlassPanel(cornerRadius: cornerRadius, strong: strong))
+    /// `shown: false` keeps the layout but drops the fill and edge.
+    func glassPanel(cornerRadius: CGFloat, strong: Bool = false, shown: Bool = true) -> some View {
+        modifier(GlassPanel(cornerRadius: cornerRadius, strong: strong, shown: shown))
     }
 }
 
@@ -221,6 +222,7 @@ extension View {
 private struct GlassPanel: ViewModifier {
     let cornerRadius: CGFloat
     let strong: Bool
+    let shown: Bool
     @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
@@ -228,10 +230,11 @@ private struct GlassPanel: ViewModifier {
         let fill: AnyShapeStyle = increased ? AnyShapeStyle(.windowBackground)
             : strong ? AnyShapeStyle(.regularMaterial) : AnyShapeStyle(.ultraThinMaterial)
         content
-            .background(fill, in: .rect(cornerRadius: cornerRadius))
+            .background(shown ? fill : AnyShapeStyle(.clear), in: .rect(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .strokeBorder(PanelEdge.color(increased), lineWidth: PanelEdge.width(increased))
+                    .opacity(shown ? 1 : 0)
             }
     }
 }
