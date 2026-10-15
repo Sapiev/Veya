@@ -309,10 +309,6 @@ final class SearchUITests: XCTestCase {
 
 @MainActor
 private extension XCUIApplication {
-    var searchField: XCUIElement {
-        textFields["searchField"]
-    }
-
     var searchResults: XCUIElement {
         descendants(matching: .any)["searchResults"].firstMatch
     }

@@ -61,6 +61,11 @@ extension XCUIApplication {
         ["Albums", "Artists", "Podcasts"].contains(name) ? outlines.buttons[name] : outlines.staticTexts[name]
     }
 
+    /// The toolbar's search field.
+    var searchField: XCUIElement {
+        textFields["searchField"]
+    }
+
     /// The track list on Liked Songs, a playlist or an album.
     var trackList: XCUIElement {
         outlines["trackList"]

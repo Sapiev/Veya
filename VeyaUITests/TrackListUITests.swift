@@ -60,6 +60,73 @@ final class TrackListUITests: XCTestCase {
         XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
     }
 
+    /// The sidebar's selection is the palette tint too, though AppKit draws it as a material.
+    @MainActor func testSidebarSelectionUsesTheAccentNotSystemBlue() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        // Only a focused list draws the accent; an unfocused one is the platform's gray.
+        app.typeKey(.tab, modifierFlags: [])
+        let focused = app.outlines.matching(NSPredicate(format: "hasKeyboardFocus == true"))["Sidebar"]
+        XCTAssertTrue(focused.waitForExistence(timeout: XCUIApplication.timeout))
+        let item = app.sidebarItem("Home")
+        let row = app.outlines.firstMatch.outlineRows.containing(.staticText, identifier: "Home").firstMatch
+
+        // Past the title's end, inside the rounded selection.
+        let color = try screenColors(y: item.frame.midY, x: [row.frame.maxX - 24])[0]
+        XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
+    }
+
+    /// The compact, icon-only sidebar keeps the accent selection after a click, which never focuses the list.
+    @MainActor func testCompactSidebarSelectionUsesTheAccentNotSystemBlue() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.buttons["Collapse Sidebar"].click()
+        XCTAssertTrue(app.buttons["Expand Sidebar"].waitForExistence(timeout: XCUIApplication.timeout))
+        let sidebar = app.outlines.firstMatch
+        // Icon-only rows keep their names as labels; the collapse animation leaves them briefly not hittable.
+        let row = sidebar.outlineRows.containing(NSPredicate(format: "label == 'Road Trip'")).firstMatch
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        XCTAssertTrue(app.showsRoute("Road Trip"))
+        let shot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        shot.name = "compact-sidebar-selection"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        // Beside the icon, inside the rounded selection.
+        let colors = try screenColors(y: row.frame.midY, x: [row.frame.minX + 14, row.frame.maxX - 14])
+        XCTAssertTrue(colors.contains { $0.redComponent > $0.blueComponent + 0.2 }, "\(colors)")
+        XCTAssertFalse(colors.contains { $0.blueComponent > $0.redComponent + 0.2 }, "\(colors)")
+    }
+
+    /// A selected compact icon turns the row's text color, not the accent it would vanish into.
+    @MainActor func testCompactSelectedIconStaysReadable() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.buttons["Collapse Sidebar"].click()
+        XCTAssertTrue(app.buttons["Expand Sidebar"].waitForExistence(timeout: XCUIApplication.timeout))
+        let row = app.outlines.firstMatch.outlineRows.containing(NSPredicate(format: "label == 'Search'")).firstMatch
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        XCTAssertTrue(app.showsRoute("Search"))
+
+        let pixels = try XCTUnwrap(ScreenPixels(XCUIScreen.main.screenshot()))
+        let icon = CGRect(x: row.frame.midX - 12, y: row.frame.midY - 12, width: 24, height: 24)
+        XCTAssertGreaterThan(pixels.contrast(in: icon), 3)
+    }
+
+    /// The playing row's accent title switches to the accent's ink once the row is selected in the accent.
+    @MainActor func testSelectedPlayingRowTitleStaysReadable() throws {
+        let app = likedSongs()
+        let title = app.trackList.staticTexts["Song 2"]
+        title.doubleClick()
+        XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+
+        let pixels = try XCTUnwrap(ScreenPixels(XCUIScreen.main.screenshot()))
+        XCTAssertGreaterThan(pixels.contrast(in: title.frame), 4.5)
+    }
+
     /// The right-click outline is the palette tint too, never the system blue.
     @MainActor func testRightClickOutlineUsesTheAccentNotSystemBlue() throws {
         let app = likedSongs()

@@ -12,6 +12,8 @@ public enum Route: Hashable, Sendable {
     case album(uri: String)
     case artist(uri: String)
     case show(uri: String)
+    /// A user's profile; nil is the signed-in user's.
+    case profile(username: String?)
 }
 
 /// Browser-style back and forward history for the main window.

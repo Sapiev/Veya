@@ -61,8 +61,9 @@ struct Sidebar: View {
 
     private var list: some View {
         List(selection: $selection) {
-            row(Text("Home"), .home) { symbol("house") }
-            row(Text("Search"), .search) { symbol("magnifyingglass") }
+            row(Text("Home"), .home) { symbol("house", .home) }
+            row(Text("Search"), .search) { symbol("magnifyingglass", .search) }
+            row(Text("Profile"), .profile(username: nil)) { symbol("person.crop.circle", .profile(username: nil)) }
             Section {
                 row(Text("Liked Songs"), .likedSongs) {
                     SymbolTile(systemImage: "heart.fill", fill: Color(palette.tint), ink: Color(palette.tintInk))
@@ -189,10 +190,11 @@ struct Sidebar: View {
             .tag(route)
     }
 
-    private func symbol(_ name: String) -> some View {
+    /// On its selected row the icon takes the row's text color, as the title does, so it reads on the accent.
+    private func symbol(_ name: String, _ route: Route) -> some View {
         Image(systemName: name)
             .scaledFont(size: compact ? 18 : 13)
-            .foregroundStyle(Color(palette.tintText))
+            .accentForeground(selection != route)
             .accessibilityHidden(true)
     }
 

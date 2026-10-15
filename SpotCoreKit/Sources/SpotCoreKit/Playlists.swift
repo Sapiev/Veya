@@ -65,6 +65,9 @@ public final class PlaylistModel {
     public private(set) var followers: [String: UInt64] = [:]
     /// Each requested playlist's picture; empty while fetching, on failure, or when it has none.
     public private(set) var artwork: [String: [Artwork]] = [:]
+    /// Each opened profile by username; `""` is the signed-in user's.
+    public private(set) var profiles: [String: UserProfile] = [:]
+    public private(set) var profileState: [String: LibraryLoadState] = [:]
     /// The last edit that didn't stick; the UI clears it once shown.
     public var editError: PlaylistEditError?
 
@@ -163,6 +166,19 @@ public final class PlaylistModel {
         }
     }
 
+    /// Fetches `username`'s profile, or the signed-in user's when nil; a failure keeps the last one shown.
+    public func loadProfile(_ username: String?) async {
+        let key = username ?? ""
+        if profiles[key] == nil { profileState[key] = .loading }
+        do {
+            profiles[key] = try await playlists.userProfile(username: username)
+            profileState[key] = .loaded
+        } catch {
+            log(.warn, "Couldn't load a profile: \(String(describing: type(of: error)))")
+            if profiles[key] == nil { profileState[key] = .failed }
+        }
+    }
+
     /// A failure keeps the last count, or none; the page shows without it.
     private func refreshFollowers(_ uri: String) async {
         do {
@@ -221,6 +237,15 @@ public final class PlaylistModel {
 
     public func isEditable(_ uri: String) -> Bool {
         rootlist.contains { if case .playlist(uri, _, _, _, _, true, _) = $0 { true } else { false } }
+    }
+
+    /// In the user's root list, whoever owns it.
+    public func isFollowed(_ uri: String) -> Bool {
+        rootlist.contains { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } }
+    }
+
+    public func setFollowed(_ uri: String, _ followed: Bool) async {
+        await rootlistEdit { try await followed ? playlists.followPlaylist(uri: uri) : playlists.deletePlaylist(uri: uri) }
     }
 
     public func isPublic(_ uri: String) -> Bool {

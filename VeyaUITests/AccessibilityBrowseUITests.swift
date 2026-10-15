@@ -53,6 +53,8 @@ final class AccessibilityBrowseUITests: XCTestCase {
         app.typeKey(.tab, modifierFlags: .shift)
         XCTAssertTrue(focusedSidebar.waitForExistence(timeout: XCUIApplication.timeout))
         app.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(app.showsRoute("UI Test"), "Profile")
+        app.typeKey(.downArrow, modifierFlags: [])
         XCTAssertTrue(app.showsRoute("Liked Songs"))
     }
 

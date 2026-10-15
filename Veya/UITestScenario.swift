@@ -370,6 +370,8 @@
     private nonisolated let scenarioLikedMirrorURI = "spotify:playlist:uitestlikedmirror"
     /// Spotify-owned, so Home lists it under Made for You.
     private nonisolated let scenarioMixURI = "spotify:playlist:uitestmix"
+    /// Fran's playlist, outside the root list until followed.
+    private nonisolated let scenarioFriendMixURI = "spotify:playlist:uitestfriendmix"
 
     /// Newest first: not started, halfway through, and played.
     private nonisolated let scenarioEpisodes = [
@@ -655,6 +657,7 @@
                     scenarioPlaylistURI: Playlist(name: "Road Trip", description: "Songs for the road", owner: "ui-test", songs: [1, 2, 5]),
                     scenarioMixURI: Playlist(name: "Daily Mix 1", description: "Made for you", owner: "spotify", songs: [4, 6]),
                     scenarioLikedMirrorURI: Playlist(name: "Liked Songs", description: "", owner: "spotify", songs: [1], likedSongs: true),
+                    scenarioFriendMixURI: Playlist(name: "Fran's Mix", description: "", owner: "fran", songs: [2]),
                 ]
                 state.conflictNext = conflict
                 if localFiles {
@@ -694,7 +697,7 @@
             } + playlist.local.map { PlaylistTrack(uri: $0, addedBy: "ui-test", addedAt: 1_760_000_000) }
             return PlaylistPage(
                 uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
-                owner: playlist.owner, ownerName: "UI Test", collaborative: false, editable: editable, likedSongs: playlist.likedSongs,
+                owner: playlist.owner, ownerName: playlist.owner == "fran" ? "Fran" : "UI Test", collaborative: false, editable: editable, likedSongs: playlist.likedSongs,
                 artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
                 total: UInt32(playlist.songs.count + playlist.local.count), offset: from, tracks: tracks
             )
@@ -751,6 +754,36 @@
                 state.rootlist.insert(.folder(uri: uri, name: name, parent: folder), at: 0)
                 return uri
             }
+        }
+
+        func followPlaylist(uri: String) async throws {
+            state.withLock { state in
+                guard let playlist = state.playlists[uri], !state.rootlist.contains(where: { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } })
+                else { return }
+                state.rootlist.insert(
+                    .playlist(uri: uri, name: playlist.name, owner: playlist.owner, trackCount: UInt32(playlist.songs.count), parent: nil, editable: false, public: true),
+                    at: 0
+                )
+            }
+        }
+
+        /// The signed-in "ui-test" follows Fran and Test Artist; Fran shares one playlist and no follows.
+        func userProfile(username: String?) async throws -> UserProfile {
+            if case .failing = fill { throw PlaylistError.Request(message: "ui-test") }
+            if username == "fran" {
+                return UserProfile(
+                    username: "fran", name: "Fran", artwork: [], followers: 3,
+                    playlists: [ProfileItem(uri: scenarioFriendMixURI, name: "Fran's Mix", artwork: [])], following: []
+                )
+            }
+            return UserProfile(
+                username: "ui-test", name: "UI Test", artwork: [], followers: 1,
+                playlists: [ProfileItem(uri: scenarioPlaylistURI, name: "Road Trip", artwork: [])],
+                following: [
+                    ProfileItem(uri: "spotify:user:fran", name: "Fran", artwork: []),
+                    ProfileItem(uri: "spotify:artist:uitest", name: "Test Artist", artwork: []),
+                ]
+            )
         }
 
         func deletePlaylist(uri: String) async throws {

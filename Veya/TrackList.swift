@@ -52,7 +52,7 @@ struct TrackList: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(row.title.isEmpty ? String(localized: "Loading…") : row.title)
                             .scaledFont(size: 14, weight: .medium)
-                            .foregroundStyle(isPlaying(row) ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.primary))
+                            .accentForeground(isPlaying(row))
                         Text(row.artists.map(\.name).formatted(.list(type: .and)))
                             .scaledFont(size: 13)
                             .foregroundStyle(.secondary)
@@ -156,7 +156,6 @@ struct TrackList: View {
         }
     }
 
-    @Environment(\.palette) private var palette
     @Environment(\.colorSchemeContrast) private var contrast
 
     @ViewBuilder private func menu(for rows: [Row]) -> some View {
@@ -547,9 +546,10 @@ struct Equalizer: View {
     let animating: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.palette) private var palette
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
-        EqualizerBars(animating: animating && !reduceMotion, color: palette.tintText)
+        EqualizerBars(animating: animating && !reduceMotion, color: prominence == .increased ? palette.tintInk : palette.tintText)
             .frame(width: 13, height: 14)
     }
 }
@@ -626,7 +626,6 @@ private struct LikeCell: View {
     let library: LibraryModel
     let revealed: Bool
     let hover: RowHover
-    @Environment(\.palette) private var palette
 
     var body: some View {
         let saved = library.isSaved(row.uri)
@@ -634,7 +633,7 @@ private struct LikeCell: View {
             library.setSaved(row.uri, !saved)
         } label: {
             Image(systemName: saved ? "heart.fill" : "heart")
-                .foregroundStyle(saved ? AnyShapeStyle(Color(palette.tintText)) : AnyShapeStyle(.secondary))
+                .accentForeground(saved, else: .secondary)
                 .frame(width: 28, height: 28)
                 .contentShape(.rect)
         }
