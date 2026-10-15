@@ -28,6 +28,34 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertEqual(close.frame.minY - app.windows.firstMatch.frame.minY, 12, accuracy: 1)
     }
 
+    @MainActor func testQueueAndLyricsHideToCenterThePlayerAndStayHidden() {
+        let app = XCUIApplication.launch(.signedIn)
+        let open = app.buttons["Full-Window Now Playing"]
+        XCTAssertTrue(open.waitForExistence(timeout: XCUIApplication.timeout))
+        open.click()
+        XCTAssertTrue(app.scrollViews["nowPlayingQueue"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        app.buttons["Hide Queue and Lyrics"].click()
+        XCTAssertTrue(app.buttons["Show Queue and Lyrics"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.scrollViews["nowPlayingQueue"].exists)
+        let window = app.windows.firstMatch
+        let artwork = app.sliders["Playback Position"].firstMatch
+        XCTAssertEqual(artwork.frame.midX, window.frame.midX, accuracy: 2)
+        let shot = XCTAttachment(screenshot: window.screenshot())
+        shot.name = "now-playing-panes-hidden"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        app.buttons["Close Now Playing"].click()
+        open.click()
+        XCTAssertTrue(app.buttons["Show Queue and Lyrics"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        // Asking for lyrics shows them even though the panes were hidden.
+        app.buttons["Close Now Playing"].click()
+        app.buttons["Lyrics"].click()
+        XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
     @MainActor func testLyricsButtonOpensTheLyricsTab() {
         let app = XCUIApplication.launch(.signedIn)
         let lyrics = app.buttons["Lyrics"]

@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     let history: NavigationHistory
     @State var tab: Tab
     let close: () -> Void
+    @AppStorage("nowPlayingShowsPanes") private var showsPanes = true
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
@@ -21,7 +22,12 @@ struct NowPlayingView: View {
         GeometryReader { proxy in
             let wide = proxy.size.width >= 1100
             Group {
-                if wide {
+                if !showsPanes {
+                    playing(side: min(560, proxy.size.width - 2 * Theme.s12, proxy.size.height - 380))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, 72)
+                        .padding([.horizontal, .bottom], Theme.s12)
+                } else if wide {
                     HStack(spacing: Theme.s12) {
                         playing(side: min(440, (proxy.size.width - 3 * Theme.s12) / 2, proxy.size.height - 380))
                             .frame(maxWidth: .infinity)
@@ -45,15 +51,25 @@ struct NowPlayingView: View {
             .background { backdrop(proxy.size) }
         }
         .overlay(alignment: .topTrailing) {
-            Button("Close Now Playing", systemImage: "chevron.down", action: close)
-                .labelStyle(.iconOnly)
-                .buttonStyle(TransportButtonStyle(side: 32, onArtwork: true))
-                .background(.white.opacity(0.14), in: .circle)
-                .keyboardShortcut(.cancelAction)
-                .help("Close Now Playing")
-                .padding(.top, Theme.s3)
-                .padding(.trailing, Theme.s4)
+            HStack(spacing: Theme.s2) {
+                let toggle: LocalizedStringKey = showsPanes ? "Hide Queue and Lyrics" : "Show Queue and Lyrics"
+                Button(toggle, systemImage: "sidebar.right") { showsPanes.toggle() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(TransportButtonStyle(side: 32, onArtwork: true))
+                    .background(.white.opacity(showsPanes ? 0.14 : 0.06), in: .circle)
+                    .help(toggle)
+                Button("Close Now Playing", systemImage: "chevron.down", action: close)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(TransportButtonStyle(side: 32, onArtwork: true))
+                    .background(.white.opacity(0.14), in: .circle)
+                    .keyboardShortcut(.cancelAction)
+                    .help("Close Now Playing")
+            }
+            .padding(.top, Theme.s3)
+            .padding(.trailing, Theme.s4)
         }
+        // Asking for lyrics brings the panes back even when they were hidden last time.
+        .onAppear { if tab == .lyrics { showsPanes = true } }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
     }
