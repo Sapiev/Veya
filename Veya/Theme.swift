@@ -91,6 +91,39 @@ extension View {
     func scaledFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
         modifier(ScaledFont(size: size, weight: weight, design: design))
     }
+
+    /// Fades text to its new content when `id` changes, and animates any layout change with it; instant under Reduce Motion.
+    func dissolvesContent(on id: some Hashable) -> some View {
+        modifier(DissolvesContent(id: id))
+    }
+
+    /// Cross-dissolves fixed-size content such as artwork to a new view when `id` changes; instant under Reduce Motion.
+    func crossDissolve(on id: some Hashable) -> some View {
+        modifier(CrossDissolve(id: id))
+    }
+}
+
+private struct DissolvesContent<ID: Hashable>: ViewModifier {
+    let id: ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(.opacity)
+            .animation(reduceMotion ? nil : Theme.standard, value: id)
+    }
+}
+
+private struct CrossDissolve<ID: Hashable>: ViewModifier {
+    let id: ID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        ZStack {
+            content.id(id).transition(.opacity)
+        }
+        .animation(reduceMotion ? nil : Theme.standard, value: id)
+    }
 }
 
 extension Color {

@@ -546,7 +546,7 @@
             snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
         }
 
-        func next() {}
+        func next() { skip(count: 1) }
         func playNext(uri: String) throws { snapshot.withLock { $0.upNext.insert(uri, at: 0) } }
         func previous() {}
         func skip(count: UInt32) {
