@@ -22,6 +22,21 @@ struct PlaybackSettingsTests {
         #expect(settings.bitrate == .kbps320)
         #expect(settings.audioCacheLimitBytes == 1_073_741_824)
         #expect(settings.autoplay)
+        #expect(settings.crossfadeSeconds == 0)
+    }
+
+    /// PBI-208: the crossfade length survives a relaunch and stays within 0...12 s.
+    @Test func crossfadeIsKeptAndClamped() {
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.crossfadeSeconds = 7
+        #expect(PlaybackSettings(defaults: defaults).crossfadeSeconds == 7)
+
+        settings.crossfadeSeconds = 30
+        #expect(settings.crossfadeSeconds == 12)
+        defaults.set(99, forKey: "playback.crossfadeSeconds")
+        #expect(PlaybackSettings(defaults: defaults).crossfadeSeconds == 12)
+        defaults.set(-3, forKey: "playback.crossfadeSeconds")
+        #expect(PlaybackSettings(defaults: defaults).crossfadeSeconds == 0)
     }
 
     /// PBI-501: the Connect device is named after the Mac and stays off the LAN until asked.

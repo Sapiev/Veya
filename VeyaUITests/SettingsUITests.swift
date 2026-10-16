@@ -4,7 +4,7 @@ import XCTest
 /// PBI-407: the Settings window; PBI-203: autoplay switch; PBI-205, PBI-206, PBI-207: playback and storage choices.
 /// General: window colors from the artwork, an accent color, or the accent cycling.
 /// PBI-103: the cache size footer says playback survives the reconnect. PBI-309: the Spotify Web API section.
-/// PBI-501: the Connect device name and the zeroconf switch.
+/// PBI-501: the Connect device name and the zeroconf switch. PBI-208: the crossfade slider.
 final class SettingsUITests: XCTestCase {
     @MainActor private func openSettings(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
@@ -159,6 +159,29 @@ final class SettingsUITests: XCTestCase {
 
         let output = app.popUpButtons["Output device"]
         XCTAssertEqual(output.value as? String, "System Default")
+    }
+
+    /// PBI-208: crossfade starts off, moves by keyboard and is kept after reopening Settings.
+    @MainActor func testCrossfadeSliderStartsOffAndKeepsItsLength() throws {
+        let app = openSettings()
+        tab(app, "Playback").click()
+        let crossfade = app.sliders["Crossfade songs"]
+        XCTAssertTrue(crossfade.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(crossfade.value as? NSNumber, 0)
+        XCTAssertTrue(app.staticTexts["Off"].exists)
+
+        crossfade.adjust(toNormalizedSliderPosition: 0.5)
+        XCTAssertEqual(crossfade.value as? NSNumber, 6)
+        XCTAssertTrue(app.staticTexts["6 s"].exists)
+        attachScreenshot(of: app.windows.firstMatch, named: "settings-playback-crossfade")
+        try assertAuditPasses(app, "Settings › Playback")
+
+        app.typeKey("w", modifierFlags: .command)
+        app.typeKey(",", modifierFlags: .command)
+        tab(app, "Playback").click()
+        XCTAssertTrue(crossfade.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(crossfade.value as? NSNumber, 6)
+        XCTAssertTrue(app.staticTexts["6 s"].exists)
     }
 
     @MainActor func testCacheSizeFooterSaysPlaybackResumesAfterReconnect() {

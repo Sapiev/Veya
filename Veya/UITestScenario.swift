@@ -493,6 +493,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setCrossfade(seconds _: UInt8) {}
         func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}
@@ -567,6 +568,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setCrossfade(seconds _: UInt8) {}
         func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}

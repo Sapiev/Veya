@@ -124,6 +124,7 @@ public final class PlayerModel {
         var volume: UInt16
         var bitrate: Bitrate
         var normalisation: LoudnessPreset?
+        var crossfade: UInt8
         var outputDeviceUID: String?
         var rate: Float
         var autoplay: Bool
@@ -160,6 +161,8 @@ public final class PlayerModel {
             volume: settings.playerVolume,
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
+            // A new player starts with crossfade off, so `followSettings` applies the setting.
+            crossfade: 0,
             outputDeviceUID: settings.outputDeviceUID,
             rate: 1,
             autoplay: queue.autoplay,
@@ -475,6 +478,7 @@ public final class PlayerModel {
             volume: settings.playerVolume,
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
+            crossfade: settings.crossfadeSeconds,
             outputDeviceUID: settings.outputDeviceUID,
             rate: settings.rate(for: nowPlaying?.uri ?? ""),
             autoplay: settings.autoplay,
@@ -499,6 +503,9 @@ public final class PlayerModel {
         }
         if target.autoplay != previous.autoplay {
             player.setAutoplay(on: target.autoplay)
+        }
+        if target.crossfade != previous.crossfade {
+            player.setCrossfade(seconds: target.crossfade)
         }
         guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation
             || target.localFolders != previous.localFolders else { return }

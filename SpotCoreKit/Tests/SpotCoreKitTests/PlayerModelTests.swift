@@ -86,6 +86,7 @@ final class FakePlayer: SpotPlayerProtocol {
     func seek(positionMs: UInt32) { record("seek \(positionMs)") }
     func setAutoplay(on: Bool) { record("autoplay \(on)") }
     func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
+    func setCrossfade(seconds: UInt8) { record("crossfade \(seconds)") }
     func setLocalFolders(paths: [String]) async { record("local folders \(paths)") }
     func setNormalisation(normalisation: LoudnessPreset?) async { record("normalisation \(normalisation.map { "\($0)" } ?? "off")") }
     func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
@@ -240,6 +241,24 @@ struct PlayerModelTests {
         await player.settingsApply?.value
         #expect(fake.recorded.last == "normalisation loud")
         #expect(fake.recorded.count == 4)
+    }
+
+    /// PBI-208: a saved crossfade reaches a new player at startup, and each change reaches it once.
+    @Test func crossfadeIsAppliedAtStartupAndOnChange() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.crossfadeSeconds = 6
+        let player = model(fake, settings: settings)
+        #expect(fake.recorded == ["crossfade 6"])
+
+        settings.crossfadeSeconds = 0
+        while fake.recorded.count < 2 {
+            await Task.yield()
+        }
+        settings.crossfadeSeconds = 0
+        await Task.yield()
+        #expect(fake.recorded == ["crossfade 6", "crossfade 0"])
+        withExtendedLifetime(player) {}
     }
 
     /// PBI-501: a phone's volume change moves the slider and is not sent back.

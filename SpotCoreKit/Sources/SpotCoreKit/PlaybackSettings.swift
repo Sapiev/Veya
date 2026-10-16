@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import SystemConfiguration
 
-/// App volume, loudness normalisation, output device, streaming quality,
+/// App volume, loudness normalisation, crossfade, output device, streaming quality,
 /// audio cache size, episode speed, autoplay, the Spotify Connect device and
 /// local file folders, persisted across launches.
 @MainActor
@@ -26,6 +26,19 @@ public final class PlaybackSettings {
     public var loudness: LoudnessPreset {
         didSet { defaults.set(loudness.storedName, forKey: Key.loudness) }
     }
+
+    /// Seconds a naturally ending track blends into the next, 0 (off) to 12.
+    public var crossfadeSeconds: UInt8 {
+        get { storedCrossfadeSeconds }
+        set {
+            storedCrossfadeSeconds = min(newValue, Self.maxCrossfadeSeconds)
+            defaults.set(Int(storedCrossfadeSeconds), forKey: Key.crossfade)
+        }
+    }
+
+    private var storedCrossfadeSeconds: UInt8
+
+    public static let maxCrossfadeSeconds: UInt8 = 12
 
     /// UID of the chosen output device; `nil` follows the system default.
     public var outputDeviceUID: String? {
@@ -114,7 +127,7 @@ public final class PlaybackSettings {
     @ObservationIgnored private let macName: String
 
     /// Defaults to full volume, which leaves the signal unchanged, Normal
-    /// loudness as Spotify does, 320 kbps, a 1 GB cache, autoplay on, the
+    /// loudness as Spotify does, no crossfade, 320 kbps, a 1 GB cache, autoplay on, the
     /// Mac's name as the Connect device name and zeroconf off.
     public init(defaults: UserDefaults = .standard, macName: String? = PlaybackSettings.computerName()) {
         self.defaults = defaults
@@ -122,6 +135,7 @@ public final class PlaybackSettings {
         storedVolume = Self.clamped(defaults.object(forKey: Key.volume) as? Double ?? 1)
         normalises = defaults.object(forKey: Key.normalises) as? Bool ?? true
         loudness = defaults.string(forKey: Key.loudness).flatMap(LoudnessPreset.init(storedName:)) ?? .normal
+        storedCrossfadeSeconds = UInt8(clamping: min(defaults.integer(forKey: Key.crossfade), Int(Self.maxCrossfadeSeconds)))
         outputDeviceUID = defaults.string(forKey: Key.outputDevice)
         bitrate = defaults.string(forKey: Key.bitrate).flatMap(Bitrate.init(storedName:)) ?? .kbps320
         autoplay = defaults.object(forKey: Key.autoplay) as? Bool ?? true
@@ -205,6 +219,7 @@ public final class PlaybackSettings {
         static let volume = "playback.volume"
         static let normalises = "playback.normalises"
         static let loudness = "playback.loudness"
+        static let crossfade = "playback.crossfadeSeconds"
         static let outputDevice = "playback.outputDevice"
         static let bitrate = "playback.bitrate"
         static let autoplay = "playback.autoplay"
