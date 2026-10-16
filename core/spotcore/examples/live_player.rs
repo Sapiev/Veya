@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     time_until(&events, "load -> playing (target < 1000)", playing);
 
     std::thread::sleep(Duration::from_secs(3));
-    player.pause();
+    Arc::clone(&player).pause();
     time_until(&events, "pause -> paused (target < 100)", |e| {
         matches!(e, PlaybackEvent::Paused { .. })
     });
