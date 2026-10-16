@@ -102,7 +102,7 @@ struct QueuePanel: View {
         // A new track starts the list over from the top.
         .id(player.nowPlaying?.uri)
         .task(id: player.context) {
-            if let context = player.context { library.resolve([context]) }
+            if let context = player.context, context != likedSongsContext { library.resolve([context]) }
         }
     }
 
@@ -133,6 +133,7 @@ struct QueuePanel: View {
     }
 
     private func contextName(_ uri: String) -> String? {
+        if uri == likedSongsContext { return String(localized: "Liked Songs") }
         for case let .playlist(playlistURI, name, _, _, _, _, _) in playlists.rootlist where playlistURI == uri {
             return name
         }

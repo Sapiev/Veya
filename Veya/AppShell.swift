@@ -331,7 +331,7 @@ private struct LikedSongs: View {
             ) {
                 TrackList(
                     entries: items.map { TrackEntry(uri: $0.uri, addedAt: Date(timeIntervalSince1970: TimeInterval($0.addedAt))) },
-                    context: nil,
+                    context: likedSongsContext,
                     library: library,
                     player: player,
                     playlists: playlists,
