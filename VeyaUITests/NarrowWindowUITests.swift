@@ -2,10 +2,13 @@ import XCTest
 
 /// PBI-406: a narrow window keeps the player bar's controls apart and trades the sidebar for the queue.
 final class NarrowWindowUITests: XCTestCase {
-    @MainActor private func launchNarrow() -> XCUIApplication {
-        let app = XCUIApplication.launch(.signedIn, windowWidth: 900)
+    /// The window's minimum: the narrowest page plus the queue, so opening the queue still leaves a full page.
+    static let minWindowWidth = 930
+
+    @MainActor private func launchNarrow(locale: String? = nil) -> XCUIApplication {
+        let app = XCUIApplication.launch(.signedIn, locale: locale, windowWidth: Self.minWindowWidth)
         XCTAssertTrue(app.staticTexts["Test Track"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(app.windows.firstMatch.frame.width, 900, accuracy: 1)
+        XCTAssertEqual(app.windows.firstMatch.frame.width, CGFloat(Self.minWindowWidth), accuracy: 1)
         return app
     }
 
@@ -13,7 +16,7 @@ final class NarrowWindowUITests: XCTestCase {
         let repeatButton = app.buttons["Repeat"].firstMatch
         let lyrics = app.buttons["Lyrics"].firstMatch
         XCTAssertTrue(lyrics.exists, message)
-        XCTAssertGreaterThanOrEqual(lyrics.frame.minX, repeatButton.frame.maxX, message)
+        XCTAssertGreaterThanOrEqual(lyrics.frame.minX, repeatButton.frame.maxX + 8, message)
     }
 
     @MainActor func testOpeningTheQueueInANarrowWindowHidesTheSidebarUntilItCloses() {
@@ -79,7 +82,7 @@ final class NarrowWindowUITests: XCTestCase {
     }
 
     @MainActor func testTheMuteButtonNamesTheVolumeForVoiceOver() {
-        let app = launchNarrow()
+        let app = launchNarrow(locale: "en_US")
 
         XCTAssertNotNil((app.buttons["Mute"].firstMatch.value as? String)?.range(of: #"^\d+%$"#, options: .regularExpression))
     }
