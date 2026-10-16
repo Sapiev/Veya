@@ -15,6 +15,25 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Output Device"].exists)
     }
 
+    /// PBI-208: the bar cross-dissolves to the next track and the old title goes away.
+    @MainActor func testNextReplacesTheTrackInTheBar() {
+        let app = XCUIApplication.launch(.signedIn)
+        let window = app.windows.firstMatch
+        XCTAssertTrue(app.staticTexts["Test Track"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "track-before")
+
+        app.buttons["Next"].firstMatch.click()
+
+        XCTAssertTrue(app.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["Test Track"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "track-after")
+
+        app.buttons["Full-Window Now Playing"].click()
+        XCTAssertTrue(app.buttons["Close Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: window, named: "full-after")
+    }
+
     @MainActor func testFullViewCoversTheWindowToItsTopEdge() {
         let app = XCUIApplication.launch(.signedIn)
         let open = app.buttons["Full-Window Now Playing"]

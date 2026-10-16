@@ -107,6 +107,7 @@ struct NowPlayingView: View {
         Color(palette.ambient)
             .overlay {
                 ArtworkView(artwork: player.nowPlaying?.artwork ?? [], side: 48)
+                    .crossDissolve(on: player.nowPlaying?.uri)
                     .saturation(1.6)
                     .blur(radius: 6)
                     .scaleEffect(max(size.width, size.height) / 48 * 1.3)
@@ -124,6 +125,7 @@ struct NowPlayingView: View {
             VStack(spacing: Theme.s6) {
                 ArtworkView(artwork: nowPlaying.artwork, side: side)
                     .clipShape(.rect(cornerRadius: 12))
+                    .crossDissolve(on: nowPlaying.uri)
                     .shadow(color: .black.opacity(0.55), radius: 40, y: 30)
                     .scaleEffect(player.isPlaying || reduceMotion ? 1 : 0.92)
                     .animation(
@@ -142,6 +144,7 @@ struct NowPlayingView: View {
                 }
                 .lineLimit(1)
                 .frame(width: side, alignment: .leading)
+                .dissolvesContent(on: nowPlaying.uri)
                 Scrubber(player: player, large: true)
                     .frame(width: side)
                 HStack(spacing: Theme.s5) {

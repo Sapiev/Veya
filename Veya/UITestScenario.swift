@@ -493,6 +493,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setCrossfade(seconds _: UInt8) {}
         func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}
@@ -545,7 +546,7 @@
             snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
         }
 
-        func next() {}
+        func next() { skip(count: 1) }
         func playNext(uri: String) throws { snapshot.withLock { $0.upNext.insert(uri, at: 0) } }
         func previous() {}
         func skip(count: UInt32) {
@@ -567,6 +568,7 @@
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
+        func setCrossfade(seconds _: UInt8) {}
         func setLocalFolders(paths _: [String]) async {}
         func setNormalisation(normalisation _: LoudnessPreset?) async {}
         func setRepeat(mode _: RepeatMode) {}

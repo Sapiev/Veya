@@ -12,6 +12,7 @@ final class FakePlayer: SpotPlayerProtocol {
     struct LoadFailed: Error {}
 
     init(
+        current: String? = nil,
         shuffle: Bool = false,
         repeat mode: RepeatMode = .off,
         upNext: [String] = [],
@@ -20,7 +21,7 @@ final class FakePlayer: SpotPlayerProtocol {
     ) {
         self.failsLoad = failsLoad
         snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
-            current: nil, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
+            current: current, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
         ))
     }
 
@@ -86,6 +87,7 @@ final class FakePlayer: SpotPlayerProtocol {
     func seek(positionMs: UInt32) { record("seek \(positionMs)") }
     func setAutoplay(on: Bool) { record("autoplay \(on)") }
     func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
+    func setCrossfade(seconds: UInt8) { record("crossfade \(seconds)") }
     func setLocalFolders(paths: [String]) async { record("local folders \(paths)") }
     func setNormalisation(normalisation: LoudnessPreset?) async { record("normalisation \(normalisation.map { "\($0)" } ?? "off")") }
     func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
@@ -141,6 +143,16 @@ struct PlayerModelTests {
         await player.resolution?.value
         #expect(player.nowPlaying?.artists == [ItemRef(uri: "spotify:artist:1", name: "Band")])
         #expect(player.nowPlaying?.album?.uri == "spotify:album:1")
+    }
+
+    @Test func aLoadingTrackTakesItsOwnLengthNotThePreviousOne() async {
+        let player = model()
+        player.apply(.trackChanged(uri: "spotify:track:2", name: "Other", durationMs: 10_000))
+        player.apply(.loading(uri: trackURI, positionMs: 0))
+        #expect(player.nowPlaying?.durationMs == 0)
+
+        await player.resolution?.value
+        #expect(player.nowPlaying?.durationMs == 200_000)
     }
 
     @Test func staleMetadataDoesNotOverwriteANewerTrack() async {
@@ -240,6 +252,24 @@ struct PlayerModelTests {
         await player.settingsApply?.value
         #expect(fake.recorded.last == "normalisation loud")
         #expect(fake.recorded.count == 4)
+    }
+
+    /// PBI-208: a saved crossfade reaches a new player at startup, and each change reaches it once.
+    @Test func crossfadeIsAppliedAtStartupAndOnChange() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        settings.crossfadeSeconds = 6
+        let player = model(fake, settings: settings)
+        #expect(fake.recorded == ["crossfade 6"])
+
+        settings.crossfadeSeconds = 0
+        while fake.recorded.count < 2 {
+            await Task.yield()
+        }
+        settings.crossfadeSeconds = 0
+        await Task.yield()
+        #expect(fake.recorded == ["crossfade 6", "crossfade 0"])
+        withExtendedLifetime(player) {}
     }
 
     /// PBI-501: a phone's volume change moves the slider and is not sent back.
@@ -351,6 +381,17 @@ struct PlayerModelTests {
         player.apply(.remoteChanged(deviceName: nil, volume: nil))
         player.teardown()
         #expect(settings.lastPlayback == at(9000), "saved on quit")
+    }
+
+    /// PBI-501: a relinked track is saved under the id its context lists, so the restore finds it there.
+    @Test func savedPlaybackUsesTheQueuesIdOverARelinkedOne() {
+        let listed = "spotify:track:1qCQTy0fTXerET4x8VHyr9"
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(FakePlayer(current: listed), settings: settings)
+
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+
+        #expect(settings.lastPlayback?.trackUri == listed)
     }
 
     /// PBI-501: the restore gets the saved playback.

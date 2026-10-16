@@ -190,6 +190,10 @@ private struct PlaybackSettingsTab: View {
 
     private static let speeds: [Float] = [0.8, 1, 1.25, 1.5, 1.75, 2]
 
+    private var crossfade: Binding<Double> {
+        Binding { Double(settings.crossfadeSeconds) } set: { settings.crossfadeSeconds = UInt8($0.rounded()) }
+    }
+
     var body: some View {
         Form {
             Picker("Streaming quality", selection: $settings.bitrate) {
@@ -208,6 +212,16 @@ private struct PlaybackSettingsTab: View {
             }
             .accessibilityLabel("Loudness")
             .disabled(!settings.normalises)
+            LabeledContent("Crossfade songs") {
+                HStack {
+                    Slider(value: crossfade, in: 0...Double(PlaybackSettings.maxCrossfadeSeconds), step: 1)
+                        .accessibilityLabel("Crossfade songs")
+                        .accessibilityValue(settings.crossfadeSeconds == 0 ? "Off" : "\(settings.crossfadeSeconds) seconds")
+                    Text(settings.crossfadeSeconds == 0 ? "Off" : "\(settings.crossfadeSeconds) s")
+                        .monospacedDigit()
+                        .frame(minWidth: 32, alignment: .trailing)
+                }
+            }
             Toggle(isOn: $settings.autoplay) {
                 Text("Autoplay")
                 Text("When an album or playlist ends, similar songs keep playing.")

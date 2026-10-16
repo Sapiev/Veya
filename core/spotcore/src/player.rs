@@ -25,7 +25,7 @@ use librespot_protocol::context::Context;
 use log::{info, warn};
 use tokio::sync::watch;
 
-use crate::audio::{AudioOutput, CoreAudioSink};
+use crate::audio::{AudioOutput, CoreAudioSink, FADE, Transitions};
 use crate::connect::SpotConnect;
 use crate::devices::DeviceList;
 use crate::queue::{Queue, RepeatMode};
@@ -230,6 +230,8 @@ pub struct SpotPlayer {
     player: Mutex<Arc<Player>>,
     tuning: Mutex<Tuning>,
     sink: Arc<Mutex<CoreAudioSink>>,
+    /// Shared with the sink and the local event loop, never locks the sink.
+    transitions: Arc<Transitions>,
     epoch: Epoch,
     mixer: SoftMixer,
     observer: Arc<dyn PlayerObserver>,
@@ -257,9 +259,9 @@ impl SpotPlayer {
             bitrate,
             local_folders: Vec::new(),
         };
-        let sink = Arc::new(Mutex::new(
-            output.take_sink().ok_or(PlayerError::OutputTaken)?,
-        ));
+        let sink = output.take_sink().ok_or(PlayerError::OutputTaken)?;
+        let transitions = sink.transitions();
+        let sink = Arc::new(Mutex::new(sink));
         let mixer = soft_mixer(volume);
         let epoch = Epoch {
             current: Arc::default(),
@@ -281,6 +283,7 @@ impl SpotPlayer {
         let owner = Owner::default();
         let shared = SharedSink {
             sink: Arc::clone(&sink),
+            transitions: Arc::clone(&transitions),
             gate: Gate {
                 epoch: epoch.clone(),
                 role: Role::Local,
@@ -301,6 +304,7 @@ impl SpotPlayer {
             player: Mutex::new(player),
             tuning: Mutex::new(tuning),
             sink,
+            transitions,
             epoch,
             mixer,
             observer,
@@ -339,6 +343,12 @@ impl SpotPlayer {
     /// resumes the current track where it was. `None` turns normalisation off.
     pub async fn set_normalisation(&self, normalisation: Option<LoudnessPreset>) {
         self.retune(|t| t.normalisation = normalisation);
+    }
+
+    /// Crossfades tracks that follow on without a user action (ADR-010).
+    /// 0 turns it off; values above 12 s are clamped to 12.
+    pub fn set_crossfade(&self, seconds: u8) {
+        self.transitions.set_crossfade(seconds);
     }
 
     /// Rebuilds the player like `set_normalisation`; the current track
@@ -488,18 +498,40 @@ impl SpotPlayer {
             return connect.spirc(Spirc::play);
         }
         lock(&self.state).clock.wants_play = true;
-        self.player().play();
+        // During a pause fade librespot is still playing; the fade ramps back up.
+        if !self.transitions.cancel_pause() {
+            self.player().play();
+        }
     }
 
-    pub fn pause(&self) {
+    /// Locally, fades out over `FADE` before librespot pauses, so its Paused
+    /// event comes that much later; a newer command cancels it (ADR-010).
+    pub fn pause(self: Arc<Self>) {
         if let Some((connect, target)) = self.remote_mode() {
             return connect.remote(target, &RemoteCommand::Pause);
         }
         if let Some(connect) = self.connect_mode() {
             return connect.spirc(Spirc::pause);
         }
-        lock(&self.state).clock.wants_play = false;
-        self.player().pause();
+        let playing = {
+            let mut state = lock(&self.state);
+            state.clock.wants_play = false;
+            state.clock.playing
+        };
+        if !playing {
+            return self.player().pause();
+        }
+        let Some(generation) = self.transitions.begin_pause() else {
+            return;
+        };
+        let this = Arc::downgrade(&self);
+        std::thread::spawn(move || {
+            std::thread::sleep(FADE);
+            if let Some(this) = this.upgrade() {
+                let player = this.player();
+                this.transitions.finish_pause(generation, || player.pause());
+            }
+        });
     }
 
     pub fn seek(&self, position_ms: u32) {
@@ -508,6 +540,10 @@ impl SpotPlayer {
         }
         if let Some(connect) = self.connect_mode() {
             return connect.spirc(|s| s.set_position_ms(position_ms));
+        }
+        if self.transitions.discontinuity() {
+            // The seek cancelled a pause fade, so playback carries on.
+            lock(&self.state).clock.wants_play = true;
         }
         self.player().seek(position_ms);
     }
@@ -526,6 +562,7 @@ impl SpotPlayer {
         if let Some(track) = state.queue.advance(true).cloned() {
             state.supersede();
             state.clock.wants_play = true;
+            self.transitions.discontinuity();
             self.player().load(track, true, 0);
         }
     }
@@ -553,6 +590,7 @@ impl SpotPlayer {
         if let Some(track) = state.queue.skip(count as usize).cloned() {
             state.supersede();
             state.clock.wants_play = true;
+            self.transitions.discontinuity();
             self.player().load(track, true, 0);
         }
     }
@@ -569,10 +607,12 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
+            self.transitions.discontinuity();
             self.player().seek(0);
         } else if let Some(track) = state.queue.back().cloned() {
             state.supersede();
             state.clock.wants_play = true;
+            self.transitions.discontinuity();
             self.player().load(track, true, 0);
         }
     }
@@ -687,6 +727,7 @@ impl SpotPlayer {
         if let Some(connect) = self.connect_mode() {
             return connect.spirc(Spirc::pause);
         }
+        self.transitions.discontinuity();
         self.player().stop();
     }
 }
@@ -739,6 +780,35 @@ impl State {
 }
 
 impl SpotPlayer {
+    /// Loads `track` paused at `position_ms` inside `context` on the local
+    /// player, so Connect never owns playback the user did not hand over.
+    /// Falls back to `track` alone when the context cannot be resolved or no
+    /// longer holds it.
+    pub(crate) async fn restore(
+        &self,
+        context: Option<String>,
+        track: String,
+        position_ms: u32,
+    ) -> Result<(), PlayerError> {
+        let track = playable(&track)?;
+        let context = context.and_then(|uri| SpotifyUri::from_uri(&uri).ok());
+        let choice = lock(&self.state).claim();
+        let resolved = match &context {
+            Some(uri) => resolve(&self.session.current_session(), uri).await.ok(),
+            None => None,
+        };
+        let (tracks, start, context) = restore_start(resolved, track, context);
+        self.sync_session();
+        self.start_context(
+            tracks,
+            Some(start),
+            context,
+            position_ms,
+            false,
+            Some(choice),
+        )
+    }
+
     /// Starts at `start`, or where `set_context` would (shuffled or first)
     /// without one. Does nothing when `choice` is no longer the latest one.
     fn start_context(
@@ -752,6 +822,7 @@ impl SpotPlayer {
     ) -> Result<(), PlayerError> {
         let mut state = lock(&self.state);
         if let Some(first) = state.begin_context(tracks, start, context_uri, autoplay, choice)? {
+            self.transitions.discontinuity();
             self.player().load(first, autoplay, start_ms);
         }
         Ok(())
@@ -775,6 +846,7 @@ impl SpotPlayer {
         state.session_id = link.session_id();
         let shared = SharedSink {
             sink: Arc::clone(&self.sink),
+            transitions: Arc::clone(&self.transitions),
             gate: Gate {
                 epoch,
                 role: Role::Local,
@@ -790,6 +862,7 @@ impl SpotPlayer {
             &self.observer,
             tuning,
         );
+        self.transitions.discontinuity();
         if let Some((track, play, position_ms)) = resume {
             player.load(track, play, position_ms);
         }
@@ -813,6 +886,7 @@ impl SpotPlayer {
         player.set_session(link);
         if let Some((track, play, position_ms)) = resume {
             info!("restoring playback after reconnect at {position_ms} ms");
+            self.transitions.discontinuity();
             player.load(track, play, position_ms);
         }
     }
@@ -960,6 +1034,7 @@ impl SpotPlayer {
     ) -> Arc<Player> {
         let sink = SharedSink {
             sink: Arc::clone(&self.sink),
+            transitions: Arc::clone(&self.transitions),
             gate: Gate {
                 epoch: epoch.clone(),
                 role: Role::Connect,
@@ -1146,8 +1221,12 @@ fn spawn_player(
     observer: &Arc<dyn PlayerObserver>,
     tuning: Tuning,
 ) -> Arc<Player> {
-    let epoch = sink.gate.epoch.clone();
-    let owner = sink.gate.owner.clone();
+    let gate = Gate {
+        epoch: sink.gate.epoch.clone(),
+        role: Role::Local,
+        owner: sink.gate.owner.clone(),
+    };
+    let transitions = Arc::clone(&sink.transitions);
     let player = Player::new(
         player_config(tuning),
         link,
@@ -1158,10 +1237,10 @@ fn spawn_player(
         Arc::clone(session),
         player.get_player_event_channel(),
         Arc::downgrade(&player),
-        epoch,
-        owner,
+        gate,
         Arc::clone(state),
         Arc::clone(observer),
+        transitions,
     ));
     player
 }
@@ -1303,6 +1382,7 @@ impl Gate {
 /// Spirc's. A player that is not let through has its output dropped.
 struct SharedSink {
     sink: Arc<Mutex<CoreAudioSink>>,
+    transitions: Arc<Transitions>,
     gate: Gate,
 }
 
@@ -1325,7 +1405,11 @@ impl Sink for SharedSink {
         if !self.gate.is_open() {
             return Ok(());
         }
-        lock(&self.sink).write(packet, converter)
+        let mut sink = lock(&self.sink);
+        match self.gate.role {
+            Role::Local => sink.write(packet, converter),
+            Role::Connect => sink.write_gapless(packet, converter),
+        }
     }
 }
 
@@ -1435,6 +1519,18 @@ impl Drop for SpotPlayer {
     }
 }
 
+/// Where a restore starts: `track` inside its resolved context, else `track` alone.
+fn restore_start(
+    resolved: Option<Vec<SpotifyUri>>,
+    track: SpotifyUri,
+    context: Option<SpotifyUri>,
+) -> (Vec<SpotifyUri>, usize, Option<SpotifyUri>) {
+    match resolved.and_then(|t| t.iter().position(|u| *u == track).map(|i| (t, i))) {
+        Some((tracks, start)) => (tracks, start, context),
+        None => (vec![track], 0, None),
+    }
+}
+
 async fn resolve(session: &Session, uri: &SpotifyUri) -> Result<Vec<SpotifyUri>, PlayerError> {
     let metadata = |e: librespot_core::Error| PlayerError::Metadata {
         message: e.to_string(),
@@ -1468,11 +1564,13 @@ async fn forward_events(
     session: Arc<SpotSession>,
     mut events: PlayerEventChannel,
     player: Weak<Player>,
-    epoch: Epoch,
-    owner: Owner,
+    gate: Gate,
     state: Arc<Mutex<State>>,
     observer: Arc<dyn PlayerObserver>,
+    transitions: Arc<Transitions>,
 ) {
+    let Gate { epoch, owner, .. } = gate;
+    let mut duration_ms = 0;
     while let Some(event) = events.recv().await {
         // Held across the radio fetch below, so it may be the last reference.
         let Some(player) = player
@@ -1488,7 +1586,16 @@ async fn forward_events(
                 return;
             }
             state.request_id = Some(play_request_id);
+            transitions.confirm();
             continue;
+        }
+        match &event {
+            PlayerEvent::TrackChanged { audio_item } => duration_ms = audio_item.duration_ms,
+            PlayerEvent::Playing { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => {
+                transitions.confirm();
+                transitions.track(duration_ms, *position_ms);
+            }
+            _ => {}
         }
         // librespot fires this ~30 s before the end; a preloaded track lets the
         // EndOfTrack load below start without a gap.
@@ -1504,6 +1611,7 @@ async fn forward_events(
             };
             if let Some(track) = next {
                 player.preload(track);
+                transitions.arm();
             }
             continue;
         }
@@ -1522,6 +1630,7 @@ async fn forward_events(
                 }
                 state.queue.advance(false).cloned()
             };
+            transitions.boundary();
             match next {
                 Some(track) => player.load(track, true, 0),
                 None => context_ended = true,
@@ -1540,6 +1649,7 @@ async fn forward_events(
             }
         }
         if context_ended && !continue_with_radio(&session, &player, &state, &owner).await {
+            transitions.play_out();
             player.stop();
         }
     }
@@ -1684,6 +1794,27 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn a_restore_starts_at_its_track_in_the_context_or_plays_it_alone() {
+        let context = SpotifyUri::from_uri("spotify:playlist:0kfSfq4tGP2VGZJ2j8ZTxD").ok();
+        let in_context = restore_start(
+            Some(vec![track(1), track(2), track(3)]),
+            track(2),
+            context.clone(),
+        );
+        assert_eq!(
+            in_context,
+            (vec![track(1), track(2), track(3)], 1, context.clone())
+        );
+
+        let alone = (vec![track(9)], 0, None);
+        assert_eq!(
+            restore_start(Some(vec![track(1)]), track(9), context.clone()),
+            alone
+        );
+        assert_eq!(restore_start(None, track(9), context), alone);
     }
 
     #[test]

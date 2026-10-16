@@ -83,6 +83,7 @@ private struct MenuBarNowPlaying: View {
                 HStack(spacing: Theme.s3) {
                     ArtworkView(artwork: nowPlaying.artwork, side: 52)
                         .clipShape(.rect(cornerRadius: Theme.cardRadius))
+                        .crossDissolve(on: nowPlaying.uri)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(nowPlaying.title)
                             .scaledFont(size: 13, weight: .semibold)
@@ -91,6 +92,7 @@ private struct MenuBarNowPlaying: View {
                             .foregroundStyle(.secondary)
                     }
                     .lineLimit(1)
+                    .dissolvesContent(on: nowPlaying.uri)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     LikeButton(uri: nowPlaying.uri, library: library)
                 }

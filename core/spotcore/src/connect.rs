@@ -9,7 +9,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use http::header::{CONTENT_TYPE, HeaderValue};
 use http::{HeaderMap, Method};
-use librespot_connect::{ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
+use librespot_connect::{ConnectConfig, Spirc};
 use librespot_core::config::DeviceType;
 use librespot_core::dealer::manager::BoxedStreamResult;
 use librespot_core::dealer::protocol::Message;
@@ -103,23 +103,6 @@ struct Resume {
     context: Option<String>,
     track: String,
     position_ms: u32,
-}
-
-impl Resume {
-    fn into_load(self) -> LoadRequest {
-        // A track list loads under Spirc's `spotify:web-api` context, whose
-        // autoplay request spclient rejects with 400; the item is its own context.
-        let context = self.context.unwrap_or_else(|| self.track.clone());
-        LoadRequest::from_context_uri(
-            context,
-            LoadRequestOptions {
-                start_playing: false,
-                seek_to: self.position_ms,
-                playing_track: Some(PlayingTrack::Uri(self.track)),
-                ..Default::default()
-            },
-        )
-    }
 }
 
 /// This Mac's own last playback, which the app saves as it plays. Read
@@ -680,11 +663,16 @@ impl SpotConnect {
         };
         if self.player.is_untouched() {
             info!("restoring the last playback, paused");
-            // Spirc ignores a load until it is the active device.
-            self.spirc(|s| {
-                s.activate()?;
-                s.load(resume.into_load())
-            });
+            // Locally: through Spirc, Connect would own every later load, and its
+            // queue comes only from cluster pushes Spotify does not send the active device.
+            let Resume {
+                context,
+                track,
+                position_ms,
+            } = resume;
+            if let Err(e) = self.player.restore(context, track, position_ms).await {
+                warn!("cannot restore the last playback: {e}");
+            }
         }
     }
 
@@ -1269,14 +1257,6 @@ mod tests {
         );
         let episode = "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk";
         assert!(saved(episode, None, 0).validated().is_some());
-    }
-
-    #[test]
-    fn a_resume_without_a_context_loads_its_item_as_the_context() {
-        let load = resume(LAST_TRACK, None, 7).into_load();
-        let debug = format!("{load:?}");
-        assert!(debug.contains(&format!("Uri(\"{LAST_TRACK}\")")), "{debug}");
-        assert!(!debug.contains("Tracks"), "{debug}");
     }
 
     #[test]

@@ -49,6 +49,7 @@ struct NowPlayingBar: View {
             HStack(spacing: Theme.s3) {
                 Button { expanded = .queue } label: {
                     ExpandableArtwork(artwork: nowPlaying.artwork)
+                        .crossDissolve(on: nowPlaying.uri)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Show Now Playing")
@@ -64,6 +65,7 @@ struct NowPlayingBar: View {
                 .lineLimit(1)
                 LikeButton(uri: nowPlaying.uri, library: library)
             }
+            .dissolvesContent(on: nowPlaying.uri)
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Not Playing")

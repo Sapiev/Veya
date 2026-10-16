@@ -348,6 +348,21 @@ veya/
 - [ ] Audio file cache in the app's Caches container with a size cap (default 1 GB, LRU eviction) and a Clear Cache button. (Cache, cap and size picker done; the Clear Audio Cache button is wired and has a `SettingsUITests` test; Swift not compiled or run: written in a Linux container.)
 - [x] Cached audio is encrypted as librespot stores it and is not exportable.
 
+#### PBI-208 · Track transitions: crossfade, fades and animation
+
+**Story:** As a listener, I want tracks to blend smoothly and controls to never click so that playback feels polished.
+
+**Priority:** Could · **Estimate:** 5 · **Milestone:** M2 · **Depends on:** PBI-204, PBI-205
+
+**Status:** In progress (merged to develop) - design in ADR-010; crossfade and 300 ms fades still need a signed-in listening check.
+
+- [x] Settings › Playback has a "Crossfade songs" slider, 0-12 s, default off, persisted across launches.
+- [ ] With crossfade on, a track that ends naturally blends into the next with an equal-power fade of the chosen length; with it off, playback stays gapless. (Covered by `audio::tests`; needs a signed-in listening check.)
+- [x] A user skip, seek, load or stop, and Connect playback, never crossfade.
+- [ ] Pause, resume, seek and skip fade audio over about 300 ms; a local pause fades out before it pauses. (Ramps covered by `audio::tests`; needs a signed-in listening check.)
+- [x] Now-playing artwork and title cross-dissolve on track change, with no animation under Reduce Motion.
+- [x] Rust tests cover the tail capture, the mix curve, the cancel paths, the fade ramps and the delayed pause; XCUITests cover the slider and the transition.
+
 ### E3 · Catalog and library
 
 #### PBI-301 · Metadata service (tracks, albums, artists)

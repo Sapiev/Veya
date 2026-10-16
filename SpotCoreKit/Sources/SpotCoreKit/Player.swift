@@ -73,6 +73,8 @@ public final class PlayerModel {
     /// Tracks the user queued; they play before the rest of the context.
     public private(set) var upNext: [String] = []
     public private(set) var nextFromContext: [String] = []
+    /// The queue's own id for the playing item; `nowPlaying.uri` can be a relinked one the context does not list.
+    private var queueCurrent: String?
     /// The account's Spotify Connect devices, this Mac first.
     public private(set) var devices: [ConnectDevice] = []
     /// A Connect device is running, so playback can move between devices.
@@ -124,6 +126,7 @@ public final class PlayerModel {
         var volume: UInt16
         var bitrate: Bitrate
         var normalisation: LoudnessPreset?
+        var crossfade: UInt8
         var outputDeviceUID: String?
         var rate: Float
         var autoplay: Bool
@@ -155,11 +158,14 @@ public final class PlayerModel {
         repeatMode = queue.repeat
         upNext = queue.upNext
         nextFromContext = queue.nextFromContext
+        queueCurrent = queue.current
         // The player and engine were created with these values.
         applied = Applied(
             volume: settings.playerVolume,
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
+            // A new player starts with crossfade off, so `followSettings` applies the setting.
+            crossfade: 0,
             outputDeviceUID: settings.outputDeviceUID,
             rate: 1,
             autoplay: queue.autoplay,
@@ -227,7 +233,9 @@ public final class PlayerModel {
         case let .loading(uri, position):
             isPlaying = false
             report(position)
-            show(uri, title: nowPlaying?.uri == uri ? nowPlaying?.title ?? "" : "", durationMs: nowPlaying?.durationMs ?? 0)
+            // A new item starts without a length, so the metadata lookup fills in its own.
+            let known = nowPlaying?.uri == uri ? nowPlaying : nil
+            show(uri, title: known?.title ?? "", durationMs: known?.durationMs ?? 0)
             refreshQueue()
         case let .playing(_, position):
             report(position)
@@ -270,6 +278,7 @@ public final class PlayerModel {
             repeatMode = queue.repeat
             upNext = queue.upNext
             nextFromContext = queue.nextFromContext
+            queueCurrent = queue.current
         }
     }
 
@@ -368,6 +377,7 @@ public final class PlayerModel {
         let queue = player.queue()
         upNext = queue.upNext
         nextFromContext = queue.nextFromContext
+        queueCurrent = queue.current
     }
 
     private func perform(_ action: String, _ body: () throws -> Void) {
@@ -475,6 +485,7 @@ public final class PlayerModel {
             volume: settings.playerVolume,
             bitrate: settings.bitrate,
             normalisation: settings.normalisation,
+            crossfade: settings.crossfadeSeconds,
             outputDeviceUID: settings.outputDeviceUID,
             rate: settings.rate(for: nowPlaying?.uri ?? ""),
             autoplay: settings.autoplay,
@@ -499,6 +510,9 @@ public final class PlayerModel {
         }
         if target.autoplay != previous.autoplay {
             player.setAutoplay(on: target.autoplay)
+        }
+        if target.crossfade != previous.crossfade {
+            player.setCrossfade(seconds: target.crossfade)
         }
         guard target.bitrate != previous.bitrate || target.normalisation != previous.normalisation
             || target.localFolders != previous.localFolders else { return }
@@ -569,7 +583,7 @@ public final class PlayerModel {
     /// shortcut: `context` is what Veya last started, so a remote that starts another context
     /// here leaves it stale; read the cluster's context URI if restores land on the wrong track.
     private func saveLastPlayback(throttled: Bool = false) {
-        guard playingOn == nil, let uri = nowPlaying?.uri, !uri.isEmpty else { return }
+        guard playingOn == nil, let uri = queueCurrent ?? nowPlaying?.uri, !uri.isEmpty else { return }
         let now = clock()
         if throttled, now.timeIntervalSince(lastSaved) < 5 { return }
         lastSaved = now

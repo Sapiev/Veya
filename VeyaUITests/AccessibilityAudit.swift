@@ -19,6 +19,8 @@ extension XCTestCase {
             }
             // False positive: AppKit's empty function-row element at the menu bar, which Veya does not draw.
             if element.elementType == .touchBar { return true }
+            // False positive: AppKit's slider knob; VoiceOver reads the slider's own label and value.
+            if issue.auditType == .sufficientElementDescription, element.elementType == .valueIndicator { return true }
             // False positive: SwiftUI's menu Picker opens from VoiceOver and the keyboard but reports no press action.
             if issue.auditType == .action, element.elementType == .popUpButton { return true }
             let name = "\(element.elementType.rawValue) '\(element.label)' #\(element.identifier) \(element.frame)"
