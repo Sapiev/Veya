@@ -81,6 +81,18 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(app.queue.staticTexts["Song 2"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
+    /// PBI-501: Liked Songs plays as its own context, so the queue names it and a restore can reload it.
+    @MainActor func testPlayingFromLikedSongsNamesItInTheQueue() {
+        let app = openQueue()
+        app.outlines.staticTexts["Liked Songs"].click()
+        let row = app.outlines["trackList"].staticTexts["Song 2"]
+        XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout))
+
+        row.doubleClick()
+
+        XCTAssertTrue(app.queue.staticTexts["Next from: Liked Songs"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
     @MainActor func testPlayingAnAlbumShowsWhatFollowsFromIt() {
         let app = openQueue()
         app.sidebarItem("Albums").click()

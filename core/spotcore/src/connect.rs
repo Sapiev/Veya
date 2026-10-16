@@ -24,7 +24,7 @@ use crate::home::{
     CurrentPlayback, HomeError, LastPlay, canonical, current_playback, is_playable_item, last_play,
 };
 use crate::player::{
-    Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, is_spotify_context, playable,
+    Epoch, PlaybackEvent, QueueSnapshot, SpotPlayer, playable, restorable_context,
 };
 use crate::queue::RepeatMode;
 use crate::reconnect::{Connector, Link, Supervisor};
@@ -126,9 +126,7 @@ struct Played {
 impl SavedPlayback {
     fn validated(self) -> Option<Played> {
         let track = canonical(&self.track_uri, is_playable_item)?;
-        let context = self
-            .context_uri
-            .and_then(|uri| canonical(&uri, is_spotify_context));
+        let context = self.context_uri.and_then(|uri| restorable_context(&uri));
         Some(Played {
             resume: Resume {
                 context,
@@ -1247,13 +1245,18 @@ mod tests {
         ] {
             assert_eq!(saved(bad, None, 0).validated(), None, "{bad}");
         }
-        let odd_context = saved(LAST_TRACK, Some("spotify:user:me:collection"), 5).validated();
+        let odd_context = saved(LAST_TRACK, Some(LAST_TRACK), 5).validated();
         assert_eq!(
             odd_context,
             Some(Played {
                 resume: resume(LAST_TRACK, None, 30_000),
                 at_ms: 5
             })
+        );
+        let liked = saved(LAST_TRACK, Some("spotify:user:me:collection"), 5).validated();
+        assert_eq!(
+            liked.map(|played| played.resume.context),
+            Some(Some(crate::player::LIKED_SONGS.to_owned()))
         );
         let episode = "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk";
         assert!(saved(episode, None, 0).validated().is_some());

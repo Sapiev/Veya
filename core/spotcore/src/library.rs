@@ -280,6 +280,18 @@ enum Synced {
     Full(SetState),
 }
 
+/// Liked Songs, newest first as the library lists them, paged in full.
+pub(crate) async fn liked_tracks(session: &Session) -> Result<Vec<String>, LibraryError> {
+    let kind = LibraryKind::Tracks;
+    // An empty sync token always pages in full.
+    let Synced::Full(state) = sync(session, &session.username(), kind.set(), "").await? else {
+        return Err(LibraryError::Request {
+            message: "collection answered a full sync with a delta".to_owned(),
+        });
+    };
+    Ok(state.items(kind).into_iter().map(|item| item.uri).collect())
+}
+
 async fn sync(
     session: &Session,
     username: &str,

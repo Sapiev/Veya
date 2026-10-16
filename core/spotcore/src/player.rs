@@ -791,10 +791,16 @@ impl SpotPlayer {
         position_ms: u32,
     ) -> Result<(), PlayerError> {
         let track = playable(&track)?;
+        let liked = context.as_deref() == Some(LIKED_SONGS);
         let context = context.and_then(|uri| SpotifyUri::from_uri(&uri).ok());
         let choice = lock(&self.state).claim();
+        let session = self.session.current_session();
         let resolved = match &context {
-            Some(uri) => resolve(&self.session.current_session(), uri).await.ok(),
+            Some(_) if liked => crate::library::liked_tracks(&session)
+                .await
+                .ok()
+                .map(|uris| uris.iter().filter_map(|uri| playable(uri).ok()).collect()),
+            Some(uri) => resolve(&session, uri).await.ok(),
             None => None,
         };
         let (tracks, start, context) = restore_start(resolved, track, context);
@@ -1477,6 +1483,22 @@ fn seed() -> u64 {
         .map_or(0, |d| d.as_nanos() as u64)
 }
 
+/// Liked Songs as a context, as the app plays and saves it. Wire format
+/// shared with SpotCoreKit's `likedSongsContext`.
+pub(crate) const LIKED_SONGS: &str = "spotify:collection:tracks";
+
+/// A saved or reported context in the form a restore resolves: Spotify's
+/// own `spotify:user:<id>:collection` for Liked Songs maps to
+/// `LIKED_SONGS`; anything else must be a context Spotify can play.
+pub(crate) fn restorable_context(uri: &str) -> Option<String> {
+    match uri.split(':').collect::<Vec<_>>().as_slice() {
+        ["spotify", "collection", "tracks"] | ["spotify", "user", _, "collection"] => {
+            Some(LIKED_SONGS.to_owned())
+        }
+        _ => crate::home::canonical(uri, is_spotify_context),
+    }
+}
+
 /// Contexts Spotify can play by uri, as Spirc's `from_context_uri` and the
 /// connect-state play command take them.
 pub(crate) fn is_spotify_context(uri: &SpotifyUri) -> bool {
@@ -1794,6 +1816,22 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn liked_songs_restore_under_one_uri_and_only_playable_contexts_pass() {
+        for liked in ["spotify:collection:tracks", "spotify:user:alice:collection"] {
+            assert_eq!(restorable_context(liked).as_deref(), Some(LIKED_SONGS));
+        }
+        let playlist = "spotify:playlist:0kfSfq4tGP2VGZJ2j8ZTxD";
+        assert_eq!(restorable_context(playlist).as_deref(), Some(playlist));
+        for other in [
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQ0",
+            "spotify:user:alice",
+            "nonsense",
+        ] {
+            assert_eq!(restorable_context(other), None, "{other}");
+        }
     }
 
     #[test]

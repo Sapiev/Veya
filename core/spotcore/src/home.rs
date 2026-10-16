@@ -9,7 +9,7 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
 
 use crate::account::web_api_client;
-use crate::player::is_spotify_context;
+use crate::player::{is_spotify_context, restorable_context};
 use crate::session::SpotSession;
 
 const RECENTLY_PLAYED_URL: &str = "https://api.spotify.com/v1/me/player/recently-played";
@@ -104,9 +104,7 @@ async fn last_play_at(url: &str, access_token: &str) -> Result<Option<LastPlay>,
     Ok(plays.into_iter().find_map(|play| {
         Some(LastPlay {
             track: canonical(&play.track?.uri, is_track)?,
-            context: play
-                .context
-                .and_then(|c| canonical(&c.uri, is_spotify_context)),
+            context: play.context.and_then(|c| restorable_context(&c.uri)),
             played_at_ms: play
                 .played_at
                 .as_deref()
@@ -211,9 +209,7 @@ fn current_playback_from(body: &[u8]) -> Result<Option<CurrentPlayback>, HomeErr
         device_id: json.device.and_then(|d| d.id).filter(|id| !id.is_empty()),
         is_playing: json.is_playing,
         item,
-        context: json
-            .context
-            .and_then(|c| canonical(&c.uri, is_spotify_context)),
+        context: json.context.and_then(|c| restorable_context(&c.uri)),
         progress_ms: u32::try_from(progress_ms).unwrap_or(u32::MAX),
     }))
 }
@@ -426,7 +422,7 @@ mod tests {
             last_play_at(&base, "at").await.unwrap(),
             Some(LastPlay {
                 track: T2.to_owned(),
-                context: None,
+                context: Some(crate::player::LIKED_SONGS.to_owned()),
                 played_at_ms: 1_791_540_000_000,
             })
         );

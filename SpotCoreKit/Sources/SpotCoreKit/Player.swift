@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 
+/// Liked Songs as a play context, so a launch restore can reload the list. Wire format
+/// shared with spotcore's `LIKED_SONGS`.
+public let likedSongsContext = "spotify:collection:tracks"
+
 /// Registers the player as a Spotify Connect device with a name and zeroconf choice.
 public typealias ConnectStarter = @MainActor (_ name: String, _ zeroconf: Bool) async throws -> any SpotConnectProtocol
 
