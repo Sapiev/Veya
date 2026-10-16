@@ -40,8 +40,9 @@ track is written, and our event loop then loads the preloaded next track
   - A discontinuity fades out only the audio already queued (at most the
     200 ms ring) and drops the rest, so skips stay instant. The control
     side asks for that fade at once. The producer marks the first new
-    sample once librespot confirms the command (a new play request id, a
-    seek or `Playing`), so packets decoded before it are dropped.
+    sample once librespot confirms the command (a new play request id or
+    `Seeked`; a `Playing` may predate the command, so it never confirms),
+    so packets decoded before it are dropped.
   - A local pause fades the live audio out over 300 ms, then holds what
     is queued, so nothing is lost. librespot's pause is sent 300 ms later
     from a timer. While the render side holds, writes go to a pending
