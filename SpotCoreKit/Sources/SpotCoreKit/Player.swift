@@ -73,6 +73,8 @@ public final class PlayerModel {
     /// Tracks the user queued; they play before the rest of the context.
     public private(set) var upNext: [String] = []
     public private(set) var nextFromContext: [String] = []
+    /// The queue's own id for the playing item; `nowPlaying.uri` can be a relinked one the context does not list.
+    private var queueCurrent: String?
     /// The account's Spotify Connect devices, this Mac first.
     public private(set) var devices: [ConnectDevice] = []
     /// A Connect device is running, so playback can move between devices.
@@ -156,6 +158,7 @@ public final class PlayerModel {
         repeatMode = queue.repeat
         upNext = queue.upNext
         nextFromContext = queue.nextFromContext
+        queueCurrent = queue.current
         // The player and engine were created with these values.
         applied = Applied(
             volume: settings.playerVolume,
@@ -273,6 +276,7 @@ public final class PlayerModel {
             repeatMode = queue.repeat
             upNext = queue.upNext
             nextFromContext = queue.nextFromContext
+            queueCurrent = queue.current
         }
     }
 
@@ -371,6 +375,7 @@ public final class PlayerModel {
         let queue = player.queue()
         upNext = queue.upNext
         nextFromContext = queue.nextFromContext
+        queueCurrent = queue.current
     }
 
     private func perform(_ action: String, _ body: () throws -> Void) {
@@ -576,7 +581,7 @@ public final class PlayerModel {
     /// shortcut: `context` is what Veya last started, so a remote that starts another context
     /// here leaves it stale; read the cluster's context URI if restores land on the wrong track.
     private func saveLastPlayback(throttled: Bool = false) {
-        guard playingOn == nil, let uri = nowPlaying?.uri, !uri.isEmpty else { return }
+        guard playingOn == nil, let uri = queueCurrent ?? nowPlaying?.uri, !uri.isEmpty else { return }
         let now = clock()
         if throttled, now.timeIntervalSince(lastSaved) < 5 { return }
         lastSaved = now

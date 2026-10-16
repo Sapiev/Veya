@@ -12,6 +12,7 @@ final class FakePlayer: SpotPlayerProtocol {
     struct LoadFailed: Error {}
 
     init(
+        current: String? = nil,
         shuffle: Bool = false,
         repeat mode: RepeatMode = .off,
         upNext: [String] = [],
@@ -20,7 +21,7 @@ final class FakePlayer: SpotPlayerProtocol {
     ) {
         self.failsLoad = failsLoad
         snapshot = OSAllocatedUnfairLock(initialState: QueueSnapshot(
-            current: nil, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
+            current: current, upNext: upNext, nextFromContext: nextFromContext, shuffle: shuffle, repeat: mode, autoplay: true
         ))
     }
 
@@ -370,6 +371,17 @@ struct PlayerModelTests {
         player.apply(.remoteChanged(deviceName: nil, volume: nil))
         player.teardown()
         #expect(settings.lastPlayback == at(9000), "saved on quit")
+    }
+
+    /// PBI-501: a relinked track is saved under the id its context lists, so the restore finds it there.
+    @Test func savedPlaybackUsesTheQueuesIdOverARelinkedOne() {
+        let listed = "spotify:track:1qCQTy0fTXerET4x8VHyr9"
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(FakePlayer(current: listed), settings: settings)
+
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+
+        #expect(settings.lastPlayback?.trackUri == listed)
     }
 
     /// PBI-501: the restore gets the saved playback.

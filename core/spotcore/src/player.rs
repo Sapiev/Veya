@@ -780,6 +780,35 @@ impl State {
 }
 
 impl SpotPlayer {
+    /// Loads `track` paused at `position_ms` inside `context` on the local
+    /// player, so Connect never owns playback the user did not hand over.
+    /// Falls back to `track` alone when the context cannot be resolved or no
+    /// longer holds it.
+    pub(crate) async fn restore(
+        &self,
+        context: Option<String>,
+        track: String,
+        position_ms: u32,
+    ) -> Result<(), PlayerError> {
+        let track = playable(&track)?;
+        let context = context.and_then(|uri| SpotifyUri::from_uri(&uri).ok());
+        let choice = lock(&self.state).claim();
+        let resolved = match &context {
+            Some(uri) => resolve(&self.session.current_session(), uri).await.ok(),
+            None => None,
+        };
+        let (tracks, start, context) = restore_start(resolved, track, context);
+        self.sync_session();
+        self.start_context(
+            tracks,
+            Some(start),
+            context,
+            position_ms,
+            false,
+            Some(choice),
+        )
+    }
+
     /// Starts at `start`, or where `set_context` would (shuffled or first)
     /// without one. Does nothing when `choice` is no longer the latest one.
     fn start_context(
@@ -1490,6 +1519,18 @@ impl Drop for SpotPlayer {
     }
 }
 
+/// Where a restore starts: `track` inside its resolved context, else `track` alone.
+fn restore_start(
+    resolved: Option<Vec<SpotifyUri>>,
+    track: SpotifyUri,
+    context: Option<SpotifyUri>,
+) -> (Vec<SpotifyUri>, usize, Option<SpotifyUri>) {
+    match resolved.and_then(|t| t.iter().position(|u| *u == track).map(|i| (t, i))) {
+        Some((tracks, start)) => (tracks, start, context),
+        None => (vec![track], 0, None),
+    }
+}
+
 async fn resolve(session: &Session, uri: &SpotifyUri) -> Result<Vec<SpotifyUri>, PlayerError> {
     let metadata = |e: librespot_core::Error| PlayerError::Metadata {
         message: e.to_string(),
@@ -1753,6 +1794,27 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn a_restore_starts_at_its_track_in_the_context_or_plays_it_alone() {
+        let context = SpotifyUri::from_uri("spotify:playlist:0kfSfq4tGP2VGZJ2j8ZTxD").ok();
+        let in_context = restore_start(
+            Some(vec![track(1), track(2), track(3)]),
+            track(2),
+            context.clone(),
+        );
+        assert_eq!(
+            in_context,
+            (vec![track(1), track(2), track(3)], 1, context.clone())
+        );
+
+        let alone = (vec![track(9)], 0, None);
+        assert_eq!(
+            restore_start(Some(vec![track(1)]), track(9), context.clone()),
+            alone
+        );
+        assert_eq!(restore_start(None, track(9), context), alone);
     }
 
     #[test]
