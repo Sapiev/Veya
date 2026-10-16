@@ -272,6 +272,21 @@ struct PlayerModelTests {
         withExtendedLifetime(player) {}
     }
 
+    /// PBI-208: a new player already has crossfade off, so a saved 0 is not sent until it changes.
+    @Test func zeroCrossfadeIsNotSentAtStartup() async {
+        let fake = FakePlayer()
+        let settings = PlaybackSettings(defaults: defaults)
+        let player = model(fake, settings: settings)
+        #expect(!fake.recorded.contains { $0.hasPrefix("crossfade") })
+
+        settings.crossfadeSeconds = 3
+        while !fake.recorded.contains("crossfade 3") {
+            await Task.yield()
+        }
+        #expect(fake.recorded.filter { $0.hasPrefix("crossfade") } == ["crossfade 3"])
+        withExtendedLifetime(player) {}
+    }
+
     /// PBI-501: a phone's volume change moves the slider and is not sent back.
     @Test func remoteVolumeIsPersistedWithoutEchoingBack() async {
         let fake = FakePlayer()

@@ -29,7 +29,7 @@ extension XCUIApplication {
 
     /// Launches Veya against in-memory fakes; it never reaches Spotify or the Keychain.
     /// `locale` ("pl_PL") runs the app in that language and region's formats instead of the Mac's.
-    /// `windowWidth` sizes the main window; below 900 AppKit holds it at the 900 pt minimum.
+    /// `windowWidth` sizes the main window; below the window minimum (930 pt) AppKit holds it there.
     static func launch(_ scenario: Scenario, locale: String? = nil, windowWidth: Int = 1200) -> XCUIApplication {
         let app = configured(scenario, locale: locale, windowWidth: windowWidth)
         app.launch()

@@ -122,15 +122,26 @@ impl Transitions {
         });
     }
 
-    /// A user load, skip, seek or stop: no crossfade, and what is queued
+    /// A user load, skip or stop: no crossfade, and what is queued
     /// fades out now rather than at the next write. True if it cancelled a
     /// pending pause.
     pub fn discontinuity(&self) -> bool {
+        self.cut(false)
+    }
+
+    /// A discontinuity within the playing track, so its preloaded next track
+    /// still follows: librespot suggests the preload only once per track.
+    pub fn seek(&self) -> bool {
+        self.cut(true)
+    }
+
+    fn cut(&self, keep_armed: bool) -> bool {
         let mut pause_pending = false;
         self.update(|r| {
             pause_pending = r.pause_pending;
             *r = Requests {
                 crossfade_frames: r.crossfade_frames,
+                armed: keep_armed && r.armed,
                 discontinuity: true,
                 pause_generation: r.pause_generation + 1,
                 ..Requests::default()
@@ -343,10 +354,12 @@ impl CoreAudioSink {
         if samples.len() % CHANNELS != 0 {
             return Err(SinkError::InvalidParams("partial stereo frame".into()));
         }
-        let mut requests = self.transitions.take();
         if !crossfade {
             // Spirc's audio follows its own commands, never ours.
-            requests.confirmed = true;
+            self.transitions.confirm();
+        }
+        let mut requests = self.transitions.take();
+        if !crossfade {
             requests.crossfade_frames = 0;
             requests.armed = false;
         }
@@ -536,6 +549,8 @@ impl Sink for CoreAudioSink {
         self.stats.held.store(false, Relaxed);
         self.stats.pausing.store(false, Relaxed);
         self.stats.starts.fetch_add(1, Release);
+        // A play-out whose stop never came must not skip the next pause hold.
+        self.transitions.take_play_out();
         Ok(())
     }
 
@@ -1136,6 +1151,20 @@ mod tests {
         assert!(!sink.transitions.take().armed);
     }
 
+    #[test]
+    fn a_seek_after_the_preload_still_crossfades() {
+        let (_output, mut sink, mut handle) = armed_sink();
+        write_frames(&mut sink, 100, 0.5);
+
+        sink.transitions.seek();
+        sink.transitions.confirm();
+        sink.transitions.update(|r| r.track = Some((300, 150)));
+        write_frames(&mut sink, 150, 0.5);
+        render_all(&mut handle);
+
+        assert_eq!(sink.tail.len(), 100 * CHANNELS);
+    }
+
     /// A linear ramp from just under unity to 0 over `len` frames.
     fn assert_fades_out(out: &[(f32, f32)], len: usize) {
         assert_eq!(out.len(), len);
@@ -1243,6 +1272,20 @@ mod tests {
     }
 
     #[test]
+    fn a_play_out_the_stop_never_consumed_does_not_skip_a_later_pause_hold() {
+        let (_output, mut sink, _handle) = setup();
+        sink.transitions.play_out();
+        sink.transitions.discontinuity();
+        sink.stop().unwrap();
+        assert!(sink.stats.held.load(Acquire));
+
+        sink.transitions.play_out();
+        sink.start().unwrap();
+        sink.stop().unwrap();
+        assert!(sink.stats.held.load(Acquire));
+    }
+
+    #[test]
     fn connect_playback_never_crossfades() {
         let (_output, mut sink, mut handle) = armed_sink();
         write_frames(&mut sink, 300, 0.5);
@@ -1256,6 +1299,26 @@ mod tests {
         assert_eq!(out.len(), 300);
         assert!(out.iter().all(|&s| s == (0.25, 0.25)));
         assert!(sink.tail.is_empty());
+    }
+
+    #[test]
+    fn connect_playback_after_an_unconfirmed_discontinuity_cuts_once() {
+        let (_output, mut sink, mut handle) = setup();
+        sink.transitions.discontinuity();
+        let cuts = sink.stats.cuts.load(Acquire);
+
+        let mut out = Vec::new();
+        for _ in 0..PAST_FADE / 512 {
+            sink.write_gapless(packet(&[1.0; 512 * CHANNELS]), &mut Converter::new(None))
+                .unwrap();
+            let (n, left, right) = render(&mut handle, 512);
+            out.extend(left.into_iter().zip(right).take(n));
+        }
+        out.extend(render_all(&mut handle));
+
+        assert!(sink.stats.cuts.load(Acquire) - cuts <= 1);
+        assert_eq!(out.len(), PAST_FADE);
+        assert!(out[FADE_FRAMES..].iter().all(|&s| s == (1.0, 1.0)));
     }
 
     #[test]

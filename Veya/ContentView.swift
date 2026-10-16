@@ -15,7 +15,7 @@ struct ContentView: View {
     var body: some View {
         content
             .animation(reduceMotion ? nil : Theme.themeChange, value: session.state)
-            .frame(minWidth: 900, minHeight: 600)
+            .frame(minWidth: Theme.minPageWidth + Theme.queueWidth + Theme.s2, minHeight: 600)
             .background(HostingGroupLabel(label: "Veya"))
             .modifier(ScalesText())
             .modifier(ConcreteInk())

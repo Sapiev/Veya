@@ -541,7 +541,7 @@ impl SpotPlayer {
         if let Some(connect) = self.connect_mode() {
             return connect.spirc(|s| s.set_position_ms(position_ms));
         }
-        if self.transitions.discontinuity() {
+        if self.transitions.seek() {
             // The seek cancelled a pause fade, so playback carries on.
             lock(&self.state).clock.wants_play = true;
         }
@@ -607,7 +607,7 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
-            self.transitions.discontinuity();
+            self.transitions.seek();
             self.player().seek(0);
         } else if let Some(track) = state.queue.back().cloned() {
             state.supersede();
@@ -1487,6 +1487,16 @@ fn seed() -> u64 {
 /// shared with SpotCoreKit's `likedSongsContext`.
 pub(crate) const LIKED_SONGS: &str = "spotify:collection:tracks";
 
+/// The context autoplay is asked to continue. Spotify only knows Liked
+/// Songs as `spotify:user:<id>:collection`, not the app's `LIKED_SONGS`.
+fn radio_seed(context: &str, username: &str) -> String {
+    if context == LIKED_SONGS {
+        format!("spotify:user:{username}:collection")
+    } else {
+        context.to_owned()
+    }
+}
+
 /// A saved or reported context in the form a restore resolves: Spotify's
 /// own `spotify:user:<id>:collection` for Liked Songs maps to
 /// `LIKED_SONGS`; anything else must be a context Spotify can play.
@@ -1579,6 +1589,20 @@ async fn resolve(session: &Session, uri: &SpotifyUri) -> Result<Vec<SpotifyUri>,
     }
 }
 
+/// Only `Seeked` and `PlayRequestIdChanged` confirm a cut: a `Playing`
+/// still queued from before it would let pre-cut audio through.
+fn follow_track(transitions: &Transitions, event: &PlayerEvent, duration_ms: &mut u32) {
+    match event {
+        PlayerEvent::TrackChanged { audio_item } => *duration_ms = audio_item.duration_ms,
+        PlayerEvent::Seeked { position_ms, .. } => {
+            transitions.confirm();
+            transitions.track(*duration_ms, *position_ms);
+        }
+        PlayerEvent::Playing { position_ms, .. } => transitions.track(*duration_ms, *position_ms),
+        _ => {}
+    }
+}
+
 /// Holds the player weakly so `set_normalisation` can drop it. Once a rebuild
 /// moves the epoch on, this player's events are stale and end the loop;
 /// state changes check it under the state lock.
@@ -1611,14 +1635,7 @@ async fn forward_events(
             transitions.confirm();
             continue;
         }
-        match &event {
-            PlayerEvent::TrackChanged { audio_item } => duration_ms = audio_item.duration_ms,
-            PlayerEvent::Playing { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => {
-                transitions.confirm();
-                transitions.track(duration_ms, *position_ms);
-            }
-            _ => {}
-        }
+        follow_track(&transitions, &event, &mut duration_ms);
         // librespot fires this ~30 s before the end; a preloaded track lets the
         // EndOfTrack load below start without a gap.
         if let PlayerEvent::TimeToPreloadNextTrack {
@@ -1689,7 +1706,7 @@ async fn continue_with_radio(
     state: &Mutex<State>,
     owner: &Owner,
 ) -> bool {
-    let (request, generation) = {
+    let (mut request, generation) = {
         let state = lock(state);
         if owner.is_remote() {
             return false;
@@ -1715,6 +1732,9 @@ async fn continue_with_radio(
         (request, state.generation)
     };
     let session = sync_session(spot, player, state);
+    request.context_uri = request
+        .context_uri
+        .map(|uri| radio_seed(&uri, &session.username()));
     let tracks = match session.spclient().get_autoplay_context(&request).await {
         Ok(context) => radio_tracks(&context),
         Err(e) => {
@@ -1816,6 +1836,66 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn a_playing_event_queued_before_a_seek_lets_no_old_audio_through() {
+        let output = AudioOutput::new();
+        let mut sink = output.take_sink().unwrap();
+        let handle = output.take_render_handle() as *mut crate::audio::RenderHandle;
+        let transitions = sink.transitions();
+        let render = || {
+            let (mut left, mut right) = ([0.0; 32], [0.0; 32]);
+            // SAFETY: a live handle and two 32-frame buffers.
+            unsafe {
+                crate::audio::spotcore_audio_render(
+                    handle,
+                    left.as_mut_ptr(),
+                    right.as_mut_ptr(),
+                    32,
+                )
+            }
+        };
+        let audible = |sink: &mut CoreAudioSink| {
+            let packet = librespot_playback::decoder::AudioPacket::Samples(vec![1.0; 64]);
+            sink.write(
+                packet,
+                &mut librespot_playback::convert::Converter::new(None),
+            )
+            .unwrap();
+            render()
+        };
+        let mut duration_ms = 0;
+        transitions.seek();
+        render();
+
+        let playing = PlayerEvent::Playing {
+            play_request_id: 1,
+            track_id: track(1),
+            position_ms: 0,
+        };
+        follow_track(&transitions, &playing, &mut duration_ms);
+        assert_eq!(audible(&mut sink), 0, "pre-seek audio plays");
+
+        let seeked = PlayerEvent::Seeked {
+            play_request_id: 1,
+            track_id: track(1),
+            position_ms: 5000,
+        };
+        follow_track(&transitions, &seeked, &mut duration_ms);
+        assert_eq!(audible(&mut sink), 32);
+        // SAFETY: taken above and no longer used.
+        unsafe { crate::audio::spotcore_audio_render_handle_free(handle) };
+    }
+
+    #[test]
+    fn radio_for_liked_songs_seeds_from_the_user_collection() {
+        assert_eq!(
+            radio_seed(LIKED_SONGS, "alice"),
+            "spotify:user:alice:collection"
+        );
+        let playlist = "spotify:playlist:0kfSfq4tGP2VGZJ2j8ZTxD";
+        assert_eq!(radio_seed(playlist, "alice"), playlist);
     }
 
     #[test]
