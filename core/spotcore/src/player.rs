@@ -1487,6 +1487,16 @@ fn seed() -> u64 {
 /// shared with SpotCoreKit's `likedSongsContext`.
 pub(crate) const LIKED_SONGS: &str = "spotify:collection:tracks";
 
+/// The context autoplay is asked to continue. Spotify only knows Liked
+/// Songs as `spotify:user:<id>:collection`, not the app's `LIKED_SONGS`.
+fn radio_seed(context: &str, username: &str) -> String {
+    if context == LIKED_SONGS {
+        format!("spotify:user:{username}:collection")
+    } else {
+        context.to_owned()
+    }
+}
+
 /// A saved or reported context in the form a restore resolves: Spotify's
 /// own `spotify:user:<id>:collection` for Liked Songs maps to
 /// `LIKED_SONGS`; anything else must be a context Spotify can play.
@@ -1689,7 +1699,7 @@ async fn continue_with_radio(
     state: &Mutex<State>,
     owner: &Owner,
 ) -> bool {
-    let (request, generation) = {
+    let (mut request, generation) = {
         let state = lock(state);
         if owner.is_remote() {
             return false;
@@ -1715,6 +1725,9 @@ async fn continue_with_radio(
         (request, state.generation)
     };
     let session = sync_session(spot, player, state);
+    request.context_uri = request
+        .context_uri
+        .map(|uri| radio_seed(&uri, &session.username()));
     let tracks = match session.spclient().get_autoplay_context(&request).await {
         Ok(context) => radio_tracks(&context),
         Err(e) => {
@@ -1816,6 +1829,16 @@ mod tests {
 
     fn track(n: u8) -> SpotifyUri {
         SpotifyUri::from_uri(&format!("spotify:track:4uLU6hMCjMI75M1A2tKUQ{n}")).unwrap()
+    }
+
+    #[test]
+    fn radio_for_liked_songs_seeds_from_the_user_collection() {
+        assert_eq!(
+            radio_seed(LIKED_SONGS, "alice"),
+            "spotify:user:alice:collection"
+        );
+        let playlist = "spotify:playlist:0kfSfq4tGP2VGZJ2j8ZTxD";
+        assert_eq!(radio_seed(playlist, "alice"), playlist);
     }
 
     #[test]
