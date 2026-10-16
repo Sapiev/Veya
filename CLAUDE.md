@@ -114,7 +114,7 @@ PBI not finished until plan doc (`Native macOS Spotify Client (librespot) — Pl
 ## Other conventions
 
 - Never commit unless explicitly asked; leave changes uncommitted for review.
-- `core/target` grows to tens of GB. Build fails on ENOSPC → `cargo clean` in `core/`, rebuild; never delete anything else.
+- Build caches and old build output may be deleted without asking: `cargo clean` in `core/`, `~/Library/Developer/Xcode/DerivedData/Veya-*`, and `.xcresult` bundles and screenshots in your scratchpad. `core/target` grows to tens of GB. Required once your job is done (after the last test run), and on ENOSPC before rebuilding. Never delete anything else. After deleting DerivedData, run `xcodebuild -resolvePackageDependencies -project Veya.xcodeproj -scheme Veya` so Xcode has Sparkle again; retry once if it fails while Xcode is open.
 - Never use em dash "—"; use hyphen "-".
 - Always verify via proper tests before claiming done.
 - Never suppress, skip, ignore, or exclude failing test/file to pass checks. Fix root issue, add coverage for changed behavior.
