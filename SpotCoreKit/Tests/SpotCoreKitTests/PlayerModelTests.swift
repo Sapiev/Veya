@@ -145,6 +145,16 @@ struct PlayerModelTests {
         #expect(player.nowPlaying?.album?.uri == "spotify:album:1")
     }
 
+    @Test func aLoadingTrackTakesItsOwnLengthNotThePreviousOne() async {
+        let player = model()
+        player.apply(.trackChanged(uri: "spotify:track:2", name: "Other", durationMs: 10_000))
+        player.apply(.loading(uri: trackURI, positionMs: 0))
+        #expect(player.nowPlaying?.durationMs == 0)
+
+        await player.resolution?.value
+        #expect(player.nowPlaying?.durationMs == 200_000)
+    }
+
     @Test func staleMetadataDoesNotOverwriteANewerTrack() async {
         let metadata = StubMetadata([trackItem])
         metadata.hold(trackURI)

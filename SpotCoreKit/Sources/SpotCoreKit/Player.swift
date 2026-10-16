@@ -233,7 +233,9 @@ public final class PlayerModel {
         case let .loading(uri, position):
             isPlaying = false
             report(position)
-            show(uri, title: nowPlaying?.uri == uri ? nowPlaying?.title ?? "" : "", durationMs: nowPlaying?.durationMs ?? 0)
+            // A new item starts without a length, so the metadata lookup fills in its own.
+            let known = nowPlaying?.uri == uri ? nowPlaying : nil
+            show(uri, title: known?.title ?? "", durationMs: known?.durationMs ?? 0)
             refreshQueue()
         case let .playing(_, position):
             report(position)
