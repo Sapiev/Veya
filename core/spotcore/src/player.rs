@@ -607,7 +607,9 @@ impl SpotPlayer {
         self.sync_session();
         let mut state = lock(&self.state);
         if state.clock.position_ms() > RESTART_THRESHOLD_MS {
-            self.transitions.seek();
+            if self.transitions.seek() {
+                state.clock.wants_play = true;
+            }
             self.player().seek(0);
         } else if let Some(track) = state.queue.back().cloned() {
             state.supersede();
@@ -1659,16 +1661,16 @@ async fn forward_events(
             play_request_id, ..
         } = event
         {
-            let next = {
-                let mut state = lock(&state);
-                if !epoch.is_current() {
-                    return;
-                }
-                if state.request_id != Some(play_request_id) {
-                    continue;
-                }
-                state.queue.advance(false).cloned()
-            };
+            // Loads under the state lock, as every other site does, so a
+            // concurrent next() cannot interleave its own load.
+            let mut state = lock(&state);
+            if !epoch.is_current() {
+                return;
+            }
+            if state.request_id != Some(play_request_id) {
+                continue;
+            }
+            let next = state.queue.advance(false).cloned();
             transitions.boundary();
             match next {
                 Some(track) => player.load(track, true, 0),
@@ -1687,9 +1689,16 @@ async fn forward_events(
                 observer.on_event(event);
             }
         }
-        if context_ended && !continue_with_radio(&session, &player, &state, &owner).await {
-            transitions.play_out();
-            player.stop();
+        if context_ended {
+            let generation = lock(&state).generation;
+            if !continue_with_radio(&session, &player, &state, &owner).await {
+                // A load that superseded the radio request must not be stopped.
+                let state = lock(&state);
+                if state.generation == generation {
+                    transitions.play_out();
+                    player.stop();
+                }
+            }
         }
     }
     if epoch.is_current() {

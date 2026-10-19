@@ -147,7 +147,10 @@ public final class PlaybackSettings {
         let saved = defaults.array(forKey: Key.localFolders) as? [Data] ?? []
         folders = []
         for bookmark in saved {
-            if let folder = LocalFolder(bookmark: bookmark), !folders.contains(where: { $0.path == folder.path }) {
+            guard let folder = LocalFolder(bookmark: bookmark) else { continue }
+            if folders.contains(where: { $0.path == folder.path }) {
+                folder.stopAccessing()
+            } else {
                 folders.append(folder)
             }
         }
@@ -211,7 +214,7 @@ public final class PlaybackSettings {
     }
 
     /// NaN would trap in `playerVolume`, so it falls back to full volume.
-    private static func clamped(_ volume: Double) -> Double {
+    static func clamped(_ volume: Double) -> Double {
         volume.isNaN ? 1 : min(max(volume, 0), 1)
     }
 

@@ -62,7 +62,7 @@ public struct RGB: Equatable, Sendable {
 
     /// `#RRGGBB`, how Settings stores the accent color; nil for anything else.
     public init?(hex: String) {
-        guard hex.count == 7, hex.first == "#", let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+        guard hex.count == 7, hex.first == "#", hex.dropFirst().allSatisfy(\.isHexDigit), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
         self.init(
             red: Double(value >> 16 & 0xFF) / 255,
             green: Double(value >> 8 & 0xFF) / 255,
@@ -150,7 +150,9 @@ public enum ArtworkColors {
             let sum = buckets[key, default: (0, 0, 0, 0)]
             buckets[key] = (sum.red + r, sum.green + g, sum.blue + b, sum.count + 1)
         }
-        let colors = buckets.values.map { sum in
+        // Sorted so ties between equal buckets resolve the same way every launch.
+        let ordered = buckets.sorted { $0.key < $1.key }.map(\.value)
+        let colors = ordered.map { sum in
             (color: RGB(
                 red: Double(sum.red) / Double(sum.count) / 255,
                 green: Double(sum.green) / Double(sum.count) / 255,

@@ -454,8 +454,9 @@ public final class PlayerModel {
         get { remoteVolume ?? settings.volume }
         set {
             if remoteVolume != nil {
-                remoteVolume = newValue
-                player.setRemoteVolume(volume: UInt16((min(max(newValue, 0), 1) * Double(UInt16.max)).rounded()))
+                let clamped = PlaybackSettings.clamped(newValue)
+                remoteVolume = clamped
+                player.setRemoteVolume(volume: UInt16((clamped * Double(UInt16.max)).rounded()))
                 return
             }
             settings.volume = newValue

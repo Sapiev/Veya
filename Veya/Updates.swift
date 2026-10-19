@@ -51,6 +51,11 @@ import SwiftUI
     }
 
     /// Sparkle calls its delegate on the main thread.
+    /// Sparkle ends the app with a plain terminate, which the delegate refuses unless a quit was requested.
+    nonisolated func updaterWillRelaunchApplication(_: SPUUpdater) {
+        MainActor.assumeIsolated { AppDelegate.quitRequested = true }
+    }
+
     nonisolated func allowedChannels(for _: SPUUpdater) -> Set<String> {
         MainActor.assumeIsolated { defaults.bool(forKey: Self.betaKey) } ? ["beta"] : []
     }
