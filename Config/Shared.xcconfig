@@ -4,7 +4,7 @@ VEYA_BUNDLE_ID_PREFIX = org.veya
 DEVELOPMENT_TEAM =
 // Sparkle update signing key (generate_keys); updates stay off while it is empty.
 // xcconfig treats "//" as a comment, so write any "//" in the key as "/$()/".
-SPARKLE_PUBLIC_ED_KEY =
+SPARKLE_PUBLIC_ED_KEY = IjRGUtKeHK6/YFJFaS61SQtUOOq0undoFCf2ncsyzRk=
 
 SDKROOT = macosx
 SUPPORTED_PLATFORMS = macosx
