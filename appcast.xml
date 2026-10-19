@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Veya</title>
+    <item>
+      <title>1.0.0</title>
+      <pubDate>Mon, 19 Oct 2026 21:50:43 GMT</pubDate>
+      <sparkle:version>410</sparkle:version>
+      <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown">First release: a native macOS Spotify client (Premium account required).
+
+### Added
+
+- Playback, queue, search, library, playlists, podcasts and lyrics, with Spotify Connect, media keys, crossfade, menu bar and Dock controls.
+- DMG releases, self-signed and not notarized (PBI-901).
+- Automatic updates with Sparkle, with an opt-in beta channel (PBI-902).
+- Homebrew cask in the project tap: `brew install --cask sapiev/veya/veya` (PBI-903).
+</description>
+      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.0.0/Veya-1.0.0.dmg" length="23704895" type="application/octet-stream" sparkle:edSignature="wAF9BTZhqKJB34j5VG/ChiBS8WhJLe0fun/aSBSqMe3kTWwdLVxBL8t7rzdPqMfR7KIGVwF/vadsZN1HgPS9AQ==" />
+    </item>
+  </channel>
+</rss>
