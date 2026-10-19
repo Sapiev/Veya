@@ -162,7 +162,7 @@ import SwiftUI
 }
 
 /// Playback and the media keys outlive the window, as in Music.
-private final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     static var quitRequested = false
     static var controls: MediaControls?
 
