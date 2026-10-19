@@ -4,7 +4,7 @@
     <title>Veya</title>
     <item>
       <title>1.0.0</title>
-      <pubDate>Mon, 19 Oct 2026 21:50:43 GMT</pubDate>
+      <pubDate>Mon, 19 Oct 2026 22:05:17 GMT</pubDate>
       <sparkle:version>410</sparkle:version>
       <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
@@ -17,7 +17,7 @@
 - Automatic updates with Sparkle, with an opt-in beta channel (PBI-902).
 - Homebrew cask in the project tap: `brew install --cask sapiev/veya/veya` (PBI-903).
 </description>
-      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.0.0/Veya-1.0.0.dmg" length="23704895" type="application/octet-stream" sparkle:edSignature="wAF9BTZhqKJB34j5VG/ChiBS8WhJLe0fun/aSBSqMe3kTWwdLVxBL8t7rzdPqMfR7KIGVwF/vadsZN1HgPS9AQ==" />
+      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.0.0/Veya-1.0.0.dmg" length="23701331" type="application/octet-stream" sparkle:edSignature="RVKLF3612sL5Cf7W+hTpHem3jaiK1U4Edfu1X9oO0rUJVjA2G3uuU3V4dnoKBdUS3o6FoodgzyD2+jIolkAxDQ==" />
     </item>
   </channel>
 </rss>
