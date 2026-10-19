@@ -1,4 +1,8 @@
-# Veya
+<p align="center">
+  <img src="docs/logo.svg" alt="Veya logo" width="128">
+</p>
+
+<h1 align="center">Veya</h1>
 
 A native SwiftUI/AppKit Spotify client for macOS 14+, with playback powered by
 [librespot](https://github.com/librespot-org/librespot) (Rust, MIT). No web
@@ -11,9 +15,35 @@ view anywhere.
 > sanctioned by Spotify's terms. Use at your own risk - see
 > [Risks](Veya/Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md#risks-open-questions-and-definition-of-done).
 
+## Install
+
+Requires macOS 14 or later and a Spotify **Premium** account.
+
+**Homebrew**
+
+```sh
+brew install --cask sapiev/veya/veya
+```
+
+**DMG**
+
+Download `Veya-<version>.dmg` from the
+[latest release](https://github.com/Sapiev/Veya/releases/latest) and drag Veya
+to Applications.
+
+Releases are signed with a self-signed certificate and are not notarized, so
+macOS blocks the first launch. Open **System Settings > Privacy & Security**
+and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/Veya.app`. You only need to do
+this once: Veya updates itself through Sparkle (opt in to betas under
+**Settings > Advanced**).
+
+To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/release.md](docs/release.md).
+
 ## Status
 
-Early development. See the [plan and backlog](Veya/Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md)
+Version 1.0 is out; development continues. See the [plan and backlog](Veya/Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md)
 for the roadmap, architecture and PBIs.
 
 ## Goals
