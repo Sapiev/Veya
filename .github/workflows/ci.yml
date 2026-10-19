@@ -18,7 +18,7 @@ env:
 
 jobs:
   lint:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,7 +48,7 @@ jobs:
 
   build-test:
     # Veya.xcodeproj (objectVersion 90) needs Xcode 26, the image default.
-    runs-on: macos-26
+    runs-on: xcode-27
     # A cold cache compiles librespot three times (host debug, two release
     # arches); a timeout saves no cache, so every later run would be cold too.
     timeout-minutes: 60
