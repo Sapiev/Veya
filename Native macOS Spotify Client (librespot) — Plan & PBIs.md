@@ -143,7 +143,7 @@ veya/
 
 **Status:** Done (merged to develop) - pipeline timing unverified until the repo has a GitHub remote.
 
-- [x] GitHub Actions on `macos-latest`: Rust build + clippy + tests, xcframework build, `xcodebuild test`. (Pinned to `macos-26`: the project needs Xcode 26.)
+- [x] GitHub Actions on `macos-latest`: Rust build + clippy + tests, xcframework build, `xcodebuild test`. (Runs on the `xcode-27` runner image: Xcode 26.6 rejects `AudioEngine`'s deinit and crashes the Swift compiler on the app target.)
 - [x] SwiftLint and SwiftFormat checks; rustfmt check.
 - [ ] Cargo and SPM caches; PR pipeline under 15 minutes. (Caches in place; timing unverified until the first GitHub run.)
 - [x] Dependabot for Cargo, SPM and Actions.

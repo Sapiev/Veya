@@ -15,7 +15,7 @@ the plan document for architecture and backlog.
 ## Development setup
 
 Repo layout and toolchain are described in the plan document's "Tech stack"
-section. In short: Xcode 26+, Swift 6, Rust stable ≥ 1.85.
+section. In short: Xcode 27+, Swift 6, Rust stable ≥ 1.85.
 
 Before you open the project for the first time, build the Rust core once:
 
