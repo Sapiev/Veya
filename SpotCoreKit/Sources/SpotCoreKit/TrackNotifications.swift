@@ -39,7 +39,10 @@ public final class TrackNotifications {
         pending?.cancel()
         pending = Task { [weak self, settle] in
             guard (try? await Task.sleep(for: settle)) != nil, let self, let latest,
-                  Self.key(latest.info) == key, latest.info.isPlaying, isEnabled() else { return }
+                  Self.key(latest.info) == key else { return }
+            // Paused tracks stay unannounced so pressing play still posts them.
+            guard latest.info.isPlaying else { announced = nil; return }
+            guard isEnabled() else { return }
             post(latest.info, latest.image)
         }
     }

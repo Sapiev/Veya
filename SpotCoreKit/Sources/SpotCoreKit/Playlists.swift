@@ -161,7 +161,7 @@ public final class PlaylistModel {
                 }
             }
             for await (uri, found) in group {
-                if let found { artwork[uri] = found }
+                if let found, artwork[uri]?.isEmpty == true { artwork[uri] = found }
             }
         }
     }
