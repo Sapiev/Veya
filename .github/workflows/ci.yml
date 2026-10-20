@@ -102,6 +102,7 @@ jobs:
         with:
           swift-version: swift-6.3-release
           swift-build: 6.3-RELEASE
+          build_arch: ${{ runner.arch == 'ARM64' && 'arm64' || 'amd64' }}
       - name: Swift smoke test
         shell: bash
         run: spikes/swift-smoke.sh
