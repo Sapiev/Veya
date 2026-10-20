@@ -117,7 +117,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install GTK4
-        run: apt-get update && apt-get install -y libgtk-4-dev clang
+        run: apt-get update && apt-get install -y libgtk-4-dev
       - name: Build
         working-directory: spikes/crossui
         run: SCUI_DEFAULT_BACKEND=GtkBackend swift build
