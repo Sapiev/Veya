@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PBI-X02: link libspotcore.a into a plain SwiftPM executable via a
-# systemLibrary target and call one sync and one async UniFFI function.
+# systemLibrary target and call one sync, one async and one foreign-callback (LogSink) UniFFI function.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/core"
@@ -23,6 +23,19 @@ cat > "$OUT/Sources/smoke/main.swift" <<'S'
 let v = version()
 let r = try await runtimeCheck()
 guard v == r else { fatalError("mismatch \(v) \(r)") }
+
+import Foundation
+final class Sink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [LogRecord] = []
+    func log(record: LogRecord) { lock.lock(); seen.append(record); lock.unlock() }
+    var records: [LogRecord] { lock.lock(); defer { lock.unlock() }; return seen }
+}
+let sink = Sink()
+try configureLogging(config: LoggingConfig(logDir: nil, maxLevel: .info), sink: sink)
+logMessage(level: .info, category: "smoke", message: "callback")
+guard sink.records.contains(where: { $0.subsystem == "veya" && $0.category == "smoke" && $0.message == "callback" })
+else { fatalError("callback not delivered: \(sink.records)") }
 print("ok \(v)")
 S
 
