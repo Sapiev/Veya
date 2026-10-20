@@ -86,6 +86,26 @@ jobs:
       - name: Swift smoke test
         run: spikes/swift-smoke.sh
 
+  swift-smoke-windows:
+    name: swift smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-6.3-release
+          swift-build: 6.3-RELEASE
+      - name: Swift smoke test
+        shell: bash
+        run: spikes/swift-smoke.sh
+
   build-test:
     # Veya.xcodeproj (objectVersion 90) needs Xcode 26, the image default.
     runs-on: xcode-27

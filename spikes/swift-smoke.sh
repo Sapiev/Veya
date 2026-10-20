@@ -6,10 +6,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE="$ROOT/core"
 OUT="${1:-$(mktemp -d)}"
 LIBDIR="$CORE/target/release"
+LIB="$LIBDIR/libspotcore.a"
+case "$(uname)" in MINGW*|MSYS*) WIN=1; LIB="$LIBDIR/spotcore.lib"; LIBDIR="$(cygpath -m "$LIBDIR")";; esac
 
 (cd "$CORE" && cargo build --release -p spotcore)
 (cd "$CORE" && cargo run --quiet -p uniffi-bindgen -- generate \
-    --library "$LIBDIR/libspotcore.a" --language swift --out-dir "$OUT/gen")
+    --library "$LIB" --language swift --out-dir "$OUT/gen")
 
 FFI="$OUT/Sources/spotcoreFFI"
 mkdir -p "$FFI" "$OUT/Sources/smoke"
@@ -27,6 +29,7 @@ S
 EXTRA='"-lm"'
 [ "$(uname)" = Linux ] && EXTRA='"-lm", "-ldl", "-lpthread"'
 [ "$(uname)" = Darwin ] && EXTRA='"-framework", "Security", "-framework", "SystemConfiguration", "-framework", "CoreFoundation"'
+[ -n "${WIN:-}" ] && EXTRA='"-lws2_32", "-luserenv", "-lbcrypt", "-lntdll", "-ladvapi32", "-lcrypt32", "-lsecur32", "-lncrypt", "-lole32", "-lshell32", "-lkernel32"'
 cat > "$OUT/Package.swift" <<P
 // swift-tools-version: 6.0
 import PackageDescription
