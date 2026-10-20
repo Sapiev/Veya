@@ -80,12 +80,10 @@ jobs:
           persist-credentials: false
       - name: Install Rust
         run: |
-          apt-get update && apt-get install -y curl ca-certificates
+          apt-get update && apt-get install -y curl ca-certificates gcc
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Swift smoke test
-        env:
-          CC: clang
         run: spikes/swift-smoke.sh
 
   build-test:
