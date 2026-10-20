@@ -13,7 +13,7 @@ view anywhere.
 > trademarks of Spotify AB. Veya requires a Spotify **Premium** account;
 > librespot is an unofficial, reverse-engineered client and its use is not
 > sanctioned by Spotify's terms. Use at your own risk - see
-> [Risks](Veya/Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md#risks-open-questions-and-definition-of-done).
+> [Risks](Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md#risks-open-questions-and-definition-of-done).
 
 ## Install
 
