@@ -7,13 +7,23 @@
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, Write};
+#[cfg(unix)]
 use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use log::{LevelFilter, Metadata, Record};
 use time::format_description::well_known::Rfc3339;
 use time::{Date, OffsetDateTime};
+
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    #[cfg(unix)]
+    return file.read_at(buf, offset);
+    #[cfg(windows)]
+    return file.seek_read(buf, offset);
+}
 
 use crate::SpotCoreError;
 use crate::redact::{self, redact};
@@ -320,7 +330,9 @@ impl LogFile {
             state.bytes = file.metadata()?.len();
             // Terminate a line torn by a crash so the next record parses.
             let mut last = [0u8];
-            if state.bytes > 0 && file.read_at(&mut last, state.bytes - 1)? == 1 && last[0] != b'\n'
+            if state.bytes > 0
+                && read_at(&file, &mut last, state.bytes - 1)? == 1
+                && last[0] != b'\n'
             {
                 file.write_all(b"\n")?;
                 state.bytes += 1;
