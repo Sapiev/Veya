@@ -67,6 +67,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     container: swift:6.3-noble
+    env:
+      CARGO_HOME: /usr/local/cargo
+      RUSTUP_HOME: /usr/local/rustup
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +81,7 @@ jobs:
       - name: Install Rust
         run: |
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Swift smoke test
         env:
           CC: clang
