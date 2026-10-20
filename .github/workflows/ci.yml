@@ -46,6 +46,22 @@ jobs:
           RUSTUP_TOOLCHAIN: stable
         run: cargo fmt --all --check
 
+  rust-portable:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: cargo test
+        working-directory: core
+        run: cargo test -p spotcore
+
   build-test:
     # Veya.xcodeproj (objectVersion 90) needs Xcode 26, the image default.
     runs-on: xcode-27

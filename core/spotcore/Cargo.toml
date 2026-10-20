@@ -21,7 +21,6 @@ librespot-connect = { git = "https://github.com/librespot-org/librespot", rev = 
     "rustls-tls-native-roots",
 ] }
 librespot-discovery = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
-    "with-dns-sd",
     "rustls-tls-native-roots",
 ] }
 librespot-metadata = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = [
@@ -54,6 +53,13 @@ futures-util = { version = "0.3", default-features = false }
 http = "1"
 percent-encoding = "2"
 rusqlite = { version = "0.40", features = ["bundled"] }
+
+# Bonjour (dns-sd) on macOS, pure-Rust libmdns elsewhere (ADR-0009).
+[target.'cfg(target_os = "macos")'.dependencies]
+librespot-discovery = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = ["with-dns-sd"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+librespot-discovery = { git = "https://github.com/librespot-org/librespot", rev = "d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d", default-features = false, features = ["with-libmdns"] }
 
 [dev-dependencies]
 base64 = "0.23"
