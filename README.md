@@ -13,7 +13,7 @@ view anywhere.
 > trademarks of Spotify AB. Veya requires a Spotify **Premium** account;
 > librespot is an unofficial, reverse-engineered client and its use is not
 > sanctioned by Spotify's terms. Use at your own risk - see
-> [Risks](Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md#risks-open-questions-and-definition-of-done).
+> [Risks](docs/plan.md#risks-open-questions-and-definition-of-done).
 
 ## Install
 
@@ -43,8 +43,9 @@ To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md) and
 
 ## Status
 
-Version 1.0 is out; development continues. See the [plan and backlog](Veya/Native%20macOS%20Spotify%20Client%20(librespot)%20%E2%80%94%20Plan%20%26%20PBIs.md)
-for the roadmap, architecture and PBIs.
+Version 1.0 is out; development continues. See the [plan](docs/plan.md) for the vision,
+architecture and Definition of Done, and the
+[project board](https://github.com/users/Sapiev/projects/5) for the PBIs.
 
 ## Goals
 

@@ -106,10 +106,10 @@ No long explanations, architecture essays, repeating requirements, explaining st
 
 ## PBI completion
 
-PBI not finished until plan doc (`Native macOS Spotify Client (librespot) — Plan & PBIs.md`) updated in same commit set (`docs:` commit):
+PBIs are issues `PBI-xxx · Title` in `Sapiev/Veya`, tracked in project https://github.com/users/Sapiev/projects/5 (find: `gh issue list -R Sapiev/Veya --search "PBI-xxx in:title"`). PBI not finished until its issue updated (`gh issue edit`):
 - Tick `- [x]` each acceptance criterion verified against repo; leave unmet `- [ ]` with short parenthetical reason.
-- Set `**Status:**` line under Priority: `In progress`, `In review (<branch>)`, or `Done (merged to develop)`.
-- Update Status line again on merge.
+- Update `**Status:**` line in issue body and project Status field: `In progress`, `In review` (PR open, body names branch), `Done` on merge to develop.
+- PR body says `Closes #<issue>` so merge closes it.
 
 ## Other conventions
 
