@@ -222,4 +222,23 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Hello from the first line"].waitForExistence(timeout: XCUIApplication.timeout))
         attachScreenshot(of: window, named: "now-playing-lyrics-no-panel")
     }
+
+    /// The setting removes the queue and lyrics panel so only the playing artwork is left.
+    @MainActor func testPanesCanBeTurnedOff() throws {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey(",", modifierFlags: .command)
+        app.toolbars.buttons["General"].click()
+        let toggle = app.toggle("Queue and lyrics panel")
+        XCTAssertTrue(toggle.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(toggle.value as? Int, 1)
+        toggle.click()
+        XCTAssertEqual(toggle.value as? Int, 0)
+        app.typeKey("w", modifierFlags: .command)
+
+        app.buttons["Full-Window Now Playing"].click()
+        XCTAssertTrue(app.buttons["Show Queue and Lyrics"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.scrollViews["nowPlayingQueue"].exists)
+        attachScreenshot(of: app.windows.firstMatch, named: "now-playing-no-panes")
+    }
 }

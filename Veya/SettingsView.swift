@@ -96,6 +96,7 @@ private struct GeneralSettingsTab: View {
     @AppStorage(SettingsView.trackNotificationsKey) private var notifiesTrackChanges = false
     @AppStorage(TextSize.key) private var textSize = TextSize.standard
     @AppStorage(NowPlayingView.panesBackgroundKey) private var panesBackground = true
+    @AppStorage(NowPlayingView.showsPanesKey) private var showsPanes = true
     @State private var notificationsDenied = false
     @Bindable var menuBar: MenuBarSettings
 
@@ -159,6 +160,11 @@ private struct GeneralSettingsTab: View {
                 }
             }
             Section {
+                Toggle(isOn: $showsPanes) {
+                    Text("Queue and lyrics panel")
+                    Text("In full-window Now Playing. Off leaves only the artwork and controls in the middle.")
+                }
+                .accessibilityLabel("Queue and lyrics panel")
                 Toggle(isOn: $panesBackground) {
                     Text("Panel behind queue and lyrics")
                     Text("In full-window Now Playing. Off shows them straight on the artwork.")

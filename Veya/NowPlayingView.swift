@@ -9,7 +9,7 @@ struct NowPlayingView: View {
     let history: NavigationHistory
     @State var tab: Tab
     let close: () -> Void
-    @AppStorage("nowPlayingShowsPanes") private var showsPanes = true
+    @AppStorage(Self.showsPanesKey) private var showsPanes = true
     @AppStorage(Self.panesBackgroundKey) private var panesBackground = true
     @State private var controlsShown = true
     @State private var controlsHovered = false
@@ -21,6 +21,7 @@ struct NowPlayingView: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     /// Read by the General settings tab; on by default.
+    static let showsPanesKey = "nowPlayingShowsPanes"
     static let panesBackgroundKey = "nowPlaying.panesBackground"
 
     enum Tab {

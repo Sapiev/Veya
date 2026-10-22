@@ -2119,6 +2119,16 @@
         }
       }
     },
+    "In full-window Now Playing. Off leaves only the artwork and controls in the middle." : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "W widoku Teraz odtwarzane w pełnym oknie. Po wyłączeniu w środku zostają tylko okładka i przyciski."
+          }
+        }
+      }
+    },
     "Include beta versions" : {
       "localizations" : {
         "pl" : {
@@ -3193,6 +3203,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Panel pod kolejką i tekstem"
+          }
+        }
+      }
+    },
+    "Queue and lyrics panel" : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panel kolejki i tekstu"
           }
         }
       }
