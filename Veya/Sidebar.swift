@@ -302,11 +302,8 @@ private struct SidebarRow<Thumb: View>: View {
 
     @ViewBuilder private var row: some View {
         if compact {
-            // A square cell: the bigger icon centered, the equalizer on its corner.
+            // A square cell: the bigger icon centered; playing shows only in the accessibility value.
             thumb.frame(width: thumbSide(true), height: thumbSide(true))
-                .overlay(alignment: .bottomTrailing) {
-                    if playing { Equalizer(animating: true).offset(x: 6, y: 4) }
-                }
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .listRowInsets(EdgeInsets())
         } else {

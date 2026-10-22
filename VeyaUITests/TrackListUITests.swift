@@ -110,6 +110,24 @@ final class TrackListUITests: XCTestCase {
         XCTAssertGreaterThan(pixels.contrast(in: icon), 3)
     }
 
+    /// The compact sidebar shows no equalizer on the playing playlist; VoiceOver still hears it.
+    @MainActor func testCompactSidebarHidesEqualizerOnPlayingPlaylist() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.outlines.staticTexts["Road Trip"].click()
+        XCTAssertTrue(app.showsRoute("Road Trip"))
+        app.trackList.staticTexts["Song 1"].doubleClick()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        app.buttons["Collapse Sidebar"].click()
+        XCTAssertTrue(app.buttons["Expand Sidebar"].waitForExistence(timeout: XCUIApplication.timeout))
+        let row = app.outlines.firstMatch.outlineRows.containing(NSPredicate(format: "label == 'Road Trip'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: app.windows.firstMatch, named: "compact-sidebar-playing")
+        let icon = app.outlines.firstMatch.descendants(matching: .any).matching(NSPredicate(format: "label == 'Road Trip'")).firstMatch
+        XCTAssertEqual(icon.value as? String, "Private, Playing")
+        XCTAssertFalse(app.outlines.firstMatch.images["Now Playing"].exists)
+    }
+
     /// The playing row's accent title switches to the accent's ink once the row is selected in the accent.
     @MainActor func testSelectedPlayingRowTitleStaysReadable() throws {
         let app = likedSongs()
