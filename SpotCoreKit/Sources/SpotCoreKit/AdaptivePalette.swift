@@ -19,7 +19,9 @@ public struct RGB: Equatable, Sendable {
 
     /// WCAG relative luminance.
     var luminance: Double {
-        func linear(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        func linear(_ c: Double) -> Double {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
 
@@ -52,9 +54,15 @@ public struct RGB: Equatable, Sendable {
         let p = 2 * lightness - q
         func channel(_ t: Double) -> Double {
             let t = t < 0 ? t + 1 : t > 1 ? t - 1 : t
-            if t < 1 / 6 { return p + (q - p) * 6 * t }
-            if t < 1 / 2 { return q }
-            if t < 2 / 3 { return p + (q - p) * (2 / 3 - t) * 6 }
+            if t < 1 / 6 {
+                return p + (q - p) * 6 * t
+            }
+            if t < 1 / 2 {
+                return q
+            }
+            if t < 2 / 3 {
+                return p + (q - p) * (2 / 3 - t) * 6
+            }
             return p
         }
         self.init(red: channel(hue + 1 / 3), green: channel(hue), blue: channel(hue - 1 / 3))
@@ -71,7 +79,9 @@ public struct RGB: Equatable, Sendable {
     }
 
     public var hex: String {
-        func byte(_ channel: Double) -> Int { Int((min(max(channel, 0), 1) * 255).rounded()) }
+        func byte(_ channel: Double) -> Int {
+            Int((min(max(channel, 0), 1) * 255).rounded())
+        }
         return String(format: "#%02X%02X%02X", byte(red), byte(green), byte(blue))
     }
 

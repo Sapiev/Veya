@@ -30,7 +30,7 @@ struct ArtworkLoaderTests {
         #expect(unsized.best(forPixels: 200)?.url == "large")
     }
 
-    @Test func decodesADownscaledThumbnailAndDownloadsOnce() async throws {
+    @Test func decodesADownscaledThumbnailAndDownloadsOnce() async {
         let fetches = Counter()
         let loader = ArtworkLoader(directory: directory) { url in
             fetches.increment()
@@ -48,7 +48,7 @@ struct ArtworkLoaderTests {
         #expect(fetches.value == 1)
     }
 
-    @Test func aRelaunchServesArtworkFromDisk() async throws {
+    @Test func aRelaunchServesArtworkFromDisk() async {
         let first = ArtworkLoader(directory: directory) { _ in try png(side: 64) }
         _ = await first.image(for: Self.covers, pixels: 64)
 
@@ -70,7 +70,7 @@ struct ArtworkLoaderTests {
 
     @Test func diskCacheEvictsTheLeastRecentlyUsedFile() async throws {
         let cache = ArtworkDiskCache(directory: directory, limitBytes: 250)
-        let urls = (0..<3).map { URL(string: "https://i.scdn.co/image/\($0)")! }
+        let urls = (0 ..< 3).map { URL(string: "https://i.scdn.co/image/\($0)")! }
         await cache.store(Data(count: 100), for: urls[0])
         await cache.store(Data(count: 100), for: urls[1])
         try await Task.sleep(for: .milliseconds(10))
@@ -87,8 +87,13 @@ struct ArtworkLoaderTests {
 private final class Counter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
-    var value: Int { lock.withLock { count } }
-    func increment() { lock.withLock { count += 1 } }
+    var value: Int {
+        lock.withLock { count }
+    }
+
+    func increment() {
+        lock.withLock { count += 1 }
+    }
 }
 
 func png(side: Int) throws -> Data {

@@ -80,7 +80,9 @@ final class MenuBarUITests: XCTestCase {
 @MainActor
 private extension XCUIApplication {
     /// Veya's one status item, whichever label it shows.
-    var menuBarItem: XCUIElement { statusItems.firstMatch }
+    var menuBarItem: XCUIElement {
+        statusItems.firstMatch
+    }
 
     func openGeneralSettings() {
         typeKey(",", modifierFlags: .command)
@@ -98,6 +100,3 @@ private extension XCUIApplication {
         XCTAssertTrue(buttons["Open Veya"].exists)
     }
 }
-
-
-

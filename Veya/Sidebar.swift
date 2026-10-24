@@ -36,10 +36,10 @@ struct Sidebar: View {
                     } icon: {
                         Image(systemName: "plus").foregroundStyle(.tint)
                     }
-                        .labelStyle(SidebarLabelStyle(compact: compact))
-                        .scaledFont(size: 13)
-                        .frame(maxWidth: .infinity, minHeight: 32, alignment: compact ? .center : .leading)
-                        .contentShape(.rect)
+                    .labelStyle(SidebarLabelStyle(compact: compact))
+                    .scaledFont(size: 13)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: compact ? .center : .leading)
+                    .contentShape(.rect)
                 }
                 .help("New Playlist")
                 Button { compact.toggle() } label: {
@@ -98,7 +98,9 @@ struct Sidebar: View {
         .alert("Rename Playlist", isPresented: isPresent($renaming)) {
             TextField("Name", text: $newName)
             Button("Rename") {
-                if let uri = renaming { Task { await playlists.rename(uri, to: trimmedName) } }
+                if let uri = renaming {
+                    Task { await playlists.rename(uri, to: trimmedName) }
+                }
             }
             .disabled(trimmedName.isEmpty)
             Button("Cancel", role: .cancel) {}
@@ -106,7 +108,9 @@ struct Sidebar: View {
         .alert(Text("Delete “\(deleting.map(name) ?? "")”?"), isPresented: isPresent($deleting)) {
             Button("Delete", role: .destructive) {
                 guard let uri = deleting else { return }
-                if selection == .playlist(uri: uri) { selection = .home }
+                if selection == .playlist(uri: uri) {
+                    selection = .home
+                }
                 Task { await playlists.delete(uri) }
             }
             Button("Cancel", role: .cancel) {}
@@ -121,7 +125,11 @@ struct Sidebar: View {
         .task(id: visibleLibraryURIs) { library.resolve(visibleLibraryURIs) }
         .task(id: playlists.rootlist) {
             await playlists.loadArtwork(playlists.rootlist.compactMap {
-                if case let .playlist(uri, _, _, _, _, _, _) = $0 { uri } else { nil }
+                if case let .playlist(uri, _, _, _, _, _, _) = $0 {
+                    uri
+                } else {
+                    nil
+                }
             })
         }
     }
@@ -153,7 +161,11 @@ struct Sidebar: View {
     }
 
     private func isPresent(_ uri: Binding<String?>) -> Binding<Bool> {
-        Binding(get: { uri.wrappedValue != nil }, set: { if !$0 { uri.wrappedValue = nil } })
+        Binding(get: { uri.wrappedValue != nil }, set: {
+            if !$0 {
+                uri.wrappedValue = nil
+            }
+        })
     }
 
     private var nowPlaying: String? {
@@ -169,7 +181,11 @@ struct Sidebar: View {
             ForEach((library.items[kind] ?? []).prefix(Self.sectionLimit), id: \.uri) { item in
                 row(Text(library.sidebarName(item.uri)), kind.route(item.uri)) {
                     let art = ArtworkView(artwork: library.sidebarArtwork(item.uri), side: thumbSide(compact))
-                    if kind == .artists { art.clipShape(Circle()) } else { art.clipShape(RoundedRectangle(cornerRadius: thumbRadius(compact))) }
+                    if kind == .artists {
+                        art.clipShape(Circle())
+                    } else {
+                        art.clipShape(RoundedRectangle(cornerRadius: thumbRadius(compact)))
+                    }
                 }
             }
         } header: {
@@ -239,7 +255,7 @@ private struct PlaylistRows: View {
                     title: Text(node.name), selected: selection == route, playing: node.id == nowPlaying, thumb: thumb(node.id),
                     isPrivate: playlists.isEditable(node.id) && !playlists.isPublic(node.id)
                 )
-                    .tag(route)
+                .tag(route)
             }
         }
     }
@@ -267,7 +283,11 @@ private struct SidebarLabelStyle: LabelStyle {
     let compact: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        if compact { Label(configuration).labelStyle(.iconOnly) } else { Label(configuration) }
+        if compact {
+            Label(configuration).labelStyle(.iconOnly)
+        } else {
+            Label(configuration)
+        }
     }
 }
 
@@ -276,8 +296,14 @@ private extension EnvironmentValues {
 }
 
 /// Row icon side: bigger in the icon-only sidebar, which has room once names are gone.
-private func thumbSide(_ compact: Bool) -> CGFloat { compact ? 36 : 24 }
-private func thumbRadius(_ compact: Bool) -> CGFloat { compact ? 6 : 4 }
+private func thumbSide(_ compact: Bool) -> CGFloat {
+    compact ? 36 : 24
+}
+
+private func thumbRadius(_ compact: Bool) -> CGFloat {
+    compact ? 6 : 4
+}
+
 private struct SidebarRow<Thumb: View>: View {
     let title: Text
     let selected: Bool
@@ -347,7 +373,7 @@ private struct SidebarHeader: View {
     @Environment(\.sidebarCompact) private var compact
     @Environment(\.colorSchemeContrast) private var contrast
 
-    @ViewBuilder var body: some View {
+    var body: some View {
         if compact {
             // The divider stands in for the title, which still names the section for VoiceOver.
             // The panel's footer edge, inset from the panel sides.

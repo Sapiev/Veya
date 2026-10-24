@@ -224,7 +224,7 @@ final class NowPlayingUITests: XCTestCase {
     }
 
     /// The setting removes the queue and lyrics panel so only the playing artwork is left.
-    @MainActor func testPanesCanBeTurnedOff() throws {
+    @MainActor func testPanesCanBeTurnedOff() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.typeKey(",", modifierFlags: .command)

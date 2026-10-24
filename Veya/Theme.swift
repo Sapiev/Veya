@@ -37,7 +37,9 @@ enum TextSize: Int, CaseIterable {
 
     static let key = "textSize"
 
-    var scale: CGFloat { CGFloat(rawValue) / 100 }
+    var scale: CGFloat {
+        CGFloat(rawValue) / 100
+    }
 }
 
 extension EnvironmentValues {
@@ -382,10 +384,14 @@ extension View {
             guard direction == .up || direction == .down else { return }
             let index = focus.wrappedValue.flatMap(ids.firstIndex) ?? (direction == .up ? ids.count : -1)
             let next = index + (direction == .up ? -1 : 1)
-            if ids.indices.contains(next) { focus.wrappedValue = ids[next] }
+            if ids.indices.contains(next) {
+                focus.wrappedValue = ids[next]
+            }
         }
         .onCommand(#selector(NSResponder.insertNewline(_:))) {
-            if let current = focus.wrappedValue, ids.contains(current) { activate(current) }
+            if let current = focus.wrappedValue, ids.contains(current) {
+                activate(current)
+            }
         }
     }
 }

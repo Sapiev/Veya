@@ -46,7 +46,9 @@ public final class ShortcutActions {
         let player = try await ready(player)
         guard let uri = player.nowPlaying?.uri else { throw .nothingPlaying }
         let library = try await ready(library)
-        if !library.isSaved(uri) { library.setSaved(uri, true) }
+        if !library.isSaved(uri) {
+            library.setSaved(uri, true)
+        }
     }
 
     public func currentTrack() async throws(Failure) -> MediaControls.Info {
@@ -60,7 +62,9 @@ public final class ShortcutActions {
     /// The user's playlists, folders left out, whose name contains `query`; nil lists them all.
     public func playlists(matching query: String? = nil) async throws(Failure) -> [RootlistNode] {
         let model = try await ready(playlists)
-        if model.rootlist.isEmpty { await model.load().value }
+        if model.rootlist.isEmpty {
+            await model.load().value
+        }
         return model.rootlist.compactMap { entry in
             guard case let .playlist(uri, name, _, _, _, _, _) = entry,
                   query.map(name.localizedStandardContains) ?? true else { return nil }
@@ -87,7 +91,9 @@ public final class ShortcutActions {
     private func ready<Value>(_ value: () -> Value?) async throws(Failure) -> Value {
         let deadline = ContinuousClock.now + timeout
         while true {
-            if let value = value() { return value }
+            if let value = value() {
+                return value
+            }
             guard ContinuousClock.now < deadline, !Task.isCancelled else { throw .notReady }
             try? await Task.sleep(for: .milliseconds(100))
         }

@@ -11,10 +11,18 @@ private final class InstantFlow: SignInFlow {
         self.result = result
     }
 
-    func authorizeURL() -> String { "https://accounts.spotify.com/authorize" }
-    func finish() async throws -> OAuthTokens { try result.get() }
+    func authorizeURL() -> String {
+        "https://accounts.spotify.com/authorize"
+    }
+
+    func finish() async throws -> OAuthTokens {
+        try result.get()
+    }
+
     func cancel() {}
-    func callbackReceived() -> Bool { true }
+    func callbackReceived() -> Bool {
+        true
+    }
 }
 
 /// Stays open until the presenting task is cancelled.
@@ -36,6 +44,7 @@ struct WebAPIConnectionTests {
         let suite = "WebAPIConnectionTests-\(UUID().uuidString)"
         return UserDefaults(suiteName: suite)!
     }()
+
     private let refresher = FakeRefresher()
     private let configs = OSAllocatedUnfairLock(initialState: [OAuthConfig]())
 

@@ -110,7 +110,9 @@ public final class LibraryModel {
             list.insert(LibraryItem(uri: uri, addedAt: Int64(Date.now.timeIntervalSince1970)), at: 0)
         }
         publish(list, for: kind)
-        if let running = writes[uri]?.task { return running }
+        if let running = writes[uri]?.task {
+            return running
+        }
         writes[uri] = PendingWrite(confirmed: before)
         let task = Task { await flush(uri, kind) }
         writes[uri]?.task = task
@@ -176,7 +178,9 @@ public final class LibraryModel {
                 landed = landedWrites[kind]
                 fresh = try await library.refresh(kind: kind)
             } while landed != landedWrites[kind]
-            guard mine == refreshes[kind] else { return }
+            guard mine == refreshes[kind] else {
+                return
+            }
             let pending = (items[kind] ?? []).filter { writes[$0.uri] != nil }
             fresh.removeAll { writes[$0.uri] != nil }
             for item in pending {

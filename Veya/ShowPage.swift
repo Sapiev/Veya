@@ -17,7 +17,11 @@ struct ShowPage: View {
     private var episodes: [EpisodeMetadata] {
         guard !stale else { return [] }
         return podcast.episodes.compactMap { item -> EpisodeMetadata? in
-            if case let .episode(episode) = item { episode } else { nil }
+            if case let .episode(episode) = item {
+                episode
+            } else {
+                nil
+            }
         }
     }
 
@@ -51,7 +55,9 @@ struct ShowPage: View {
                             .disabled(player == nil || !isPlayable(episode))
                     }
                 } primaryAction: { uris in
-                    if let episode = uris.first { play(episode) }
+                    if let episode = uris.first {
+                        play(episode)
+                    }
                 }
             }
         }
@@ -89,7 +95,9 @@ private struct EpisodeRow: View {
     let play: () -> Void
     @Environment(\.palette) private var palette
 
-    private var played: Bool { progress?.fullyPlayed == true }
+    private var played: Bool {
+        progress?.fullyPlayed == true
+    }
 
     /// Where playback picks up; zero once played or never started.
     private var resumeAt: UInt32 {

@@ -257,7 +257,7 @@ struct SessionRefreshTokenTests {
         #expect(refreshTokens.blob == nil)
     }
 
-    @Test func signOutDeletesRefreshTokenEvenWhenCredentialDeleteFails() async throws {
+    @Test func signOutDeletesRefreshTokenEvenWhenCredentialDeleteFails() throws {
         let store = FakeStore(blob: storedBlob)
         store.failDeletes(with: KeychainError(status: -25308))
         let refreshTokens = FakeStore(blob: Data("rt".utf8))

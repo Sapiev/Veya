@@ -10,7 +10,9 @@ final class MenuBarSettings {
         didSet {
             defaults.set(shown, forKey: Key.shown)
             // Without the menu bar item a Dock-less app could not be reached again.
-            if !shown { NSApp.setActivationPolicy(.regular) }
+            if !shown {
+                NSApp.setActivationPolicy(.regular)
+            }
         }
     }
 
@@ -35,7 +37,9 @@ final class MenuBarSettings {
 
     /// Called as the main window closes.
     func windowClosed() {
-        if shown, hidesDockIcon { NSApp.setActivationPolicy(.accessory) }
+        if shown, hidesDockIcon {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     private enum Key {
@@ -129,7 +133,9 @@ struct MenuBarLabel: View {
                     // every change, which restarts a TimelineView and refires it without pause.
                     Text(Self.marquee(title, step: step))
                         .task(id: title) {
-                            while (try? await Task.sleep(for: .milliseconds(300))) != nil { step += 1 }
+                            while await (try? Task.sleep(for: .milliseconds(300))) != nil {
+                                step += 1
+                            }
                         }
                 }
             }

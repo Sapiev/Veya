@@ -12,7 +12,9 @@ public final class CrashReports {
     public var keepsReports: Bool {
         didSet {
             defaults.set(keepsReports, forKey: Self.consentKey)
-            if !keepsReports { try? FileManager.default.removeItem(at: directory) }
+            if !keepsReports {
+                try? FileManager.default.removeItem(at: directory)
+            }
         }
     }
 
@@ -45,7 +47,9 @@ public final class CrashReports {
     public func answer(keep: Bool) {
         keepsReports = keep
         asksForConsent = false
-        if keep { save(unanswered) }
+        if keep {
+            save(unanswered)
+        }
         unanswered = []
     }
 

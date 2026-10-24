@@ -8,6 +8,22 @@ excluded:
   - SpotCoreKit/Sources/SpotCoreKit/spotcore.swift
   - SpotCoreKit/.build
 strict: true
+disabled_rules:
+  # SwiftFormat owns trailing commas and adds them; the two rules contradict.
+  - trailing_comma
+  # Idiomatic SwiftUI (Button(action:) { } label: { }).
+  - multiple_closures_with_trailing_closure
+  # Size metrics: the screens and models are deliberately large single types.
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+  # SwiftFormat puts a multi-line condition's brace on its own line.
+  - opening_brace
+identifier_name:
+  min_length: 1
+line_length: 160
 custom_rules:
   unscaled_font:
     included: "Veya/.*\\.swift"

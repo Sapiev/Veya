@@ -105,7 +105,7 @@ final class MetricKitCrashes: NSObject, MXMetricManagerSubscriber {
 
     nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
         let reports = payloads.flatMap { $0.crashDiagnostics ?? [] }
-            .map { String(decoding: $0.jsonRepresentation(), as: UTF8.self) }
+            .compactMap { String(bytes: $0.jsonRepresentation(), encoding: .utf8) }
         Task { @MainActor in received(reports) }
     }
 }

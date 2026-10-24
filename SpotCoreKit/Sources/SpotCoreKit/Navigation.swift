@@ -28,8 +28,13 @@ public final class NavigationHistory {
         current = start
     }
 
-    public var canGoBack: Bool { !backStack.isEmpty }
-    public var canGoForward: Bool { !forwardStack.isEmpty }
+    public var canGoBack: Bool {
+        !backStack.isEmpty
+    }
+
+    public var canGoForward: Bool {
+        !forwardStack.isEmpty
+    }
 
     /// Opening a new route drops the forward history, as in a browser.
     public func navigate(to route: Route) {

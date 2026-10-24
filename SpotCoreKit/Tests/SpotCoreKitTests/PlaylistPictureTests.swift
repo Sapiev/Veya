@@ -24,9 +24,12 @@ func noiseImage(width: Int, height: Int, type: UTType = .png) -> Data {
 }
 
 private func size(of jpeg: Data) -> (Int, Int) {
-    let source = CGImageSourceCreateWithData(jpeg as CFData, nil)!
-    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as! [CFString: Any]
-    return (properties[kCGImagePropertyPixelWidth] as! Int, properties[kCGImagePropertyPixelHeight] as! Int)
+    guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+          let height = properties[kCGImagePropertyPixelHeight] as? Int
+    else { return (0, 0) }
+    return (width, height)
 }
 
 struct PlaylistPictureTests {

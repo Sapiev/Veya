@@ -190,7 +190,7 @@ private struct PopUpVolume<Button: View, Slider: View>: View {
             .task(id: overButton || overSlider) {
                 if overButton || overSlider {
                     shown = true
-                } else if (try? await Task.sleep(for: .milliseconds(300))) != nil {
+                } else if await (try? Task.sleep(for: .milliseconds(300))) != nil {
                     // The grace period lets the pointer cross from the button to the popover.
                     shown = false
                 }
@@ -430,7 +430,9 @@ struct ArtistLinks: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
-                if index > 0 { Text(", ") }
+                if index > 0 {
+                    Text(", ")
+                }
                 if artist.uri.isEmpty {
                     Text(artist.name)
                 } else {

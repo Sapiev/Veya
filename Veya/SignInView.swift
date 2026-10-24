@@ -66,7 +66,11 @@ struct SignInView: View {
             // Always laid out so the footnote doesn't jump when a failure appears.
             Text(failure?.message ?? " ")
                 .scaledFont(size: 14)
-                .foregroundStyle(scheme == .dark ? Color(red: 1, green: 0x8A / 255, blue: 0x80 / 255) : Color(red: 0xC0 / 255, green: 0x27 / 255, blue: 0x1D / 255))
+                .foregroundStyle(
+                    scheme == .dark
+                        ? Color(red: 1, green: 0x8A / 255, blue: 0x80 / 255)
+                        : Color(red: 0xC0 / 255, green: 0x27 / 255, blue: 0x1D / 255)
+                )
                 .opacity(failure == nil ? 0 : 1)
                 .animation(Theme.fast, value: failure)
                 .accessibilityHidden(failure == nil)
@@ -106,7 +110,11 @@ private struct SpotifyButton: View {
         .accessibilityHint("Opens Spotify's sign-in page in your browser")
         .onHover { inside in
             hovering = inside
-            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if inside {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
         }
         .animation(Theme.fast, value: hovering)
     }
@@ -123,7 +131,12 @@ private struct SpotifyButtonStyle: ButtonStyle {
             .foregroundStyle(.black)
             .padding(.horizontal, Theme.s8)
             .frame(minWidth: 280, minHeight: 52)
-            .background(hovering ? Color(red: 0x1E / 255, green: 0xD7 / 255, blue: 0x60 / 255) : Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255), in: .capsule)
+            .background(
+                hovering
+                    ? Color(red: 0x1E / 255, green: 0xD7 / 255, blue: 0x60 / 255)
+                    : Color(red: 0x1D / 255, green: 0xB9 / 255, blue: 0x54 / 255),
+                in: .capsule
+            )
             .contentShape(.capsule)
             .scaleEffect(reduceMotion ? 1 : scale)
             .animation(Theme.fast, value: configuration.isPressed)
@@ -143,9 +156,9 @@ private struct CoverCollage: View {
 
     var body: some View {
         Grid(horizontalSpacing: Theme.s3, verticalSpacing: Theme.s3) {
-            ForEach(0..<3, id: \.self) { row in
+            ForEach(0 ..< 3, id: \.self) { row in
                 GridRow {
-                    ForEach(0..<3, id: \.self) { column in
+                    ForEach(0 ..< 3, id: \.self) { column in
                         tile(Self.covers[row * 3 + column])
                             .offset(y: column == 1 ? Theme.s6 : 0)
                     }

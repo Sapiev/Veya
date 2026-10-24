@@ -61,7 +61,9 @@ public final class SessionScope {
             let started = try await PlayerModel.start(
                 session: handle, metadata: metadata, settings: settings, restoreToken: accessToken
             )
-            if attach(started) { player = started }
+            if attach(started) {
+                player = started
+            }
         } catch {
             // Type name only: messages may carry server text.
             logMessage(level: .error, category: "player", message: "Player unavailable: \(type(of: error))")
@@ -109,10 +111,10 @@ public final class ActiveSession {
     }
 }
 
-extension SessionModel {
+public extension SessionModel {
     /// Signs out and calls `failed` on the next main-actor turn if any step
     /// failed, so an alert button's own action can't reset the flag it raised.
-    public func signOut(failed: @escaping @MainActor () -> Void) {
+    func signOut(failed: @escaping @MainActor () -> Void) {
         do {
             try signOut()
         } catch {

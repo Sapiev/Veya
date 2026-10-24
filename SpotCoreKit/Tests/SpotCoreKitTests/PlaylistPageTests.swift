@@ -27,8 +27,14 @@ final class PagedPlaylists: PlaylistServiceProtocol {
         self.followers = followers
     }
 
-    var requested: [UInt32] { box.withLock { $0.requested } }
-    func hold() { box.withLock { $0.holding = true } }
+    var requested: [UInt32] {
+        box.withLock { $0.requested }
+    }
+
+    func hold() {
+        box.withLock { $0.holding = true }
+    }
+
     /// Lets parked requests through; `keepHolding` parks the ones after them.
     func release(keepHolding: Bool = false) {
         let waiters = box.withLock { box in
@@ -43,20 +49,35 @@ final class PagedPlaylists: PlaylistServiceProtocol {
         await withCheckedContinuation { continuation in
             let held = box.withLock { box in
                 box.requested.append(from)
-                if box.holding { box.waiters.append(continuation) }
+                if box.holding {
+                    box.waiters.append(continuation)
+                }
                 return box.holding
             }
-            if !held { continuation.resume() }
+            if !held {
+                continuation.resume()
+            }
         }
-        if fails { throw PlaylistError.Request(message: "down") }
+        if fails {
+            throw PlaylistError.Request(message: "down")
+        }
         let start = min(Int(from), tracks.count)
         let window = Array(tracks[start ..< min(start + Int(length), tracks.count)])
         return playlistPage(uri, tracks: window, total: tracks.count, offset: from)
     }
 
-    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { cached }
-    func cachedRootlist() -> [RootlistEntry] { [] }
-    func rootlist() async throws -> [RootlistEntry] { [] }
+    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? {
+        cached
+    }
+
+    func cachedRootlist() -> [RootlistEntry] {
+        []
+    }
+
+    func rootlist() async throws -> [RootlistEntry] {
+        []
+    }
+
     func followerCount(uri _: String) async throws -> UInt64 {
         guard let followers else { throw PlaylistError.Request(message: "down") }
         return followers
@@ -89,15 +110,39 @@ final class PushedPlaylists: PlaylistServiceProtocol {
 
     private let box = OSAllocatedUnfairLock(initialState: Box())
 
-    var pageRequests: [String] { box.withLock { $0.pageRequests } }
-    var changeWaiters: Int { box.withLock { $0.changeWaiters.count } }
-    var writes: [String] { box.withLock { $0.writes } }
-    var parkedWrites: Int { box.withLock { $0.writeWaiters.count } }
-    var pictures: [String: Data] { box.withLock { $0.pictures } }
+    var pageRequests: [String] {
+        box.withLock { $0.pageRequests }
+    }
+
+    var changeWaiters: Int {
+        box.withLock { $0.changeWaiters.count }
+    }
+
+    var writes: [String] {
+        box.withLock { $0.writes }
+    }
+
+    var parkedWrites: Int {
+        box.withLock { $0.writeWaiters.count }
+    }
+
+    var pictures: [String: Data] {
+        box.withLock { $0.pictures }
+    }
+
     /// Each created playlist's description by URI.
-    var createdDescriptions: [String: String] { box.withLock { $0.created } }
-    func setRootlist(_ entries: [RootlistEntry]) { box.withLock { $0.rootlist = entries } }
-    func setTracks(_ tracks: [PlaylistTrack], of uri: String) { box.withLock { $0.tracks[uri] = tracks } }
+    var createdDescriptions: [String: String] {
+        box.withLock { $0.created }
+    }
+
+    func setRootlist(_ entries: [RootlistEntry]) {
+        box.withLock { $0.rootlist = entries }
+    }
+
+    func setTracks(_ tracks: [PlaylistTrack], of uri: String) {
+        box.withLock { $0.tracks[uri] = tracks }
+    }
+
     /// Another client's edit: new tracks under a new revision.
     func changeElsewhere(_ tracks: [PlaylistTrack], of uri: String) {
         box.withLock { box in
@@ -105,9 +150,19 @@ final class PushedPlaylists: PlaylistServiceProtocol {
             box.revisions[uri, default: 0] += 1
         }
     }
-    func tracks(of uri: String) -> [PlaylistTrack] { box.withLock { $0.tracks[uri] ?? [] } }
-    func failNextWrite(_ error: PlaylistError) { box.withLock { $0.failNextWrite = error } }
-    func holdWrites() { box.withLock { $0.holdingWrites = true } }
+
+    func tracks(of uri: String) -> [PlaylistTrack] {
+        box.withLock { $0.tracks[uri] ?? [] }
+    }
+
+    func failNextWrite(_ error: PlaylistError) {
+        box.withLock { $0.failNextWrite = error }
+    }
+
+    func holdWrites() {
+        box.withLock { $0.holdingWrites = true }
+    }
+
     func releaseWrites() {
         let waiters = box.withLock { box in
             box.holdingWrites = false
@@ -139,10 +194,22 @@ final class PushedPlaylists: PlaylistServiceProtocol {
         return page
     }
 
-    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
-    func cachedRootlist() -> [RootlistEntry] { [] }
-    func rootlist() async throws -> [RootlistEntry] { box.withLock { $0.rootlist } }
-    func followerCount(uri _: String) async throws -> UInt64 { 0 }
+    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? {
+        nil
+    }
+
+    func cachedRootlist() -> [RootlistEntry] {
+        []
+    }
+
+    func rootlist() async throws -> [RootlistEntry] {
+        box.withLock { $0.rootlist }
+    }
+
+    func followerCount(uri _: String) async throws -> UInt64 {
+        0
+    }
+
     func waitForChange() async -> PlaylistChange {
         await withCheckedContinuation { continuation in
             box.withLock { $0.changeWaiters.append(continuation) }
@@ -192,10 +259,14 @@ final class PushedPlaylists: PlaylistServiceProtocol {
     ) async throws -> String {
         await withCheckedContinuation { continuation in
             let held = box.withLock { box in
-                if box.holdingWrites { box.writeWaiters.append(continuation) }
+                if box.holdingWrites {
+                    box.writeWaiters.append(continuation)
+                }
                 return box.holdingWrites
             }
-            if !held { continuation.resume() }
+            if !held {
+                continuation.resume()
+            }
         }
         return try box.withLock { box in
             box.writes.append("\(kind) \(revision)")
@@ -233,7 +304,7 @@ private func tracks(_ count: Int) -> [PlaylistTrack] {
 
 @MainActor
 struct PlaylistPageTests {
-    @Test func showsTheCachedPlaylistBeforeAnyRequestReturns() async throws {
+    @Test func showsTheCachedPlaylistBeforeAnyRequestReturns() async {
         let service = PagedPlaylists(uri: mix, tracks: tracks(3), cached: playlistPage(mix, tracks: tracks(2), total: 2, name: "Cached"))
         service.hold()
         let model = PlaylistModel(playlists: service)

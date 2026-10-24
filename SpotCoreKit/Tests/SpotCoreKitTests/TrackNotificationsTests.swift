@@ -42,7 +42,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.first?.image != nil)
     }
 
-    @Test func rapidSkipsPostOnlyTheTrackThatStays() async throws {
+    @Test func rapidSkipsPostOnlyTheTrackThatStays() async {
         notifications.update(Self.info("One"), nil)
         notifications.update(Self.info("Two"), nil)
         notifications.update(Self.info("Three"), nil)
@@ -51,7 +51,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.map(\.info.title) == ["Three"])
     }
 
-    @Test func pausedOrDisabledPostsNothing() async throws {
+    @Test func pausedOrDisabledPostsNothing() async {
         notifications.update(Self.info("One", playing: false), nil)
         await settle()
         posted.enabled = false
@@ -61,7 +61,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.isEmpty)
     }
 
-    @Test func theSameTrackPostsAgainAfterPlaybackStops() async throws {
+    @Test func theSameTrackPostsAgainAfterPlaybackStops() async {
         notifications.update(Self.info("One"), nil)
         await settle()
         notifications.update(nil, nil)

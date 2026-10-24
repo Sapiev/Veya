@@ -20,7 +20,9 @@ struct ContentView: View {
             .modifier(ScalesText())
             .modifier(ConcreteInk())
             .onOpenURL { url in
-                if let link = SpotifyLink(url.absoluteString) { openedLink = link }
+                if let link = SpotifyLink(url.absoluteString) {
+                    openedLink = link
+                }
             }
             .onChange(of: signIn.state) { _, state in
                 if state == .signedIn, let credentials = signIn.takeCredentials() {
@@ -29,7 +31,9 @@ struct ContentView: View {
             }
             .onChange(of: session.state) { _, state in
                 // Another account may sign in next; its searches are its own.
-                if state == .signedOut { recentSearches.clear() }
+                if state == .signedOut {
+                    recentSearches.clear()
+                }
             }
     }
 

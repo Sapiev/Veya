@@ -159,7 +159,7 @@ final class TrackListUITests: XCTestCase {
     /// Screen colors along a row of screen points.
     @MainActor private func screenColors(y: CGFloat, x: [CGFloat]) throws -> [NSColor] {
         let rep = try XCTUnwrap(NSBitmapImageRep(data: XCUIScreen.main.screenshot().pngRepresentation))
-        let scale = CGFloat(rep.pixelsWide) / (try XCTUnwrap(NSScreen.screens.first)).frame.width
+        let scale = try CGFloat(rep.pixelsWide) / XCTUnwrap(NSScreen.screens.first).frame.width
         return try x.map { try XCTUnwrap(rep.colorAt(x: Int($0 * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)) }
     }
 
@@ -247,7 +247,9 @@ final class TrackListUITests: XCTestCase {
         let saved = (NSPasteboard.general.pasteboardItems ?? []).map { item in
             let copy = NSPasteboardItem()
             for type in item.types {
-                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+                if let data = item.data(forType: type) {
+                    copy.setData(data, forType: type)
+                }
             }
             return copy
         }

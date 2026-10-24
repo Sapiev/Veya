@@ -9,7 +9,9 @@ import Testing
 struct MediaControlsTests {
     private final class Published {
         var all: [MediaControls.Info?] = []
-        var last: MediaControls.Info? { all.last ?? nil }
+        var last: MediaControls.Info? {
+            all.last ?? nil
+        }
     }
 
     private let fake = FakePlayer()
@@ -30,12 +32,12 @@ struct MediaControlsTests {
 
     @Test func publishesTheTrackAndClearsWhenPlaybackStops() async throws {
         player.apply(.trackChanged(uri: "spotify:track:1", name: "Song", durationMs: 200_000))
-        player.apply(.playing(uri: "spotify:track:1", positionMs: 30_000))
+        player.apply(.playing(uri: "spotify:track:1", positionMs: 30000))
         try await waitUntil { published.last?.isPlaying == true }
         let info = try #require(published.last)
         #expect(info.title == "Song")
         #expect(info.durationMs == 200_000)
-        #expect(info.elapsedMs >= 30_000)
+        #expect(info.elapsedMs >= 30000)
         #expect(info.rate == 1)
 
         player.apply(.stopped)
@@ -58,7 +60,7 @@ struct MediaControlsTests {
         controls.perform(.togglePlayPause)
         controls.perform(.next)
         controls.perform(.previous)
-        controls.perform(.seek(positionMs: 42_000))
+        controls.perform(.seek(positionMs: 42000))
         #expect(fake.recorded == ["play", "pause", "next", "previous", "seek 42000"])
     }
 
@@ -81,7 +83,7 @@ struct MediaControlsTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let loader = ArtworkLoader(directory: directory) { _ in try png(side: 300) }
-        let defaults = UserDefaults(suiteName: "MediaControlsTests-\(UUID().uuidString)")!
+        let defaults = try #require(UserDefaults(suiteName: "MediaControlsTests-\(UUID().uuidString)"))
         let player = PlayerModel(
             player: FakePlayer(), engine: nil, metadata: StubMetadata([track]), settings: PlaybackSettings(defaults: defaults)
         )
@@ -97,8 +99,8 @@ struct MediaControlsTests {
     }
 
     @Test func theSystemCanFetchTheCoverOffTheMainThread() async throws {
-        let source = try #require(CGImageSourceCreateWithData(try png(side: 64) as CFData, nil))
-        let artwork = MediaControls.artwork(try #require(CGImageSourceCreateImageAtIndex(source, 0, nil)))
+        let source = try #require(try CGImageSourceCreateWithData(png(side: 64) as CFData, nil))
+        let artwork = try MediaControls.artwork(#require(CGImageSourceCreateImageAtIndex(source, 0, nil)))
         let width = await Task.detached { artwork.image(at: CGSize(width: 64, height: 64))?.size.width }.value
         #expect(width == 64)
     }

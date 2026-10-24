@@ -8,7 +8,9 @@ public enum LocalNetworkAccess {
         AsyncStream { continuation in
             let browser = NWBrowser(for: .bonjour(type: "_spotify-connect._tcp", domain: nil), using: .tcp)
             browser.stateUpdateHandler = { state in
-                if let allowed = allowed(in: state) { continuation.yield(allowed) }
+                if let allowed = allowed(in: state) {
+                    continuation.yield(allowed)
+                }
             }
             continuation.onTermination = { _ in browser.cancel() }
             browser.start(queue: .main)
