@@ -1030,9 +1030,9 @@ fn profile_of(
         playlists: items(profile.public_playlists, |uri| playlist_id(uri).is_ok()),
         following: items(following, |uri| {
             uri.strip_prefix("spotify:user:").is_some_and(is_username)
-                || uri
-                    .strip_prefix("spotify:artist:")
-                    .is_some_and(|id| id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric()))
+                || uri.strip_prefix("spotify:artist:").is_some_and(|id| {
+                    id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric())
+                })
         }),
     })
 }
@@ -1430,8 +1430,14 @@ mod tests {
         assert_eq!((user.name.as_str(), user.followers), ("Friend", 7));
         assert_eq!(user.artwork.len(), 1);
         let uris = |items: &[ProfileItem]| items.iter().map(|i| i.uri.clone()).collect::<Vec<_>>();
-        assert_eq!(uris(&user.playlists), ["spotify:playlist:0123456789abcdefghijkl"]);
-        assert!(user.playlists[0].artwork.is_empty(), "spotify: images don't load");
+        assert_eq!(
+            uris(&user.playlists),
+            ["spotify:playlist:0123456789abcdefghijkl"]
+        );
+        assert!(
+            user.playlists[0].artwork.is_empty(),
+            "spotify: images don't load"
+        );
         assert_eq!(
             uris(&user.following),
             ["spotify:user:pal", "spotify:artist:0123456789abcdefghijkl"]
