@@ -1,0 +1,8 @@
+// VeyaUITests target; inherits Shared.xcconfig through the project configs.
+PRODUCT_BUNDLE_IDENTIFIER = $(VEYA_BUNDLE_ID_PREFIX).VeyaUITests
+PRODUCT_NAME = $(TARGET_NAME)
+GENERATE_INFOPLIST_FILE = YES
+CODE_SIGN_STYLE = Automatic
+TEST_TARGET_NAME = Veya
+// XCTestCase initializers are nonisolated; tests opt into MainActor per method.
+SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated

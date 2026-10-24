@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!-- PBI-605: terms and four-char codes follow Spotify's dictionary so existing scripts port by changing the app name. -->
+<dictionary title="Veya Terminology">
+    <suite name="Veya Suite" code="spfy" description="Control playback in Veya.">
+        <enumeration name="player state" code="ePlS">
+            <enumerator name="stopped" code="kPSS" description="Nothing is playing."/>
+            <enumerator name="playing" code="kPSP" description="A track is playing."/>
+            <enumerator name="paused" code="kPSp" description="A track is paused."/>
+        </enumeration>
+
+        <class name="application" code="capp" description="Veya.">
+            <cocoa class="NSApplication"/>
+            <property name="player state" code="pPlS" type="player state" access="r" description="Whether Veya is stopped, playing or paused.">
+                <cocoa key="scriptingPlayerState"/>
+            </property>
+            <property name="current track" code="pTrk" type="track" access="r" description="The track playing now, or missing value.">
+                <cocoa key="scriptingCurrentTrack"/>
+            </property>
+        </class>
+
+        <class name="track" code="cTrk" description="A Spotify track or episode.">
+            <cocoa class="VeyaScriptingTrack"/>
+            <property name="name" code="pnam" type="text" access="r" description="The track's title.">
+                <cocoa key="name"/>
+            </property>
+            <property name="artist" code="pArt" type="text" access="r" description="The track's artists.">
+                <cocoa key="artist"/>
+            </property>
+            <property name="album" code="pAlb" type="text" access="r" description="The track's album, or an empty string.">
+                <cocoa key="album"/>
+            </property>
+            <property name="duration" code="pDur" type="integer" access="r" description="The track's length in milliseconds.">
+                <cocoa key="duration"/>
+            </property>
+            <property name="id" code="ID  " type="text" access="r" description="The track's Spotify URI.">
+                <cocoa key="uniqueID"/>
+            </property>
+            <property name="spotify url" code="spur" type="text" access="r" description="The track's Spotify URI.">
+                <cocoa key="uniqueID"/>
+            </property>
+        </class>
+
+        <command name="playpause" code="spfyPlPs" description="Toggles between playing and paused.">
+            <cocoa class="VeyaScriptCommand"/>
+        </command>
+        <command name="next track" code="spfyNext" description="Skips to the next track.">
+            <cocoa class="VeyaScriptCommand"/>
+        </command>
+        <command name="previous track" code="spfyPrev" description="Goes back to the previous track.">
+            <cocoa class="VeyaScriptCommand"/>
+        </command>
+        <command name="play track" code="spfyPCtx" description="Plays a Spotify URI: a track, album, playlist or other context.">
+            <cocoa class="VeyaScriptCommand"/>
+            <direct-parameter type="text" description="The Spotify URI, such as spotify:track:…"/>
+        </command>
+    </suite>
+</dictionary>

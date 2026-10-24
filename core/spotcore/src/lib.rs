@@ -4,6 +4,54 @@
 
 use librespot_core::SpotifyUri;
 
+mod account;
+mod audio;
+mod auth;
+mod cache;
+mod connect;
+mod devices;
+mod home;
+mod library;
+mod logging;
+mod lyrics;
+mod metadata;
+mod player;
+mod playlist;
+mod podcast;
+mod push;
+mod queue;
+mod reconnect;
+mod redact;
+mod remote;
+mod search;
+mod session;
+mod store;
+mod util;
+
+pub use account::is_premium_account;
+pub use audio::{AudioOutput, CoreAudioSink, RenderHandle};
+pub use auth::{AuthError, LoginFlow, OAuthConfig, OAuthTokens, default_oauth_config};
+pub use cache::{AudioCache, CacheError};
+pub use connect::SpotConnect;
+pub use devices::{ConnectDevice, ConnectError, DeviceKind};
+pub use home::{HomeError, HomeService, RecentlyPlayed, recently_played};
+pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryObserver, LibraryService};
+pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
+pub use lyrics::{Lyrics, LyricsLine};
+pub use metadata::{
+    AlbumMetadata, ArtistMetadata, Artwork, ArtworkSize, EpisodeMetadata, ItemError, ItemRef,
+    MetadataError, MetadataItem, MetadataService, Playability, ShowMetadata, TrackMetadata,
+};
+pub use player::{Bitrate, LoudnessPreset, PlaybackEvent, PlayerError, PlayerObserver, SpotPlayer};
+pub use playlist::{
+    PlaylistChange, PlaylistError, PlaylistPage, PlaylistService, PlaylistTrack, RootlistEntry,
+};
+pub use podcast::{EpisodeProgress, PodcastError, episode_progress};
+pub use reconnect::{ConnectionObserver, ConnectionState};
+pub use search::{SearchError, SearchGroup, SearchHit, SearchKind, SearchService};
+pub use session::{SessionError, SpotSession};
+pub use store::MetadataStore;
+
 uniffi::setup_scaffolding!();
 
 /// Errors surfaced to Swift as the `SpotCoreError` enum.

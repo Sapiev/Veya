@@ -129,8 +129,11 @@ rm -f "$STAMP"
 # rustup resolves core/rust-toolchain.toml from the cwd, and bindgen's
 # `cargo metadata` needs the workspace as cwd.
 cd "$CORE"
+# CI must build the shipped library from exactly the committed Cargo.lock.
+LOCKED=()
+[[ -n "${CI:-}" ]] && LOCKED=(--locked)
 for target in "${TARGETS[@]}"; do
-    clean_env cargo build -p spotcore \
+    clean_env cargo build ${LOCKED[@]+"${LOCKED[@]}"} -p spotcore \
         --target "$target" --profile "$CARGO_PROFILE"
 done
 
@@ -145,14 +148,19 @@ for target in "${TARGETS[@]}"; do
 done
 clean_env lipo -create -output "$STAGING/libspotcore.a" "${SLICES[@]}"
 
-clean_env cargo run --quiet -p uniffi-bindgen -- \
+clean_env cargo run ${LOCKED[@]+"${LOCKED[@]}"} --quiet -p uniffi-bindgen -- \
     generate --library "$CORE/target/${TARGETS[0]}/$PROFILE/libspotcore.a" \
     --language swift --out-dir "$STAGING/swift"
 
 # Nested header dir keeps this module.modulemap from colliding with other
 # xcframeworks that also ship one at the Headers root.
 cp "$STAGING/swift/spotcoreFFI.h" "$STAGING/headers/spotcoreFFI/"
-cp "$STAGING/swift/spotcoreFFI.modulemap" "$STAGING/headers/spotcoreFFI/module.modulemap"
+cp "$CORE/spotcore/include/spotcore_audio.h" "$STAGING/headers/spotcoreFFI/"
+# The real-time audio C API (ADR-006) is not UniFFI's, so add its header to the module.
+sed 's|^\( *\)header "spotcoreFFI.h"|&\
+\1header "spotcore_audio.h"|' "$STAGING/swift/spotcoreFFI.modulemap" \
+    > "$STAGING/headers/spotcoreFFI/module.modulemap"
+grep -q 'header "spotcore_audio.h"' "$STAGING/headers/spotcoreFFI/module.modulemap"
 
 clean_env xcodebuild -create-xcframework \
     -library "$STAGING/libspotcore.a" \
@@ -165,5 +173,6 @@ mv "$STAGING/spotcoreFFI.xcframework" "$XCFRAMEWORK"
 if ! cmp -s "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"; then
     mv "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"
 fi
+rm -rf "$STAGING"
 echo "$FINGERPRINT" > "$STAMP"
 echo "built $XCFRAMEWORK ($PROFILE)"

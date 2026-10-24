@@ -48,7 +48,7 @@ Source: diataxis.fr, fetched 2026-07-18.
 
 `docs/adr/` holds architecture decision records, and every one is **explanation**. State the context, the decision, its consequences, and the alternatives considered, the way `docs/adr/0001-swift-rust-uniffi-architecture.md` does. Opinion belongs here and nowhere else in the docs.
 
-The top-level planning doc (`Native macOS Spotify Client (librespot) — Plan & PBIs.md`) mixes modes today: backlog tables are **reference**, and any sequenced setup or workflow step is **how-to**. Keep the two apart rather than blending plan narrative with task steps.
+The planning doc (`docs/plan.md`) mixes modes today: vision, architecture and Definition of Done are **reference** (the backlog itself lives in GitHub issues), and any sequenced setup or workflow step is **how-to**. Keep the two apart rather than blending plan narrative with task steps.
 
 When you edit either, first check which mode the passage you are touching is in. If it is the wrong mode for the file, move it or cut it rather than improving prose that should not be there.
 
