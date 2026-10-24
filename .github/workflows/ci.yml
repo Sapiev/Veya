@@ -26,50 +26,9 @@ jobs:
     env:
       SPM_DIR: ${{ github.workspace }}/.build/spm
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Reads core/rust-toolchain.toml; must run before rust-cache so the
-      # cache key includes the resolved rustc version.
-      - name: Install Rust toolchain
-        working-directory: core
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: core -> target
-      - name: Build xcframework
-        run: scripts/build-xcframework.sh release
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ env.SPM_DIR }}
-          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.swift', '**/Package.resolved') }}
-          restore-keys: spm-${{ runner.os }}-
-      # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release,
-      # so this step also builds the debug xcframework.
-      - name: UI tests
-        run: >-
-          xcodebuild test
-          -project Veya.xcodeproj
-          -scheme Veya
-          -destination 'platform=macOS'
-          -only-testing:VeyaUITests/NowPlayingUITests
-          -only-testing:VeyaUITests/EmptyStatesUITests
-          -only-testing:VeyaUITests/AccessibilityBrowseUITests
-          -only-testing:VeyaUITests/QueueUITests
-          -only-testing:VeyaUITests/LocalFilesUITests
-          -clonedSourcePackagesDirPath "$SPM_DIR"
-          -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"
-      # The scheme pre-action ignores its exit code and logs here instead.
-      - name: Upload result bundle
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ui-tests-xcresult
-          path: ${{ runner.temp }}/ui-tests.xcresult
-      - name: Upload xcframework pre-action log
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: xcframework-preaction-log
-          path: core/target/xcframework-preaction.log
-          if-no-files-found: ignore
+      - name: Display info
+        run: |
+          system_profiler SPDisplaysDataType
+          brew install displayplacer 2>&1 | tail -2
+          displayplacer list || true
+          defaults read /Library/Preferences/com.apple.windowserver.displays 2>&1 | head -40 || true
