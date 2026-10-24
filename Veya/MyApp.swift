@@ -144,7 +144,6 @@ import SwiftUI
             SettingsView(session: session, webAPI: webAPI, settings: settings, menuBar: menuBar, crashReports: crashReports, updates: updates) {
                 AccountCommands.signOut(session, settings: settings, failed: $signOutFailed)
             }
-            .modifier(ConcreteInk())
             .defaultAppStorage(defaults)
         }
 
