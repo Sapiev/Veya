@@ -96,6 +96,13 @@ jobs:
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath "$SPM_DIR"
           CODE_SIGNING_ALLOWED=NO
+      # The runner's display defaults to 1024x768, which clamps the 1200 pt test window and
+      # collapses the sidebar; the tests are written against a desktop-sized screen.
+      - name: Set display resolution
+        run: |
+          brew install displayplacer
+          screen=$(displayplacer list | awk '/Persistent screen id/ {print $4; exit}')
+          displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"
       # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release,
       # so this step also builds the debug xcframework.
       - name: UI tests
