@@ -567,12 +567,18 @@ private struct PageActions<Extra: View>: View {
     let player: PlayerModel?
     @ViewBuilder let extra: () -> Extra
 
+    private var pagePlaying: Bool { player?.isPlaying == true && player?.context == context }
+
     var body: some View {
         let disabled = uris.isEmpty || player == nil
         HStack(spacing: Theme.s4) {
             Group {
-                PlayFab(label: "Play", large: true) {
-                    player?.play(uris, from: 0, context: context, inContextOrder: true)
+                PlayFab(label: pagePlaying ? "Pause" : "Play", large: true, systemImage: pagePlaying ? "pause.fill" : "play.fill") {
+                    if pagePlaying || player?.context == context {
+                        player?.togglePlayPause()
+                    } else {
+                        player?.play(uris, from: 0, context: context, inContextOrder: true)
+                    }
                 }
                 // The now-playing bar has its own Play and Shuffle buttons.
                 .accessibilityIdentifier("pagePlay")
