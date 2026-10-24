@@ -29,7 +29,7 @@ struct SpotifyLinkTests {
         "https://open.spotify.com/album/abc/def",
         "veya://album",
         "file:///album/abc",
-        "Test Track",
+        "Test Track"
     ])
     func rejectsAnythingElse(text: String) {
         #expect(SpotifyLink(text) == nil)

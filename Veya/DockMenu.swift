@@ -26,8 +26,8 @@ enum DockMenu {
     }
 }
 
-// Nonisolated to match NSMenuItem's initializers; the action still runs on the main actor.
-nonisolated private final class CommandItem: NSMenuItem {
+/// Nonisolated to match NSMenuItem's initializers; the action still runs on the main actor.
+private final nonisolated class CommandItem: NSMenuItem {
     private let command: MediaControls.Command
     private let controls: MediaControls
 

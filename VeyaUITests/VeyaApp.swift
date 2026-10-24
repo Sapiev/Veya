@@ -79,7 +79,9 @@ extension XCUIApplication {
 
     /// Waits for the main window to show the screen titled `title`.
     /// The saved albums, artists or podcasts grid; the now-playing bar can link the same names.
-    var savedItems: XCUIElement { scrollViews["savedItems"] }
+    var savedItems: XCUIElement {
+        scrollViews["savedItems"]
+    }
 
     func showsRoute(_ title: String) -> Bool {
         staticTexts.matching(NSPredicate(format: "identifier == 'routeTitle' AND value == %@", title)).firstMatch

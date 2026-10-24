@@ -103,10 +103,10 @@ final class KeyboardShortcutsUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Test Album"))
     }
 
-    @MainActor func testVeyaURLOpensThePage() {
+    @MainActor func testVeyaURLOpensThePage() throws {
         let app = signedIn()
 
-        app.open(URL(string: "veya://playlist/uitest")!)
+        try app.open(XCTUnwrap(URL(string: "veya://playlist/uitest")))
 
         XCTAssertTrue(app.showsRoute("Road Trip"))
     }

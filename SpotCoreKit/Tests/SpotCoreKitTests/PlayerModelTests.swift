@@ -58,44 +58,101 @@ final class FakePlayer: SpotPlayerProtocol {
 
     func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws {
         record("load \(uri) \(startMs)")
-        if failsLoad { throw LoadFailed() }
+        if failsLoad {
+            throw LoadFailed()
+        }
     }
+
     func loadTracks(uris: [String], startIndex: UInt32, contextUri: String?, inContextOrder: Bool, autoplay _: Bool) throws {
         record("loadTracks \(uris.joined(separator: ",")) \(startIndex) \(contextUri ?? "-")\(inContextOrder ? " in order" : "")")
     }
+
     func moveInQueue(from: UInt32, to: UInt32) throws {
         record("move \(from) \(to)")
         snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
     }
 
-    func next() { record("next") }
-    func pause() { record("pause") }
-    func play() { record("play") }
+    func next() {
+        record("next")
+    }
+
+    func pause() {
+        record("pause")
+    }
+
+    func play() {
+        record("play")
+    }
+
     func playNext(uri: String) throws {
         record("playNext \(uri)")
         snapshot.withLock { $0.upNext.insert(uri, at: 0) }
     }
 
-    func previous() { record("previous") }
-    func skip(count: UInt32) { record("skip \(count)") }
-    func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
+    func previous() {
+        record("previous")
+    }
+
+    func skip(count: UInt32) {
+        record("skip \(count)")
+    }
+
+    func queue() -> QueueSnapshot {
+        snapshot.withLock { $0 }
+    }
+
     func removeFromQueue(index: UInt32) throws {
         record("remove \(index)")
         _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) }
     }
 
-    func seek(positionMs: UInt32) { record("seek \(positionMs)") }
-    func setAutoplay(on: Bool) { record("autoplay \(on)") }
-    func setBitrate(bitrate: Bitrate) async { record("bitrate \(bitrate)") }
-    func setCrossfade(seconds: UInt8) { record("crossfade \(seconds)") }
-    func setLocalFolders(paths: [String]) async { record("local folders \(paths)") }
-    func setNormalisation(normalisation: LoudnessPreset?) async { record("normalisation \(normalisation.map { "\($0)" } ?? "off")") }
-    func setRepeat(mode: RepeatMode) { record("repeat \(mode)") }
-    func setShuffle(on: Bool) { record("shuffle \(on)") }
-    func setVolume(volume: UInt16) { record("volume \(volume)") }
-    func setRemoteVolume(volume: UInt16) { record("remote volume \(volume)") }
-    func stop() { record("stop") }
-    func stopLocal() { record("stopLocal") }
+    func seek(positionMs: UInt32) {
+        record("seek \(positionMs)")
+    }
+
+    func setAutoplay(on: Bool) {
+        record("autoplay \(on)")
+    }
+
+    func setBitrate(bitrate: Bitrate) async {
+        record("bitrate \(bitrate)")
+    }
+
+    func setCrossfade(seconds: UInt8) {
+        record("crossfade \(seconds)")
+    }
+
+    func setLocalFolders(paths: [String]) async {
+        record("local folders \(paths)")
+    }
+
+    func setNormalisation(normalisation: LoudnessPreset?) async {
+        record("normalisation \(normalisation.map { "\($0)" } ?? "off")")
+    }
+
+    func setRepeat(mode: RepeatMode) {
+        record("repeat \(mode)")
+    }
+
+    func setShuffle(on: Bool) {
+        record("shuffle \(on)")
+    }
+
+    func setVolume(volume: UInt16) {
+        record("volume \(volume)")
+    }
+
+    func setRemoteVolume(volume: UInt16) {
+        record("remote volume \(volume)")
+    }
+
+    func stop() {
+        record("stop")
+    }
+
+    func stopLocal() {
+        record("stopLocal")
+    }
 }
 
 private let trackURI = "spotify:track:1"
@@ -147,7 +204,7 @@ struct PlayerModelTests {
 
     @Test func aLoadingTrackTakesItsOwnLengthNotThePreviousOne() async {
         let player = model()
-        player.apply(.trackChanged(uri: "spotify:track:2", name: "Other", durationMs: 10_000))
+        player.apply(.trackChanged(uri: "spotify:track:2", name: "Other", durationMs: 10000))
         player.apply(.loading(uri: trackURI, positionMs: 0))
         #expect(player.nowPlaying?.durationMs == 0)
 
@@ -163,7 +220,9 @@ struct PlayerModelTests {
         let first = player.resolution
         player.apply(.trackChanged(uri: "spotify:track:2", name: "Other", durationMs: 1))
 
-        while metadata.waiting == 0 { await Task.yield() }
+        while metadata.waiting == 0 {
+            await Task.yield()
+        }
         metadata.release()
         await first?.value
         #expect(player.nowPlaying?.title == "Other")
@@ -173,11 +232,11 @@ struct PlayerModelTests {
     @Test func positionAdvancesOnlyWhilePlayingAndStopsAtTheEnd() {
         let clock = Clock()
         let player = model(clock: clock)
-        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10_000))
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10000))
         player.apply(.playing(uri: trackURI, positionMs: 1000))
 
         #expect(player.position(at: clock.now.addingTimeInterval(2.5)) == 3500)
-        #expect(player.position(at: clock.now.addingTimeInterval(60)) == 10_000)
+        #expect(player.position(at: clock.now.addingTimeInterval(60)) == 10000)
 
         player.apply(.paused(uri: trackURI, positionMs: 4000))
         #expect(player.position(at: clock.now.addingTimeInterval(5)) == 4000)
@@ -195,7 +254,7 @@ struct PlayerModelTests {
     @Test func seekMovesThePositionAtOnce() {
         let fake = FakePlayer()
         let player = model(fake)
-        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10_000))
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10000))
         player.seek(to: 5000)
         #expect(fake.recorded == ["seek 5000"])
         #expect(player.position(at: .distantFuture) == 5000)
@@ -566,7 +625,7 @@ struct PlayerModelTests {
 
     @Test func stopClearsWhatIsPlaying() {
         let player = model()
-        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10_000))
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10000))
         player.apply(.playing(uri: trackURI, positionMs: 0))
         player.apply(.stopped)
         #expect(player.nowPlaying == nil)
@@ -623,7 +682,7 @@ struct PlayerModelTests {
         ([3], 0, ["d", "a", "b", "c"]),
         ([1, 3], 0, ["b", "d", "a", "c"]),
         ([0, 1], 4, ["c", "d", "a", "b"]),
-        ([2], 2, ["a", "b", "c", "d"]),
+        ([2], 2, ["a", "b", "c", "d"])
     ])
     func movesMatchListOnMove(source: [Int], destination: Int, expected: [String]) {
         let player = model(FakePlayer(upNext: ["a", "b", "c", "d"]))
@@ -686,10 +745,21 @@ final class FakeConnect: SpotConnectProtocol, Sendable {
         self.failsTransfer = failsTransfer
     }
 
-    var shutdowns: Int { calls.withLock { $0.shutdowns } }
-    var transfers: [String] { calls.withLock { $0.transfers } }
-    var restores: [String] { calls.withLock { $0.restores } }
-    var restoredFrom: [SavedPlayback?] { calls.withLock { $0.restoredFrom } }
+    var shutdowns: Int {
+        calls.withLock { $0.shutdowns }
+    }
+
+    var transfers: [String] {
+        calls.withLock { $0.transfers }
+    }
+
+    var restores: [String] {
+        calls.withLock { $0.restores }
+    }
+
+    var restoredFrom: [SavedPlayback?] {
+        calls.withLock { $0.restoredFrom }
+    }
 
     func restoreLastPlayback(accessToken: String, saved: SavedPlayback?) async {
         calls.withLock {

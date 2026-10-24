@@ -44,7 +44,9 @@ public final class MediaControls {
         self.artworkLoader = artworkLoader
         self.commands = commands
         self.publish = publish
-        if let commands { register(commands) }
+        if let commands {
+            register(commands)
+        }
     }
 
     /// Follows `player` until the next call; nil clears Control Center.
@@ -69,8 +71,12 @@ public final class MediaControls {
 
     static func perform(_ command: Command, player: PlayerModel, library: LibraryModel?) -> Bool {
         switch command {
-        case .play: if !player.isPlaying { player.togglePlayPause() }
-        case .pause: if player.isPlaying { player.togglePlayPause() }
+        case .play: if !player.isPlaying {
+                player.togglePlayPause()
+            }
+        case .pause: if player.isPlaying {
+                player.togglePlayPause()
+            }
         case .togglePlayPause: player.togglePlayPause()
         case .next: player.next()
         case .previous: player.previous()
@@ -114,7 +120,9 @@ public final class MediaControls {
             publish(nil, nil)
             return
         }
-        if artwork?.source != now.artwork { loadArtwork(now.artwork) }
+        if artwork?.source != now.artwork {
+            loadArtwork(now.artwork)
+        }
         publish(info, artwork?.image)
     }
 
@@ -178,8 +186,12 @@ public final class MediaControls {
             MPNowPlayingInfoPropertyPlaybackRate: Double(info.rate),
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
-        if let album = info.album { fields[MPMediaItemPropertyAlbumTitle] = album }
-        if let image { fields[MPMediaItemPropertyArtwork] = artwork(image) }
+        if let album = info.album {
+            fields[MPMediaItemPropertyAlbumTitle] = album
+        }
+        if let image {
+            fields[MPMediaItemPropertyArtwork] = artwork(image)
+        }
         center.nowPlayingInfo = fields
         center.playbackState = info.isPlaying ? .playing : .paused
     }

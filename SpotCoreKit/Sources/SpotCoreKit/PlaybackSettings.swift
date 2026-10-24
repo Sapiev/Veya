@@ -168,7 +168,11 @@ public final class PlaybackSettings {
         for url in urls where !folders.contains(where: { $0.path == LocalFolder.path(url) }) {
             // An open panel's URL may need its scope opened before it can be bookmarked.
             let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            defer {
+                if scoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
             guard let bookmark = try? LocalFolder.bookmark(url), let folder = LocalFolder(bookmark: bookmark) else { continue }
             folders.append(folder)
         }
@@ -268,7 +272,9 @@ private struct LocalFolder {
     }
 
     func stopAccessing() {
-        if accessing { url.stopAccessingSecurityScopedResource() }
+        if accessing {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 }
 

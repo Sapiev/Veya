@@ -131,7 +131,9 @@ private struct GeneralSettingsTab: View {
                 }
                 .accessibilityLabel("Notify when the song changes")
                 .onChange(of: notifiesTrackChanges) { _, on in
-                    if on { requestNotifications() }
+                    if on {
+                        requestNotifications()
+                    }
                 }
                 if notificationsDenied {
                     Text("Allow notifications for Veya in System Settings > Notifications.")
@@ -178,9 +180,11 @@ private struct GeneralSettingsTab: View {
     /// A refusal turns the toggle back off, so it never claims banners that cannot show.
     private func requestNotifications() {
         Task {
-            let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
+            let granted = await (try? UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false
             notificationsDenied = !granted
-            if !granted { notifiesTrackChanges = false }
+            if !granted {
+                notifiesTrackChanges = false
+            }
         }
     }
 
@@ -210,7 +214,7 @@ private struct PlaybackSettingsTab: View {
             // The grouped form shows row labels but leaves pop-up buttons and switches unnamed for VoiceOver.
             .accessibilityLabel("Streaming quality")
             Toggle("Normalize volume", isOn: $settings.normalises)
-            .accessibilityLabel("Normalize volume")
+                .accessibilityLabel("Normalize volume")
             Picker("Loudness", selection: $settings.loudness) {
                 Text("Quiet").tag(LoudnessPreset.quiet)
                 Text("Normal").tag(LoudnessPreset.normal)
@@ -220,7 +224,7 @@ private struct PlaybackSettingsTab: View {
             .disabled(!settings.normalises)
             LabeledContent("Crossfade songs") {
                 HStack {
-                    Slider(value: crossfade, in: 0...Double(PlaybackSettings.maxCrossfadeSeconds), step: 1)
+                    Slider(value: crossfade, in: 0 ... Double(PlaybackSettings.maxCrossfadeSeconds), step: 1)
                         .accessibilityLabel("Crossfade songs")
                         .accessibilityValue(settings.crossfadeSeconds == 0 ? "Off" : "\(settings.crossfadeSeconds) seconds")
                     Text(settings.crossfadeSeconds == 0 ? "Off" : "\(settings.crossfadeSeconds) s")
@@ -258,7 +262,9 @@ private struct PlaybackSettingsTab: View {
                 }
                 Button("Add Folder…") { choosingFolders = true }
                     .fileImporter(isPresented: $choosingFolders, allowedContentTypes: [.folder], allowsMultipleSelection: true) {
-                        if case let .success(folders) = $0 { settings.addLocalFolders(folders) }
+                        if case let .success(folders) = $0 {
+                            settings.addLocalFolders(folders)
+                        }
                     }
             } header: {
                 Text("Local Files")
@@ -331,7 +337,11 @@ private struct StorageSettingsTab: View {
         } message: {
             Text("Veya fetches your library and track details again from Spotify.")
         }
-        .alert(failure ?? "", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+        .alert(failure ?? "", isPresented: Binding(get: { failure != nil }, set: {
+            if !$0 {
+                failure = nil
+            }
+        })) {
             Button("OK", role: .cancel) {}
         }
     }
@@ -445,6 +455,7 @@ private struct WebAPISection: View {
             Text("Spotify Web API")
         } footer: {
             Text(
+                // swiftlint:disable:next line_length
                 "Create an app at developer.spotify.com/dashboard, add the redirect URI \(WebAPIConnection.redirectURI), select Web API, then paste its Client ID here. Search, Recently Played and podcast progress use it."
             )
             .textSelection(.enabled)
@@ -460,7 +471,9 @@ private struct WebAPISection: View {
     }
 
     private var problem: LocalizedStringKey? {
-        if webAPI.saveFailed { return "Couldn't save the connection in the Keychain." }
+        if webAPI.saveFailed {
+            return "Couldn't save the connection in the Keychain."
+        }
         if !trimmed.isEmpty, !WebAPIConnection.isValid(clientID: trimmed) {
             return "A Client ID is 32 letters and digits (0-9, a-f)."
         }

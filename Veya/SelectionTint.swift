@@ -7,8 +7,12 @@ import ObjectiveC
     static var color: NSColor? {
         didSet {
             guard color != oldValue else { return }
-            for row in drawn.allObjects where row.isSelected { row.needsDisplay = true }
-            for effect in sourceListSelections.allObjects { effect.applyTint() }
+            for row in drawn.allObjects where row.isSelected {
+                row.needsDisplay = true
+            }
+            for effect in sourceListSelections.allObjects {
+                effect.applyTint()
+            }
         }
     }
 
@@ -18,7 +22,9 @@ import ObjectiveC
     fileprivate static let sourceListSelections = NSHashTable<NSVisualEffectView>.weakObjects()
 
     /// Swaps in the repaints once; later calls do nothing.
-    static func install() { _ = swapped }
+    static func install() {
+        _ = swapped
+    }
 
     private static let swapped: Void = {
         swap(NSTableRowView.self, #selector(NSTableRowView.drawSelection(in:)), #selector(NSTableRowView.drawTintedSelection(in:)))
@@ -48,49 +54,55 @@ import ObjectiveC
     }
 }
 
-extension NSTableRowView {
+private extension NSTableRowView {
     /// After the swap this name calls AppKit's own drawing, which sets the selection's shape.
-    @objc fileprivate func drawTintedSelection(in dirtyRect: NSRect) {
+    @objc func drawTintedSelection(in dirtyRect: NSRect) {
         drawTintedSelection(in: dirtyRect)
         SelectionTint.drawn.add(self)
         // An unfocused table's gray selection is the platform's, not the accent.
-        if isEmphasized { SelectionTint.recolor(bounds) }
+        if isEmphasized {
+            SelectionTint.recolor(bounds)
+        }
     }
 }
 
-extension NSTableRowView {
-    @objc fileprivate func setTintedEmphasized(_ emphasized: Bool) {
+private extension NSTableRowView {
+    @objc func setTintedEmphasized(_ emphasized: Bool) {
         setTintedEmphasized(emphasized)
         tintSelectionMaterial()
     }
 
-    @objc fileprivate func setTintedSelected(_ selected: Bool) {
+    @objc func setTintedSelected(_ selected: Bool) {
         setTintedSelected(selected)
         tintSelectionMaterial()
     }
 
     private func tintSelectionMaterial() {
-        for case let effect as NSVisualEffectView in subviews { effect.applyTint() }
+        for case let effect as NSVisualEffectView in subviews {
+            effect.applyTint()
+        }
     }
 }
 
-extension NSTableView {
+private extension NSTableView {
     /// After the swap this name calls AppKit's own outline around the right-clicked row.
-    @objc fileprivate func drawTintedContextMenuHighlight(forRow row: Int) {
+    @objc func drawTintedContextMenuHighlight(forRow row: Int) {
         drawTintedContextMenuHighlight(forRow: row)
-        if row >= 0 { SelectionTint.recolor(rect(ofRow: row)) }
+        if row >= 0 {
+            SelectionTint.recolor(rect(ofRow: row))
+        }
     }
 }
 
-extension NSVisualEffectView {
+private extension NSVisualEffectView {
     private static let tintName = "veyaSelectionTint"
 
-    @objc fileprivate func layoutTinted() {
+    @objc func layoutTinted() {
         layoutTinted()
         applyTint()
     }
 
-    @objc fileprivate func setTintedEmphasized(_ emphasized: Bool) {
+    @objc func setTintedEmphasized(_ emphasized: Bool) {
         setTintedEmphasized(emphasized)
         applyTint()
     }
@@ -98,7 +110,7 @@ extension NSVisualEffectView {
     /// Covers the material with the tint, solid while the list has focus and a wash otherwise: a click or
     /// press on the sidebar never focuses it, so it would only ever show the platform gray.
     /// The material's own mask keeps its rounded shape.
-    fileprivate func applyTint() {
+    func applyTint() {
         guard material == .selection, superview is NSTableRowView, let layer else { return }
         SelectionTint.sourceListSelections.add(self)
         let tint = layer.sublayers?.first { $0.name == Self.tintName } ?? {

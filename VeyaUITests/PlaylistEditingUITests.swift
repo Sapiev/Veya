@@ -238,7 +238,9 @@ private extension XCUIApplication {
         repeat {
             let shown = trackList.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Song '")).allElementsBoundByIndex
                 .compactMap { $0.value as? String }
-            if shown == titles { return true }
+            if shown == titles {
+                return true
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         } while Date() < deadline
         return false

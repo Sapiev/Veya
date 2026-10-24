@@ -57,7 +57,9 @@ struct SearchField: View {
             .frame(width: 300, height: 36)
         }
         .onChange(of: history.current) { _, route in
-            if route == .search { routeFocus += 1 }
+            if route == .search {
+                routeFocus += 1
+            }
         }
     }
 
@@ -145,13 +147,17 @@ struct ToolbarTextField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         field.font = .systemFont(ofSize: 13 * context.environment.textScale)
-        if field.stringValue != text { field.stringValue = text }
+        if field.stringValue != text {
+            field.stringValue = text
+        }
         if context.coordinator.focusRequest != focusRequest {
             context.coordinator.focusRequest = focusRequest
             // Async: the window may not hold the field yet. Skipped while editing,
             // since refocusing selects all and the next keystroke would replace the query.
             DispatchQueue.main.async {
-                if field.currentEditor() == nil { field.window?.makeFirstResponder(field) }
+                if field.currentEditor() == nil {
+                    field.window?.makeFirstResponder(field)
+                }
             }
         }
     }
@@ -165,11 +171,15 @@ struct ToolbarTextField: NSViewRepresentable {
             return editor
         }()
 
-        override func fieldEditor(for _: NSView) -> NSTextView? { editor }
+        override func fieldEditor(for _: NSView) -> NSTextView? {
+            editor
+        }
     }
 
     private final class HiddenEditor: NSTextView {
-        override func isAccessibilityElement() -> Bool { false }
+        override func isAccessibilityElement() -> Bool {
+            false
+        }
     }
 
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -224,9 +234,15 @@ struct SearchView: View {
     }
 
     private var phase: Phase {
-        if search.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .idle }
-        if search.state == .failed { return search.failure == .RateLimited ? .rateLimited : .failed }
-        if search.groups.allSatisfy(\.hits.isEmpty) { return search.state == .searching ? .searching : .noResults }
+        if search.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .idle
+        }
+        if search.state == .failed {
+            return search.failure == .RateLimited ? .rateLimited : .failed
+        }
+        if search.groups.allSatisfy(\.hits.isEmpty) {
+            return search.state == .searching ? .searching : .noResults
+        }
         return .results
     }
 
@@ -240,10 +256,14 @@ struct SearchView: View {
             }
             // A rejected refresh token is deleted by the provider.
             .onChange(of: search.state) { _, state in
-                if state == .notConnected { webAPI.reload() }
+                if state == .notConnected {
+                    webAPI.reload()
+                }
             }
             .onChange(of: webAPI.isConnected) { _, connected in
-                if connected, !search.query.isEmpty { search.search(search.query) }
+                if connected, !search.query.isEmpty {
+                    search.search(search.query)
+                }
             }
             .task(id: library.items[.artists]) { library.resolve((library.items[.artists] ?? []).map(\.uri)) }
     }
@@ -318,7 +338,9 @@ struct SearchView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width - 2 * Theme.s8 } action: { width = $0 }
             .accessibilityIdentifier(phase == .results ? "searchResults" : "searchPage")
             .onChange(of: selection) { _, id in
-                if let id { withAnimation(reduceMotion ? nil : Theme.fast) { proxy.scrollTo(id) } }
+                if let id {
+                    withAnimation(reduceMotion ? nil : Theme.fast) { proxy.scrollTo(id) }
+                }
             }
         }
     }
@@ -544,7 +566,7 @@ struct SearchView: View {
             round: kind == .artist, playable: kind.plays,
             grouped: true, selected: selection == id
         ) { activate(id) }
-        .id(id)
+            .id(id)
     }
 
     @ViewBuilder private func showMore(_ kind: SearchKind) -> some View {
@@ -823,7 +845,7 @@ private struct LinkButtonStyle: ButtonStyle {
     }
 }
 
-/// A Browse all tile (`.genre`): the genre's album colors behind its name; a click searches for it.
+// A Browse all tile (`.genre`): the genre's album colors behind its name; a click searches for it.
 // shortcut: no tilted album art, since the mockup's covers are commercial art not in the repo;
 // add it once genres come from Spotify with their own images.
 private struct GenreCard: View {

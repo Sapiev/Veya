@@ -38,7 +38,7 @@ public final class TrackNotifications {
         announced = key
         pending?.cancel()
         pending = Task { [weak self, settle] in
-            guard (try? await Task.sleep(for: settle)) != nil, let self, let latest,
+            guard await (try? Task.sleep(for: settle)) != nil, let self, let latest,
                   Self.key(latest.info) == key else { return }
             // Paused tracks stay unannounced so pressing play still posts them.
             guard latest.info.isPlaying else { announced = nil; return }
@@ -55,8 +55,12 @@ public final class TrackNotifications {
         let content = UNMutableNotificationContent()
         content.title = info.title
         content.body = info.artist
-        if let album = info.album { content.subtitle = album }
-        if let image, let attachment = try? attachment(image) { content.attachments = [attachment] }
+        if let album = info.album {
+            content.subtitle = album
+        }
+        if let image, let attachment = try? attachment(image) {
+            content.attachments = [attachment]
+        }
         // One identifier, so a new track replaces the previous banner in Notification Center.
         let request = UNNotificationRequest(identifier: "nowPlaying", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)

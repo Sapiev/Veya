@@ -103,8 +103,16 @@ import SwiftUI
                 AccountCommands.signOut(session, settings: settings, failed: $signOutFailed)
             }
             .environment(\.artworkLoader, artworkLoader)
-            .transformEnvironment(\.choosePhoto) { if let choosePhoto { $0 = PhotoChooser(choose: choosePhoto) } }
-            .transformEnvironment(\.localNetworkAccess) { if let localNetworkAccess { $0 = localNetworkAccess } }
+            .transformEnvironment(\.choosePhoto) {
+                if let choosePhoto {
+                    $0 = PhotoChooser(choose: choosePhoto)
+                }
+            }
+            .transformEnvironment(\.localNetworkAccess) {
+                if let localNetworkAccess {
+                    $0 = localNetworkAccess
+                }
+            }
             .defaultAppStorage(defaults)
             .onAppear { NSApp.setActivationPolicy(.regular) }
             .onDisappear { menuBar.windowClosed() }
@@ -118,6 +126,7 @@ import SwiftUI
                 Button("Keep Crash Reports") { crashReports.answer(keep: true) }
                 Button("Don't Keep", role: .cancel) { crashReports.answer(keep: false) }
             } message: {
+                // swiftlint:disable:next line_length
                 Text("Keep crash reports on this Mac so they're included when you export diagnostics? They contain no account details and are never sent automatically. You can change this in Settings › Advanced.")
             }
         }
@@ -173,7 +182,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `Window` app, without asking this delegate. Only the Quit command or a quit
     /// event (Dock, logout, scripts) ends the app.
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-
         let event = NSAppleEventManager.shared().currentAppleEvent
         let quitEvent = event?.eventClass == kCoreEventClass && event?.eventID == kAEQuitApplication
         return Self.quitRequested || quitEvent ? .terminateNow : .terminateCancel

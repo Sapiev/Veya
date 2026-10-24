@@ -21,9 +21,9 @@ public struct PlayerConnection {
     }
 }
 
-extension SpotSession {
+public extension SpotSession {
     @MainActor
-    public func makePlayer(observer: any PlayerObserver, settings: PlaybackSettings) async throws -> PlayerConnection {
+    func makePlayer(observer: any PlayerObserver, settings: PlaybackSettings) async throws -> PlayerConnection {
         let output = AudioOutput()
         let engine = try AudioEngine(output: output)
         engine.outputDeviceUID = settings.outputDeviceUID
@@ -98,6 +98,7 @@ public final class PlayerModel {
     public var canTransfer: Bool {
         hasConnect && !transferring
     }
+
     /// What Veya last started playback from; the player itself doesn't report it.
     public private(set) var context: String?
     private(set) var positionMs: UInt32 = 0
@@ -408,7 +409,11 @@ public final class PlayerModel {
     }
 
     public func togglePlayPause() {
-        isPlaying ? player.pause() : player.play()
+        if isPlaying {
+            player.pause()
+        } else {
+            player.play()
+        }
     }
 
     public func next() {
@@ -590,7 +595,9 @@ public final class PlayerModel {
     private func saveLastPlayback(throttled: Bool = false) {
         guard playingOn == nil, let uri = queueCurrent ?? nowPlaying?.uri, !uri.isEmpty else { return }
         let now = clock()
-        if throttled, now.timeIntervalSince(lastSaved) < 5 { return }
+        if throttled, now.timeIntervalSince(lastSaved) < 5 {
+            return
+        }
         lastSaved = now
         settings.lastPlayback = SavedPlayback(
             trackUri: uri,
@@ -666,12 +673,16 @@ public final class PlayerModel {
             current.artists = track.artists
             current.album = track.album
             current.artwork = track.artwork
-            if current.durationMs == 0 { current.durationMs = track.durationMs }
+            if current.durationMs == 0 {
+                current.durationMs = track.durationMs
+            }
         case let .episode(episode):
             current.title = episode.title
             current.artists = [ItemRef(uri: "", name: episode.showName)]
             current.artwork = episode.artwork
-            if current.durationMs == 0 { current.durationMs = episode.durationMs }
+            if current.durationMs == 0 {
+                current.durationMs = episode.durationMs
+            }
         default:
             return
         }

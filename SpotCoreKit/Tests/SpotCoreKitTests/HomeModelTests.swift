@@ -53,17 +53,23 @@ final class SupersededRecentlyPlayed: RecentlyPlayedProvider {
         guard Task.isCancelled else { return fresh }
         await withCheckedContinuation { continuation in
             let open = gate.withLock { gate in
-                if !gate.open { gate.waiters.append(continuation) }
+                if !gate.open {
+                    gate.waiters.append(continuation)
+                }
                 return gate.open
             }
-            if open { continuation.resume() }
+            if open {
+                continuation.resume()
+            }
         }
         return stale
     }
 }
 
 final class FailingMetadata: MetadataServiceProtocol {
-    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+    func lyrics(trackUri _: String) async throws -> Lyrics? {
+        nil
+    }
 
     func items(uris _: [String]) async throws -> [MetadataItem] {
         throw MetadataError.Request(message: "down")
@@ -91,10 +97,21 @@ final class StubPlaylists: PlaylistServiceProtocol {
         return page
     }
 
-    func cachedRootlist() -> [RootlistEntry] { cached }
-    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? { nil }
-    func followerCount(uri _: String) async throws -> UInt64 { 0 }
-    func waitForChange() async -> PlaylistChange { .rootlist }
+    func cachedRootlist() -> [RootlistEntry] {
+        cached
+    }
+
+    func cachedPage(uri _: String, from _: UInt32, length _: UInt32) -> PlaylistPage? {
+        nil
+    }
+
+    func followerCount(uri _: String) async throws -> UInt64 {
+        0
+    }
+
+    func waitForChange() async -> PlaylistChange {
+        .rootlist
+    }
 }
 
 private let track1 = "spotify:track:4uLU6hMCjMI75M1A2tKUQC"

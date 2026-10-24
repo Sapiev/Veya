@@ -43,7 +43,7 @@ struct HomeView: View {
                         Shelf(title: "Made for you", tiles: madeForYou, subtitleLines: 2) { _, tile in open(tile) }
                         Shelf(title: "Artists you follow", tiles: artists) { _, tile in open(tile) }
                         Shelf(title: "Recently Played", tiles: recent) { index, _ in
-                            let queue = recent.enumerated().filter { $0.element.playable }
+                            let queue = recent.enumerated().filter(\.element.playable)
                             if let start = queue.firstIndex(where: { $0.offset == index }) {
                                 player?.play(queue.map(\.element.uri), from: start)
                             }

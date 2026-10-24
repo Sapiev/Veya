@@ -213,7 +213,9 @@ struct TrackList: View {
         return isUnsorted ? rows : rows.sorted(using: sortOrder)
     }
 
-    private var isUnsorted: Bool { sortOrder == [KeyPathComparator(\Row.number)] }
+    private var isUnsorted: Bool {
+        sortOrder == [KeyPathComparator(\Row.number)]
+    }
 
     /// Plays the list in its shown order from the first playable of `ids`,
     /// leaving out rows known to be unplayable; refuses when `ids` has none.
@@ -241,9 +243,17 @@ struct TrackList: View {
         let unavailableHelp: String?
         let artwork: [Artwork]
 
-        var id: Int { number }
-        var albumName: String { album?.name ?? "" }
-        var addedSort: Date { addedAt ?? .distantPast }
+        var id: Int {
+            number
+        }
+
+        var albumName: String {
+            album?.name ?? ""
+        }
+
+        var addedSort: Date {
+            addedAt ?? .distantPast
+        }
 
         init(number: Int, entry: TrackEntry, item: MetadataItem?) {
             self.number = number
@@ -288,13 +298,13 @@ struct TrackList: View {
 }
 
 extension TrackList {
-    fileprivate func resolve(from index: Int) {
+    private func resolve(from index: Int) {
         let end = min(index + Self.resolveAhead, entries.count)
         guard index >= 0, index < end else { return }
         library.resolve(entries[index ..< end].map(\.uri))
     }
 
-    fileprivate func copyLinks(_ uris: [String]) {
+    private func copyLinks(_ uris: [String]) {
         let links = uris.compactMap(Self.webLink)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
@@ -329,7 +339,7 @@ private extension TrackList {
             row.title.isEmpty ? String(localized: "Loading…") : row.title,
             row.artists.map(\.name).formatted(.list(type: .and)),
             row.durationMs == 0 ? "" : Scrubber.spoken(Double(row.durationMs)),
-            state ?? ""
+            state ?? "",
         ]
         return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
@@ -378,7 +388,9 @@ private struct KeyMonitor: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -455,7 +467,9 @@ private struct ClickFocusesTable: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in

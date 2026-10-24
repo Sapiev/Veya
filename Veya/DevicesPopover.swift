@@ -70,12 +70,16 @@ private struct DeviceList: View {
         .frame(width: 280)
         .background(PopoverAccessibilityLabel(label: String(localized: "Devices")))
         .arrowKeyList(player.devices.map(\.id), focus: $focused) { id in
-            if player.canTransfer { player.transfer(to: id) }
+            if player.canTransfer {
+                player.transfer(to: id)
+            }
         }
         // Set after the popover takes focus, which would otherwise land on the first row.
         .task { focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id }
         .task {
-            for await allowed in localNetworkAccess() { localNetworkAllowed = allowed }
+            for await allowed in localNetworkAccess() {
+                localNetworkAllowed = allowed
+            }
         }
     }
 }
@@ -84,7 +88,10 @@ private struct DeviceList: View {
 private struct PopoverAccessibilityLabel: NSViewRepresentable {
     let label: String
 
-    func makeNSView(context _: Context) -> NSView { Anchor(label: label) }
+    func makeNSView(context _: Context) -> NSView {
+        Anchor(label: label)
+    }
+
     func updateNSView(_: NSView, context _: Context) {}
 
     private final class Anchor: NSView {
@@ -95,7 +102,9 @@ private struct PopoverAccessibilityLabel: NSViewRepresentable {
             super.init(frame: .zero)
         }
 
-        required init?(coder _: NSCoder) { nil }
+        required init?(coder _: NSCoder) {
+            nil
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()

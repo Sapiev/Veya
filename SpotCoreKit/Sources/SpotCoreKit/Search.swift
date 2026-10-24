@@ -158,7 +158,9 @@ public final class SearchModel {
         } catch let error as SearchError {
             primaryError = error
         } catch {
-            if Self.isCancellation(error) { return (nil, error) }
+            if Self.isCancellation(error) {
+                return (nil, error)
+            }
             primaryError = .Request(message: String(describing: type(of: error)))
         }
         log(.warn, "Search failed: \(Self.summary(primaryError))")
