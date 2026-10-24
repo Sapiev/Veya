@@ -13,6 +13,7 @@ struct NowPlayingBar: View {
     @State private var unmutedVolume: Double?
     /// Five 36 pt buttons, the 96 pt volume slider and 2 pt between each.
     private static let fullAccessoriesWidth: CGFloat = 5 * 36 + 96 + 5 * 2
+    private static let popUpAccessoriesWidth: CGFloat = 5 * 36 + 4 * 2
 
     var body: some View {
         GeometryReader { proxy in
@@ -30,7 +31,7 @@ struct NowPlayingBar: View {
                 }
                 .frame(width: center)
                 .disabled(player.nowPlaying == nil)
-                accessories
+                accessories(fitting: side)
                     .frame(width: side, alignment: .trailing)
             }
             .frame(maxHeight: .infinity)
@@ -94,12 +95,12 @@ struct NowPlayingBar: View {
 
     /// Lyrics, queue, devices, mute, volume and full-window Now Playing (`.p-right`); the output device is in Settings.
     /// A narrow bar raises the volume slider above the mute button on hover, then drops full-window, which the artwork also opens.
-    private var accessories: some View {
-        ViewThatFits(in: .horizontal) {
-            accessoryButtons(inlineSlider: true, fullWindow: true)
-            accessoryButtons(inlineSlider: false, fullWindow: true)
-            accessoryButtons(inlineSlider: false, fullWindow: false)
-        }
+    /// Chosen from the width, not `ViewThatFits`, which kept a stale variant when the bar widened mid-animation.
+    private func accessories(fitting width: CGFloat) -> some View {
+        accessoryButtons(
+            inlineSlider: width >= Self.fullAccessoriesWidth,
+            fullWindow: width >= Self.popUpAccessoriesWidth
+        )
     }
 
     private func accessoryButtons(inlineSlider: Bool, fullWindow: Bool) -> some View {
