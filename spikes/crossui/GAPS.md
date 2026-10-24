@@ -1,6 +1,6 @@
 # swift-cross-ui 0.10.0 spike gaps (PBI-X03)
 
-Built and launched on macOS (AppKitBackend, debug build, Swift 6.4). Linux/Windows not run; "untested" unless a source is cited.
+Built and launched on macOS (AppKitBackend, debug build, Swift 6.4). Linux (GTK4, swift:6.3) and Windows (WinUI, Swift 6.3) only compile in CI (run 39510127625, `crossui spike (linux|windows)` green); never launched there, so "untested" means untested at runtime.
 Source for API claims: swift-cross-ui v0.10.0 sources (`Sources/SwiftCrossUI/Views`, `Sources/AppKitBackend`), README backend list.
 No screenshots taken yet (no UI-test harness in this spike); the window was only confirmed alive for 6 s.
 
