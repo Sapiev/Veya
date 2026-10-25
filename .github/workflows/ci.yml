@@ -97,10 +97,39 @@ jobs:
           -clonedSourcePackagesDirPath "$SPM_DIR"
           CODE_SIGNING_ALLOWED=NO
 
+  # Debug build with the VEYA_UI_TEST_SCENARIO fakes, built once for every UI test shard.
+  xcframework-debug:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        working-directory: core
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: core -> target
+          shared-key: ui-tests
+      - name: Build xcframework
+        run: scripts/build-xcframework.sh debug
+      # The stamp lets the scheme pre-action in each shard skip the Rust build.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcframework-debug
+          path: |
+            SpotCoreKit/spotcoreFFI.xcframework
+            SpotCoreKit/Sources/SpotCoreKit/spotcore.swift
+            core/target/.xcframework.stamp
+          include-hidden-files: true
+          if-no-files-found: error
+
   # One Mac desktop has a single keyboard focus, pasteboard and window origin, so
   # UI tests cannot run side by side on one runner. Shards run on separate runners instead
   # (scripts/ui-test-shard.sh); PerformanceUITests keeps a runner to itself for stable metrics.
   ui-tests:
+    needs: xcframework-debug
     runs-on: xcode-27
     timeout-minutes: 120
     strategy:
@@ -113,13 +142,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install Rust toolchain
-        working-directory: core
-        run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          workspaces: core -> target
-          shared-key: ui-tests
+          name: xcframework-debug
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.SPM_DIR }}
@@ -139,10 +164,6 @@ jobs:
           brew install displayplacer
           screen=$(displayplacer list | awk '/Persistent screen id/ {print $4; exit}')
           displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"
-      # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release.
-      # Package resolution runs before the scheme pre-action and needs the xcframework to exist.
-      - name: Build xcframework
-        run: scripts/build-xcframework.sh debug
       - name: UI tests (shard ${{ matrix.shard }})
         # Failures cluster after the first ~15 minutes, all "not foreground": the idle display sleeps or locks.
         run: >-
