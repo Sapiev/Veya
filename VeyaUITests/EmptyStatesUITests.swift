@@ -2,14 +2,12 @@ import XCTest
 
 /// PBI-408: the welcome screen, and no list is ever a blank page.
 final class EmptyStatesUITests: XCTestCase {
-    @MainActor func testWelcomeSaysUnofficialAndPremiumWithOneSignInButton() {
+    @MainActor func testWelcomeExplainsSignInAndOffersOneContinueButton() {
         let app = XCUIApplication.launch(.signedOut)
         XCTAssertTrue(app.signInScreen.waitForExistence(timeout: XCUIApplication.timeout))
 
-        XCTAssertTrue(app.staticTexts["Veya needs a Spotify Premium account."].exists)
-        XCTAssertTrue(app.staticTexts["Veya is an unofficial app, not made or endorsed by Spotify."].exists)
-        let signInButtons = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Sign In"))
-        XCTAssertEqual(signInButtons.count, 1)
+        XCTAssertTrue(app.staticTexts["You'll sign in on Spotify's own page. Veya never sees your password."].exists)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Continue with Spotify")).count, 1)
     }
 
     @MainActor func testEmptyLibraryShowsDesignedEmptyStates() {
