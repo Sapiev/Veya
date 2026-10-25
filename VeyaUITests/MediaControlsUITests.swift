@@ -2,7 +2,7 @@ import XCTest
 
 /// PBI-601: playback, and with it the media keys, outlives the main window.
 final class MediaControlsUITests: XCTestCase {
-    @MainActor func testClosingTheWindowKeepsPlaying() {
+    @MainActor func testClosingTheWindowKeepsPlayingAndQuitStillQuitsWithTheWindowClosed() {
         let app = XCUIApplication.launch(.signedIn)
         let play = app.buttons["Play"]
         XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
@@ -16,12 +16,8 @@ final class MediaControlsUITests: XCTestCase {
         window.click()
         window.menuItems["Veya"].click()
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testQuitStillQuitsWithTheWindowClosed() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-
+        // Quit still quits with the window closed (runs last: it ends the app).
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(app.windows.firstMatch.waitForNonExistence(timeout: XCUIApplication.timeout))
         app.typeKey("q", modifierFlags: .command)

@@ -8,15 +8,14 @@ final class RemoteControlUITests: XCTestCase {
         return app
     }
 
-    @MainActor func testTheBarNamesTheDevicePlaying() {
+    @MainActor func testTheBarNamesTheDevicePlayingAndItsControlsCommandTheRemote() {
         let app = launch()
 
+        // The bar names the device playing.
         XCTAssertTrue(app.staticTexts["Playing on Pixel"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts["Remote Track"].exists)
-    }
 
-    @MainActor func testPlayPauseAndNextCommandTheRemote() {
-        let app = launch()
+        // Play, pause and next command the remote.
         let play = app.buttons["Play"].firstMatch
         XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
 
