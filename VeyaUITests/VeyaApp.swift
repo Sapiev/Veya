@@ -33,6 +33,8 @@ extension XCUIApplication {
     static func launch(_ scenario: Scenario, locale: String? = nil, windowWidth: Int = 1200) -> XCUIApplication {
         let app = configured(scenario, locale: locale, windowWidth: windowWidth)
         app.launch()
+        // A runner without a logged-in console session leaves the app in the background, where clicks and key events are refused.
+        app.activate()
         return app
     }
 
