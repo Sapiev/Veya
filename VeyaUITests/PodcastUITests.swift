@@ -77,7 +77,6 @@ final class PodcastUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.elapsed(beginningWith: "0:0").waitForExistence(timeout: XCUIApplication.timeout))
     }
-
 }
 
 private extension XCUIApplication {
