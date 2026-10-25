@@ -96,6 +96,35 @@ jobs:
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath "$SPM_DIR"
           CODE_SIGNING_ALLOWED=NO
+
+  # One Mac desktop has a single keyboard focus, pasteboard and window origin, so
+  # UI tests cannot run side by side on one runner. Shards run on separate runners instead
+  # (scripts/ui-test-shard.sh); PerformanceUITests keeps a runner to itself for stable metrics.
+  ui-tests:
+    runs-on: xcode-27
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, perf]
+    env:
+      SPM_DIR: ${{ github.workspace }}/.build/spm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        working-directory: core
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: core -> target
+          shared-key: ui-tests
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SPM_DIR }}
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.swift', '**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
       - name: Set Dark appearance
         # The suite is written against Dark; on Light the contrast audits fail.
         run: osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'
@@ -112,7 +141,7 @@ jobs:
           displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"
       # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release,
       # so this step also builds the debug xcframework.
-      - name: UI tests
+      - name: UI tests (shard ${{ matrix.shard }})
         # Failures cluster after the first ~15 minutes, all "not foreground": the idle display sleeps or locks.
         run: >-
           caffeinate -dimsu
@@ -120,17 +149,18 @@ jobs:
           -project Veya.xcodeproj
           -scheme Veya
           -destination 'platform=macOS'
-          -only-testing:VeyaUITests
+          $(scripts/ui-test-shard.sh ${{ matrix.shard }} 3)
           -clonedSourcePackagesDirPath "$SPM_DIR"
           -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"
       # PBI-803: PerformanceUITests record the metrics; the budgets live in the script.
       - name: Performance budget
+        if: matrix.shard == 'perf'
         run: scripts/check-performance-budget.sh "$RUNNER_TEMP/ui-tests.xcresult"
       # The scheme pre-action ignores its exit code and logs here instead.
       - name: Upload xcframework pre-action log
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: xcframework-preaction-log
+          name: xcframework-preaction-log-${{ matrix.shard }}
           path: core/target/xcframework-preaction.log
           if-no-files-found: ignore
