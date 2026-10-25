@@ -179,6 +179,13 @@ jobs:
       - name: Performance budget
         if: matrix.shard == 'perf'
         run: scripts/check-performance-budget.sh "$RUNNER_TEMP/ui-tests.xcresult"
+      - name: Upload UI test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-tests-xcresult-${{ matrix.shard }}
+          path: ${{ runner.temp }}/ui-tests.xcresult
+          if-no-files-found: ignore
       # The scheme pre-action ignores its exit code and logs here instead.
       - name: Upload xcframework pre-action log
         if: failure()
