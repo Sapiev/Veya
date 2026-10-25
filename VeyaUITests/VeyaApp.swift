@@ -44,6 +44,8 @@ extension XCUIApplication {
             app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
         }
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        // The suite is written against the Dark appearance; a runner left on Light fails the contrast audits.
+        app.launchArguments += ["-AppleInterfaceStyle", "Dark"]
         // Tests share the app's defaults, so pin the main window over any frame a user saved; AppKit fits it to the screen.
         app.launchArguments += ["-NSWindow Frame main", "0 0 \(windowWidth) 2000"]
         return app
