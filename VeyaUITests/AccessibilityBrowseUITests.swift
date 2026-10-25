@@ -39,7 +39,7 @@ final class AccessibilityBrowseUITests: XCTestCase {
         try assertAuditPasses(app, "Settings")
     }
 
-    @MainActor func testTabReachesTheSidebarAndArrowsWalkIt() {
+    @MainActor func testTabReachesTheSidebarAndArrowsWalkItAndReturnCreatesAPlaylistAndEscapeCancels() {
         let app = signedIn()
         let focusedSidebar = app.outlines.matching(NSPredicate(format: "hasKeyboardFocus == true"))["Sidebar"]
         let searchPage = app.descendants(matching: .any)["searchPage"]
@@ -56,10 +56,7 @@ final class AccessibilityBrowseUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("UI Test"), "Profile")
         app.typeKey(.downArrow, modifierFlags: [])
         XCTAssertTrue(app.showsRoute("Liked Songs"))
-    }
 
-    @MainActor func testReturnCreatesAPlaylistAndEscapeCancels() {
-        let app = signedIn()
         let create = app.buttons["Create"]
 
         app.typeKey("n", modifierFlags: .command)

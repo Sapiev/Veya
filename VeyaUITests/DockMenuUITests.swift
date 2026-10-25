@@ -2,8 +2,18 @@ import XCTest
 
 /// PBI-603: the Dock icon's menu controls playback; track notifications start off.
 final class DockMenuUITests: XCTestCase {
-    @MainActor func testDockMenuShowsTheTrackAndControlsPlayback() {
+    @MainActor func testTrackNotificationsAreOffByDefaultAndDockMenuShowsTheTrackAndControlsPlayback() {
         let app = XCUIApplication.launch(.signedIn)
+        app.typeKey(",", modifierFlags: .command)
+        let general = app.toolbars.buttons["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: XCUIApplication.timeout))
+        general.click()
+
+        let notify = app.toggle("Notify when the song changes")
+        XCTAssertTrue(notify.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(notify.value as? Int, 0)
+        app.typeKey("w", modifierFlags: .command)
+
         let play = app.buttons["Play"]
         XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
         play.click()
@@ -19,17 +29,5 @@ final class DockMenuUITests: XCTestCase {
         dock.menuItems["Pause"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
 
         XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testTrackNotificationsAreOffByDefault() {
-        let app = XCUIApplication.launch(.signedIn)
-        app.typeKey(",", modifierFlags: .command)
-        let general = app.toolbars.buttons["General"]
-        XCTAssertTrue(general.waitForExistence(timeout: XCUIApplication.timeout))
-        general.click()
-
-        let notify = app.toggle("Notify when the song changes")
-        XCTAssertTrue(notify.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(notify.value as? Int, 0)
     }
 }

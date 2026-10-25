@@ -1,6 +1,7 @@
 import XCTest
 
-/// PBI-804: crash reports are off by default, asked about once after a crash, and changeable in Settings › Advanced.
+/// PBI-804: crash reports are asked about once after a crash, and changeable in Settings › Advanced.
+/// Off by default without asking is covered in UpdatesUITests.
 final class CrashReportingUITests: XCTestCase {
     @MainActor private func keepToggle(_ app: XCUIApplication) -> XCUIElement {
         app.typeKey(",", modifierFlags: .command)
@@ -11,16 +12,6 @@ final class CrashReportingUITests: XCTestCase {
     /// Checkboxes and switches report their state as 0 or 1.
     @MainActor private func isOn(_ element: XCUIElement) -> Bool {
         (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
-    }
-
-    @MainActor func testOffByDefaultWithoutAsking() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.sheets.staticTexts["Veya Quit Unexpectedly"].exists)
-
-        let toggle = keepToggle(app)
-        XCTAssertTrue(toggle.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(isOn(toggle))
     }
 
     @MainActor func testCrashAsksAndKeepingTurnsReportsOn() throws {
