@@ -117,7 +117,6 @@ final class DetailPagesUITests: XCTestCase {
         XCTAssertFalse(app.trackList.staticTexts["Song 1"].exists)
         XCTAssertFalse(app.trackList.staticTexts["Song 5"].exists)
     }
-
 }
 
 private extension XCUIApplication {
