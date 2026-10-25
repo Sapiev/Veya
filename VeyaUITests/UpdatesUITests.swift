@@ -7,16 +7,14 @@ final class UpdatesUITests: XCTestCase {
         (element.value as? NSNumber)?.boolValue ?? (element.value as? String == "1")
     }
 
-    @MainActor func testCheckForUpdatesIsInTheAppMenu() {
+    /// Also PBI-804: crash reports are off by default without asking (same Advanced pane).
+    @MainActor func testCheckForUpdatesIsInTheAppMenuAndBetaVersionsAndCrashReportsAreOptIn() throws {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.sheets.staticTexts["Veya Quit Unexpectedly"].exists)
 
         XCTAssertTrue(app.menuItem("Veya", "Check for Updates…").exists)
-    }
-
-    @MainActor func testBetaVersionsAreOptIn() throws {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey(.escape, modifierFlags: [])
         app.typeKey(",", modifierFlags: .command)
         app.toolbars.buttons["Advanced"].click()
 
@@ -24,6 +22,9 @@ final class UpdatesUITests: XCTestCase {
         XCTAssertTrue(beta.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.toggle("Check for updates automatically").exists)
         XCTAssertFalse(isOn(beta))
+        let crashReports = app.toggle("Keep crash reports")
+        XCTAssertTrue(crashReports.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(isOn(crashReports))
 
         beta.click()
 

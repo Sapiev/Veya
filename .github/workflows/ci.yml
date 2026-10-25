@@ -51,7 +51,7 @@ jobs:
     runs-on: xcode-27
     # A cold cache compiles librespot three times (host debug, two release
     # arches); a timeout saves no cache, so every later run would be cold too.
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       SPM_DIR: ${{ github.workspace }}/.build/spm
     steps:
@@ -96,10 +96,26 @@ jobs:
           -destination 'generic/platform=macOS'
           -clonedSourcePackagesDirPath "$SPM_DIR"
           CODE_SIGNING_ALLOWED=NO
+      - name: Set Dark appearance
+        # The suite is written against Dark; on Light the contrast audits fail.
+        run: osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true'
+      # The runner's display defaults to 1024x768, which clamps the 1200 pt test window and
+      # collapses the sidebar; the tests are written against a desktop-sized screen.
+      - name: Keep the display awake
+        run: |
+          sudo pmset -a displaysleep 0 sleep 0 disablesleep 1
+          defaults -currentHost write com.apple.screensaver idleTime 0
+      - name: Set display resolution
+        run: |
+          brew install displayplacer
+          screen=$(displayplacer list | awk '/Persistent screen id/ {print $4; exit}')
+          displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"
       # Debug only: the VEYA_UI_TEST_SCENARIO fakes are compiled out of Release,
       # so this step also builds the debug xcframework.
       - name: UI tests
+        # Failures cluster after the first ~15 minutes, all "not foreground": the idle display sleeps or locks.
         run: >-
+          caffeinate -dimsu
           xcodebuild test
           -project Veya.xcodeproj
           -scheme Veya

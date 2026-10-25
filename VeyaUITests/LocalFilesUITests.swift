@@ -33,9 +33,21 @@ final class LocalFilesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Veya Mixes"].exists)
     }
 
-    @MainActor func testLocalEntryShowsItsTitleAndPlays() {
+    @MainActor func testUnplayableLocalFileExplainsTheLimitThenLocalEntryShowsItsTitleAndPlays() {
         let app = launch()
         localMix(app)
+        let hiRes = app.trackList.staticTexts["Hi-Res Song"]
+        XCTAssertTrue(hiRes.waitForExistence(timeout: XCUIApplication.timeout))
+
+        hiRes.doubleClick()
+
+        XCTAssertTrue(app.staticTexts["Couldn't Play “Hi-Res Song”"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts[
+            "Veya plays local MP3, MP4 and FLAC files sampled at 44.1 kHz from the folders in Settings > Playback."
+        ].exists)
+        app.sheets.buttons["OK"].click()
+        XCTAssertTrue(app.staticTexts["Couldn't Play “Hi-Res Song”"].waitForNonExistence(timeout: XCUIApplication.timeout))
+
         let song = app.trackList.staticTexts["Local Song"]
         XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.trackList.staticTexts["Local Artist"].exists)
@@ -44,21 +56,5 @@ final class LocalFilesUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testUnplayableLocalFileExplainsTheLimit() {
-        let app = launch()
-        localMix(app)
-        let song = app.trackList.staticTexts["Hi-Res Song"]
-        XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
-
-        song.doubleClick()
-
-        XCTAssertTrue(app.staticTexts["Couldn't Play “Hi-Res Song”"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.staticTexts[
-            "Veya plays local MP3, MP4 and FLAC files sampled at 44.1 kHz from the folders in Settings > Playback."
-        ].exists)
-        app.sheets.buttons["OK"].click()
-        XCTAssertTrue(app.staticTexts["Couldn't Play “Hi-Res Song”"].waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 }

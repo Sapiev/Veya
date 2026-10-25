@@ -10,17 +10,13 @@ final class LocalizationUITests: XCTestCase {
         try assertAuditPasses(app, "Sign in (Polish)")
     }
 
-    @MainActor func testLibraryAndPlayerAreInPolish() throws {
+    @MainActor func testLibraryAndPlayerAreInPolishAndAlbumSummaryUsesPolishPluralAndDuration() throws {
         let app = XCUIApplication.launch(.signedIn, locale: "pl_PL")
 
         XCTAssertTrue(app.outlines.staticTexts["Polubione utwory"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Odtwórz"].exists)
         try assertAuditPasses(app, "Home (Polish)")
-    }
 
-    @MainActor func testAlbumSummaryUsesPolishPluralAndDuration() {
-        let app = XCUIApplication.launch(.signedIn, locale: "pl_PL")
-        XCTAssertTrue(app.outlines.staticTexts["Polubione utwory"].waitForExistence(timeout: XCUIApplication.timeout))
         app.outlines.buttons["Albumy"].click()
         let album = app.savedItems.buttons["Test Album"]
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))

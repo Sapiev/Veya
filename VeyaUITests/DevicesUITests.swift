@@ -13,8 +13,12 @@ final class DevicesUITests: XCTestCase {
         app.popovers.buttons[name]
     }
 
-    @MainActor func testPopoverListsThisMacAndTheAccountsDevicesWithTheActiveOneMarked() {
-        let app = openDevices()
+    @MainActor func testPopoverListsThisMacAndTheAccountsDevicesWithTheActiveOneMarkedAndNoNotice() {
+        let app = XCUIApplication.launch(.connectDevices)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        // The Devices button names the device playing elsewhere.
+        XCTAssertEqual(app.buttons["Devices"].firstMatch.value as? String, "Playing on Pixel")
+        app.buttons["Devices"].firstMatch.click()
 
         let phone = device(app, "Pixel")
         XCTAssertTrue(phone.waitForExistence(timeout: XCUIApplication.timeout))
@@ -25,39 +29,31 @@ final class DevicesUITests: XCTestCase {
         XCTAssertEqual(device(app, "This Mac").value as? String, "Volume 100%")
         XCTAssertEqual(device(app, "Kitchen Speaker").value as? String, "Volume 50%")
         XCTAssertFalse(device(app, "Studio Mac").exists, "our own device is shown as This Mac")
+        // With local network access the popover has no notice.
+        XCTAssertFalse(app.popovers.staticTexts["Local Network Access Is Off"].exists)
         attachScreenshot(of: app.popovers.firstMatch, named: "devices-active-tint")
     }
 
-    @MainActor func testChoosingADeviceTransfersPlaybackToIt() {
+    @MainActor func testAFailedTransferIsShownThenChoosingADeviceTransfersPlaybackToIt() {
         let app = openDevices()
+
+        // A failed transfer is shown in the popover and leaves the active device alone.
+        let tv = device(app, "Living Room TV")
+        XCTAssertTrue(tv.waitForExistence(timeout: XCUIApplication.timeout))
+        tv.click()
+        XCTAssertTrue(app.popovers.staticTexts["Couldn't move playback. Try again."]
+            .waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(device(app, "Pixel").value as? String, "Playing, volume 10%")
+
+        // Choosing a device transfers playback to it.
         let speaker = device(app, "Kitchen Speaker")
         XCTAssertTrue(speaker.waitForExistence(timeout: XCUIApplication.timeout))
-
         speaker.click()
-
         let playing = NSPredicate(format: "value == 'Playing, volume 50%'")
         expectation(for: playing, evaluatedWith: speaker)
         waitForExpectations(timeout: XCUIApplication.timeout)
         XCTAssertEqual(device(app, "Pixel").value as? String, "Volume 10%")
         XCTAssertFalse(device(app, "Pixel").isSelected)
-    }
-
-    @MainActor func testAFailedTransferIsShownInThePopover() {
-        let app = openDevices()
-        let tv = device(app, "Living Room TV")
-        XCTAssertTrue(tv.waitForExistence(timeout: XCUIApplication.timeout))
-
-        tv.click()
-
-        XCTAssertTrue(app.popovers.staticTexts["Couldn't move playback. Try again."]
-            .waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(device(app, "Pixel").value as? String, "Playing, volume 10%")
-    }
-
-    @MainActor func testTheDevicesButtonNamesTheDevicePlayingElsewhere() {
-        let app = XCUIApplication.launch(.connectDevices)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(app.buttons["Devices"].firstMatch.value as? String, "Playing on Pixel")
     }
 
     @MainActor func testPopoverExplainsWhenLocalNetworkAccessIsOff() throws {
@@ -68,12 +64,5 @@ final class DevicesUITests: XCTestCase {
         XCTAssertTrue(app.popovers.buttons["Open Privacy Settings"].exists)
         XCTAssertTrue(device(app, "Pixel").exists, "account devices still list")
         try assertAuditPasses(app, "Devices without local network")
-    }
-
-    @MainActor func testPopoverHasNoNoticeWithLocalNetworkAccess() {
-        let app = openDevices()
-
-        XCTAssertTrue(device(app, "Pixel").waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.popovers.staticTexts["Local Network Access Is Off"].exists)
     }
 }

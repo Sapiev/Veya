@@ -14,7 +14,7 @@ final class PodcastUITests: XCTestCase {
         return app
     }
 
-    @MainActor func testShowPageListsEpisodesWithDateLengthAndProgress() {
+    @MainActor func testShowPageListsEpisodesWithDateLengthAndProgressSelectionShowsNotesAndLockedEpisodeCannotBePlayed() {
         let app = openShow()
 
         XCTAssertTrue(app.staticTexts["Veya Test Studio"].exists)
@@ -27,18 +27,26 @@ final class PodcastUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["1 hr"].exists)
         XCTAssertTrue(app.staticTexts["35 min left"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts["Played"].exists)
-    }
 
-    @MainActor func testSelectingAnEpisodeShowsItsNotes() {
-        let app = openShow()
         let episode = app.staticTexts["Halfway Episode"]
-        XCTAssertTrue(episode.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(app.staticTexts["Notes for Halfway Episode"].exists)
 
         episode.click()
 
         XCTAssertTrue(app.staticTexts["Notes for Halfway Episode"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(app.staticTexts["Notes for New Episode"].exists)
+
+        // PBI-105: an unplayable episode cannot be started.
+        let locked = app.staticTexts["Locked Episode"]
+        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+        locked.click()
+        let play = app.buttons["episodePlay"]
+        XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(play.isEnabled)
+
+        locked.doubleClick()
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
     }
 
     @MainActor func testResumeStartsTheEpisodeWhereItWasLeft() {
@@ -70,19 +78,6 @@ final class PodcastUITests: XCTestCase {
         XCTAssertTrue(app.elapsed(beginningWith: "0:0").waitForExistence(timeout: XCUIApplication.timeout))
     }
 
-    @MainActor func testRegionLockedEpisodeCannotBePlayed() {
-        let app = openShow()
-        let episode = app.staticTexts["Locked Episode"]
-        XCTAssertTrue(episode.waitForExistence(timeout: XCUIApplication.timeout))
-        episode.click()
-        let play = app.buttons["episodePlay"]
-        XCTAssertTrue(play.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(play.isEnabled)
-
-        episode.doubleClick()
-
-        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
-    }
 }
 
 private extension XCUIApplication {

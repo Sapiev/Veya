@@ -12,54 +12,6 @@ final class TrackListUITests: XCTestCase {
         return app
     }
 
-    @MainActor func testLikedSongsListsEveryTrackWithItsColumns() {
-        let app = likedSongs()
-
-        for title in ["Song 1", "Song 5"] {
-            XCTAssertTrue(app.trackList.staticTexts[title].exists, title)
-        }
-        for column in ["#", "Title", "Album", "Date Added", "Duration"] {
-            XCTAssertTrue(app.buttons[column].exists, column)
-        }
-    }
-
-    @MainActor func testDoubleClickPlaysTheRowAndMarksItPlaying() {
-        let app = likedSongs()
-
-        app.trackList.staticTexts["Song 2"].doubleClick()
-
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).count, 2)
-    }
-
-    @MainActor func testReturnPlaysTheSelectedRow() {
-        let app = likedSongs()
-
-        app.trackList.staticTexts["Song 4"].click()
-        // Return right after the click can beat the selection to the app's key handler.
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
-        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
-        app.typeKey(.return, modifierFlags: [])
-
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
-    /// The focused selection is the palette tint (Veya's red by default), never the system blue.
-    @MainActor func testSelectionUsesTheAccentNotSystemBlue() throws {
-        let app = likedSongs()
-        let title = app.trackList.staticTexts["Song 2"]
-        title.click()
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
-        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
-
-        // Just left of the title, between the artwork and the text: only the selection is drawn there.
-        let color = try screenColors(y: title.frame.midY, x: [title.frame.minX - 6])[0]
-        XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
-    }
-
     /// The sidebar's selection is the palette tint too, though AppKit draws it as a material.
     @MainActor func testSidebarSelectionUsesTheAccentNotSystemBlue() throws {
         let app = XCUIApplication.launch(.signedIn)
@@ -76,8 +28,130 @@ final class TrackListUITests: XCTestCase {
         XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
     }
 
+    @MainActor func testLikedSongsColumnsMenusCopyLinkAndGoToAlbum() {
+        let app = likedSongs()
+        restorePasteboardAfterwards()
+
+        for title in ["Song 1", "Song 5"] {
+            XCTAssertTrue(app.trackList.staticTexts[title].exists, title)
+        }
+        for column in ["#", "Title", "Album", "Date Added", "Duration"] {
+            XCTAssertTrue(app.buttons[column].exists, column)
+        }
+
+        app.trackList.staticTexts["Song 1"].rightClick()
+        for item in ["Play Next", "Add to Queue", "Add to Playlist", "Go to Album", "Go to Artist", "Copy Link", "Remove from Liked Songs"] {
+            XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
+        }
+        XCTAssertTrue(app.menuItems["Add to Playlist"].isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
+
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
+        row.staticTexts["Song 1"].hover()
+        row.descendants(matching: .any)["More Options"].firstMatch.click()
+        for item in ["Play Next", "Add to Queue", "Go to Album", "Copy Link"] {
+            XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
+        }
+        app.typeKey(.escape, modifierFlags: [])
+
+        NSPasteboard.general.clearContents()
+        app.trackList.staticTexts["Song 1"].rightClick()
+        app.menuItems["Copy Link"].click()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://open.spotify.com/track/uitest1")
+
+        app.trackList.staticTexts["Song 1"].rightClick()
+        app.menuItems["Go to Album"].click()
+        XCTAssertTrue(app.showsRoute("Test Album"))
+    }
+
+    @MainActor func testTitleHeaderSortsDescendingOnSecondClickThenHeartRemovesSong() {
+        let app = likedSongs()
+        // Header buttons report as not hittable; click their frame instead.
+        let title = app.buttons["Title"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+
+        title.click()
+        // Two clicks inside the double-click interval arrive as one double-click, which sorts once.
+        Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
+        title.click()
+
+        XCTAssertTrue(app.trackList.outlineRows.firstMatch.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
+        row.buttons["Remove from Liked Songs"].click()
+
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.trackList.staticTexts["Song 1"])
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: XCUIApplication.timeout), .completed)
+    }
+
+    /// The region locked Song 3 refuses to play (nothing plays yet), then Return plays the selected Song 4.
+    @MainActor func testRegionLockedRowRefusesToPlayThenReturnPlaysTheSelectedRow() {
+        let app = likedSongs()
+        let locked = app.trackList.staticTexts["Song 3"]
+        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+
+        locked.doubleClick()
+        app.typeKey(.return, modifierFlags: [])
+
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Play"].exists)
+        XCTAssertFalse(app.trackList.images["Now Playing"].exists)
+
+        app.trackList.staticTexts["Song 4"].click()
+        // Return right after the click can beat the selection to the app's key handler.
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+        app.typeKey(.return, modifierFlags: [])
+
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+    }
+
+    /// Double-click plays and marks the row; the playing, selected row's title stays readable.
+    @MainActor func testDoubleClickPlaysTheRowAndItsSelectedTitleStaysReadable() throws {
+        let app = likedSongs()
+        let title = app.trackList.staticTexts["Song 2"]
+
+        title.doubleClick()
+
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).count, 2)
+
+        // The playing row's accent title switches to the accent's ink once the row is selected in the accent.
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+
+        let pixels = try XCTUnwrap(ScreenPixels(XCUIScreen.main.screenshot()))
+        XCTAssertGreaterThan(pixels.contrast(in: title.frame), 4.5)
+    }
+
+    /// The focused selection and the right-click outline are the palette tint (Veya's red by default), never the system blue.
+    @MainActor func testSelectionAndRightClickOutlineUseTheAccentNotSystemBlue() throws {
+        let app = likedSongs()
+        let title = app.trackList.staticTexts["Song 2"]
+        title.click()
+        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
+
+        // Just left of the title, between the artwork and the text: only the selection is drawn there.
+        let color = try screenColors(y: title.frame.midY, x: [title.frame.minX - 6])[0]
+        XCTAssertGreaterThan(color.redComponent, color.blueComponent + 0.2, "\(color)")
+
+        let outlined = app.trackList.staticTexts["Song 4"]
+        let outlinedRow = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
+        outlined.rightClick()
+        XCTAssertTrue(app.menuItems["Play Next"].waitForExistence(timeout: XCUIApplication.timeout))
+
+        // Across the row's leading edge, which the outline crosses and the menu never covers.
+        let colors = try screenColors(y: outlined.frame.midY, x: Array(stride(from: outlinedRow.frame.minX, to: outlinedRow.frame.minX + 30, by: 0.5)))
+        XCTAssertFalse(colors.contains { $0.blueComponent > $0.redComponent + 0.2 }, "\(colors)")
+        XCTAssertTrue(colors.contains { $0.redComponent > $0.blueComponent + 0.3 }, "\(colors)")
+    }
+
     /// The compact, icon-only sidebar keeps the accent selection after a click, which never focuses the list.
-    @MainActor func testCompactSidebarSelectionUsesTheAccentNotSystemBlue() throws {
+    @MainActor func testCompactSidebarSelectionUsesTheAccentAndSelectedIconStaysReadable() throws {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.buttons["Collapse Sidebar"].click()
@@ -93,20 +167,14 @@ final class TrackListUITests: XCTestCase {
         let colors = try screenColors(y: row.frame.midY, x: [row.frame.minX + 14, row.frame.maxX - 14])
         XCTAssertTrue(colors.contains { $0.redComponent > $0.blueComponent + 0.2 }, "\(colors)")
         XCTAssertFalse(colors.contains { $0.blueComponent > $0.redComponent + 0.2 }, "\(colors)")
-    }
 
-    /// A selected compact icon turns the row's text color, not the accent it would vanish into.
-    @MainActor func testCompactSelectedIconStaysReadable() throws {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.buttons["Collapse Sidebar"].click()
-        XCTAssertTrue(app.buttons["Expand Sidebar"].waitForExistence(timeout: XCUIApplication.timeout))
-        let row = app.outlines.firstMatch.outlineRows.containing(NSPredicate(format: "label == 'Search'")).firstMatch
-        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        // A selected compact icon turns the row's text color, not the accent it would vanish into.
+        let searchRow = sidebar.outlineRows.containing(NSPredicate(format: "label == 'Search'")).firstMatch
+        searchRow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(app.showsRoute("Search"))
 
         let pixels = try XCTUnwrap(ScreenPixels(XCUIScreen.main.screenshot()))
-        let icon = CGRect(x: row.frame.midX - 12, y: row.frame.midY - 12, width: 24, height: 24)
+        let icon = CGRect(x: searchRow.frame.midX - 12, y: searchRow.frame.midY - 12, width: 24, height: 24)
         XCTAssertGreaterThan(pixels.contrast(in: icon), 3)
     }
 
@@ -128,52 +196,11 @@ final class TrackListUITests: XCTestCase {
         XCTAssertFalse(app.outlines.firstMatch.images["Now Playing"].exists)
     }
 
-    /// The playing row's accent title switches to the accent's ink once the row is selected in the accent.
-    @MainActor func testSelectedPlayingRowTitleStaysReadable() throws {
-        let app = likedSongs()
-        let title = app.trackList.staticTexts["Song 2"]
-        title.doubleClick()
-        XCTAssertTrue(app.trackList.images["Now Playing"].waitForExistence(timeout: XCUIApplication.timeout))
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 2").firstMatch
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
-        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
-
-        let pixels = try XCTUnwrap(ScreenPixels(XCUIScreen.main.screenshot()))
-        XCTAssertGreaterThan(pixels.contrast(in: title.frame), 4.5)
-    }
-
-    /// The right-click outline is the palette tint too, never the system blue.
-    @MainActor func testRightClickOutlineUsesTheAccentNotSystemBlue() throws {
-        let app = likedSongs()
-        let title = app.trackList.staticTexts["Song 4"]
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 4").firstMatch
-        title.rightClick()
-        XCTAssertTrue(app.menuItems["Play Next"].waitForExistence(timeout: XCUIApplication.timeout))
-
-        // Across the row's leading edge, which the outline crosses and the menu never covers.
-        let colors = try screenColors(y: title.frame.midY, x: Array(stride(from: row.frame.minX, to: row.frame.minX + 30, by: 0.5)))
-        XCTAssertFalse(colors.contains { $0.blueComponent > $0.redComponent + 0.2 }, "\(colors)")
-        XCTAssertTrue(colors.contains { $0.redComponent > $0.blueComponent + 0.3 }, "\(colors)")
-    }
-
     /// Screen colors along a row of screen points.
     @MainActor private func screenColors(y: CGFloat, x: [CGFloat]) throws -> [NSColor] {
         let rep = try XCTUnwrap(NSBitmapImageRep(data: XCUIScreen.main.screenshot().pngRepresentation))
         let scale = try CGFloat(rep.pixelsWide) / XCTUnwrap(NSScreen.screens.first).frame.width
         return try x.map { try XCTUnwrap(rep.colorAt(x: Int($0 * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)) }
-    }
-
-    @MainActor func testRegionLockedRowRefusesToPlay() {
-        let app = likedSongs()
-        let locked = app.trackList.staticTexts["Song 3"]
-        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
-
-        locked.doubleClick()
-        app.typeKey(.return, modifierFlags: [])
-
-        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.buttons["Play"].exists)
-        XCTAssertFalse(app.trackList.images["Now Playing"].exists)
     }
 
     @MainActor func testPlayingAListLeavesTheRegionLockedRowOut() {
@@ -187,59 +214,6 @@ final class TrackListUITests: XCTestCase {
 
         XCTAssertTrue(queue.staticTexts["Song 4"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(queue.staticTexts["Song 3"].exists)
-    }
-
-    @MainActor func testContextMenuOffersTheTrackActions() {
-        let app = likedSongs()
-
-        app.trackList.staticTexts["Song 1"].rightClick()
-
-        for item in ["Play Next", "Add to Queue", "Add to Playlist", "Go to Album", "Go to Artist", "Copy Link", "Remove from Liked Songs"] {
-            XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
-        }
-        XCTAssertTrue(app.menuItems["Add to Playlist"].isEnabled)
-    }
-
-    @MainActor func testRowHeartRemovesTheSongFromLikedSongs() {
-        let app = likedSongs()
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
-
-        row.buttons["Remove from Liked Songs"].click()
-
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.trackList.staticTexts["Song 1"])
-        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: XCUIApplication.timeout), .completed)
-    }
-
-    @MainActor func testMoreButtonOffersTheTrackActions() {
-        let app = likedSongs()
-        let row = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
-        row.staticTexts["Song 1"].hover()
-
-        row.descendants(matching: .any)["More Options"].firstMatch.click()
-
-        for item in ["Play Next", "Add to Queue", "Go to Album", "Copy Link"] {
-            XCTAssertTrue(app.menuItems[item].waitForExistence(timeout: XCUIApplication.timeout), item)
-        }
-    }
-
-    @MainActor func testGoToAlbumOpensTheAlbumPage() {
-        let app = likedSongs()
-
-        app.trackList.staticTexts["Song 1"].rightClick()
-        app.menuItems["Go to Album"].click()
-
-        XCTAssertTrue(app.showsRoute("Test Album"))
-    }
-
-    @MainActor func testCopyLinkPutsTheWebLinkOnThePasteboard() {
-        let app = likedSongs()
-        restorePasteboardAfterwards()
-        NSPasteboard.general.clearContents()
-
-        app.trackList.staticTexts["Song 1"].rightClick()
-        app.menuItems["Copy Link"].click()
-
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://open.spotify.com/track/uitest1")
     }
 
     /// The app copies to the real general pasteboard, so put back what the user had there.
@@ -257,19 +231,6 @@ final class TrackListUITests: XCTestCase {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects(saved)
         }
-    }
-
-    @MainActor func testTitleHeaderSortsDescendingOnSecondClick() {
-        let app = likedSongs()
-        // Header buttons report as not hittable; click their frame instead.
-        let title = app.buttons["Title"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-
-        title.click()
-        // Two clicks inside the double-click interval arrive as one double-click, which sorts once.
-        Thread.sleep(forTimeInterval: NSEvent.doubleClickInterval + 0.1)
-        title.click()
-
-        XCTAssertTrue(app.trackList.outlineRows.firstMatch.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     /// 10,000 liked songs open as one list. Not a frame-rate check: XCUITest's

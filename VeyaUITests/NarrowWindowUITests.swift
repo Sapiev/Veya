@@ -19,10 +19,21 @@ final class NarrowWindowUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(lyrics.frame.minX, repeatButton.frame.maxX + 8, message)
     }
 
-    @MainActor func testOpeningTheQueueInANarrowWindowHidesTheSidebarUntilItCloses() {
-        let app = launchNarrow()
+    @MainActor func testNarrowWindowKeepsAccessoriesClearNamesVolumeSwapsSidebarForQueueAndRaisesVolumeSlider() {
+        let app = launchNarrow(locale: "en_US")
         XCTAssertTrue(app.signedInScreen.exists)
 
+        // Sidebar open: accessories stay clear of the transport.
+        assertAccessoriesClearTheTransport(app, "sidebar open")
+        XCTAssertTrue(app.buttons["Devices"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["Mute"].firstMatch.exists)
+        XCTAssertFalse(app.sliders["Volume"].exists, "too narrow for the inline slider")
+        attachScreenshot(of: app.windows.firstMatch, named: "narrow-sidebar")
+
+        // The mute button names the volume for VoiceOver.
+        XCTAssertNotNil((app.buttons["Mute"].firstMatch.value as? String)?.range(of: #"^\d+%$"#, options: .regularExpression))
+
+        // Opening the queue hides the sidebar until it closes.
         app.descendants(matching: .any)["Queue"].firstMatch.click()
         XCTAssertTrue(app.queue.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.signedInScreen.waitForNonExistence(timeout: XCUIApplication.timeout))
@@ -31,10 +42,8 @@ final class NarrowWindowUITests: XCTestCase {
 
         app.queue.buttons["Close Queue"].click()
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testShowSidebarInANarrowWindowClosesTheQueue() {
-        let app = launchNarrow()
+        // Show Sidebar closes the queue.
         app.descendants(matching: .any)["Queue"].firstMatch.click()
         XCTAssertTrue(app.signedInScreen.waitForNonExistence(timeout: XCUIApplication.timeout))
 
@@ -42,21 +51,8 @@ final class NarrowWindowUITests: XCTestCase {
 
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.queue.waitForNonExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testPlayerBarAccessoriesStayClearOfTheTransportWithTheSidebarOpen() {
-        let app = launchNarrow()
-        XCTAssertTrue(app.signedInScreen.exists)
-
-        assertAccessoriesClearTheTransport(app, "sidebar open")
-        XCTAssertTrue(app.buttons["Devices"].firstMatch.exists)
-        XCTAssertTrue(app.buttons["Mute"].firstMatch.exists)
-        XCTAssertFalse(app.sliders["Volume"].exists, "too narrow for the inline slider")
-        attachScreenshot(of: app.windows.firstMatch, named: "narrow-sidebar")
-    }
-
-    @MainActor func testHoveringMuteRaisesAnUprightVolumeSlider() {
-        let app = launchNarrow()
+        // Hovering mute raises an upright volume slider; last, as clicking it changes the volume.
         let mute = app.buttons["Mute"].firstMatch
         XCTAssertFalse(app.sliders["Volume"].exists)
 
@@ -79,11 +75,5 @@ final class NarrowWindowUITests: XCTestCase {
 
         app.buttons["Lyrics"].firstMatch.hover()
         XCTAssertTrue(slider.waitForNonExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testTheMuteButtonNamesTheVolumeForVoiceOver() {
-        let app = launchNarrow(locale: "en_US")
-
-        XCTAssertNotNil((app.buttons["Mute"].firstMatch.value as? String)?.range(of: #"^\d+%$"#, options: .regularExpression))
     }
 }

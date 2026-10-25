@@ -1,14 +1,8 @@
 import XCTest
 
-/// PBI-102 and PBI-103: restore at launch, recover from a failed restore,
-/// and show the reconnect banner.
+/// PBI-102 and PBI-103: recover from a failed restore and show the reconnect banner.
+/// A saved sign-in restoring without interaction is covered by SignOutUITests.
 final class SessionUITests: XCTestCase {
-    @MainActor func testSavedSignInRestoresWithoutInteraction() {
-        let app = XCUIApplication.launch(.signedIn)
-
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
     @MainActor func testFailedRestoreOffersRetryThatSignsIn() {
         let app = XCUIApplication.launch(.restoreFails)
         let tryAgain = app.buttons["Try Again"]
