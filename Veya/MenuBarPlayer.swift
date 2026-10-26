@@ -52,8 +52,6 @@ final class MenuBarSettings {
 /// The mini-player that drops down from the menu bar.
 struct MenuBarPlayer: View {
     let activeSession: ActiveSession
-    @Environment(\.openWindow) private var openWindow
-
     var body: some View {
         VStack(spacing: Theme.s3) {
             if let player = activeSession.scope?.player, let library = activeSession.scope?.library {
@@ -63,14 +61,6 @@ struct MenuBarPlayer: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 60)
             }
-            Divider()
-            Button("Open Veya") {
-                NSApp.setActivationPolicy(.regular)
-                openWindow(id: "main")
-                NSApp.activate()
-            }
-            .buttonStyle(.borderless)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(Theme.s4)
         .frame(width: 300)
@@ -80,14 +70,22 @@ struct MenuBarPlayer: View {
 private struct MenuBarNowPlaying: View {
     let player: PlayerModel
     let library: LibraryModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: Theme.s3) {
             if let nowPlaying = player.nowPlaying {
                 HStack(spacing: Theme.s3) {
-                    ArtworkView(artwork: nowPlaying.artwork, side: 52)
-                        .clipShape(.rect(cornerRadius: Theme.cardRadius))
-                        .crossDissolve(on: nowPlaying.uri)
+                    Button {
+                        NSApp.setActivationPolicy(.regular)
+                        openWindow(id: "main")
+                        NSApp.activate()
+                    } label: {
+                        ArtworkView(artwork: nowPlaying.artwork, side: 52)
+                            .clipShape(.rect(cornerRadius: Theme.cardRadius))
+                            .crossDissolve(on: nowPlaying.uri)
+                    }
+                    .accessibilityLabel("Open Veya")
                     VStack(alignment: .leading, spacing: 0) {
                         Text(nowPlaying.title)
                             .scaledFont(size: 13, weight: .semibold)

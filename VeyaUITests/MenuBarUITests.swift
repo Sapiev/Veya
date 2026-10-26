@@ -2,7 +2,7 @@ import XCTest
 
 /// PBI-602: the menu bar mini-player controls playback with the window closed.
 final class MenuBarUITests: XCTestCase {
-    @MainActor func testMiniPlayerControlsPlaybackWithTheWindowClosedAndOpenVeyaBringsTheWindowBack() {
+    @MainActor func testMiniPlayerControlsPlaybackWithTheWindowClosedAndTheArtworkBringsTheWindowBack() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.typeKey("w", modifierFlags: .command)
@@ -36,6 +36,7 @@ final class MenuBarUITests: XCTestCase {
         XCTAssertTrue(app.signedInScreen.waitForNonExistence(timeout: XCUIApplication.timeout))
 
         app.openMiniPlayer()
+        app.buttons["Play"].click()
         app.buttons["Open Veya"].click()
 
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
@@ -82,10 +83,10 @@ private extension XCUIApplication {
 
     /// On a crowded menu bar the item starts hidden: the first click only reveals it.
     func openMiniPlayer() {
-        for _ in 0 ..< 2 where !buttons["Open Veya"].exists {
+        for _ in 0 ..< 2 where !buttons["Play"].exists {
             menuBarItem.click()
-            _ = buttons["Open Veya"].waitForExistence(timeout: 2)
+            _ = buttons["Play"].waitForExistence(timeout: 5)
         }
-        XCTAssertTrue(buttons["Open Veya"].exists)
+        XCTAssertTrue(buttons["Play"].exists)
     }
 }
