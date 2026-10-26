@@ -3,7 +3,7 @@
 # Usage: scripts/check-performance-budget.sh <result bundle>, from `xcodebuild test -resultBundlePath`.
 set -eu
 exec python3 - "$1" <<'EOF'
-import json, subprocess, sys
+import json, statistics, subprocess, sys
 
 MB = 1024  # memory metrics are in kB
 
@@ -25,7 +25,8 @@ for test in json.loads(report):
     for run in test["testRuns"]:
         for metric in run["metrics"]:
             values = metric["measurements"]
-            metrics[name, metric["displayName"]] = sum(values) / len(values)
+            # Median: a launch measures 0.7 s typically and 1.5 s on a runner hiccup; one outlier must not fail the budget.
+            metrics[name, metric["displayName"]] = statistics.median(values)
 
 def value(test, prefix):
     if prefix == "CPU":

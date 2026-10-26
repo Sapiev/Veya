@@ -10,6 +10,9 @@ extension XCTestCase {
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: window.frame.width / 2, dy: 10 - window.frame.minY)).hover()
+        // Moving away only starts the tooltip's dismissal; auditing while it fades loses the element mid-audit.
+        let tooltip = app.descendants(matching: .helpTag).firstMatch
+        _ = XCTWaiter().wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: tooltip)], timeout: 3)
         var issues: [String] = []
         // Contrast is measured from the screen below instead. On Veya's translucent panels the audit flags
         // text that draws at 5.6-9.5:1 and whose accessibility color is opaque, so its verdict tracks neither.
