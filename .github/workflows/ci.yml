@@ -166,12 +166,15 @@ jobs:
           displayplacer "id:$screen res:1920x1080 hz:60 color_depth:7 scaling:off origin:(0,0) degree:0"
       - name: UI tests (shard ${{ matrix.shard }})
         # Failures cluster after the first ~15 minutes, all "not foreground": the idle display sleeps or locks.
+        # A UI event can also stall forever ("Synthesize event"); the allowance fails that test instead of the job.
         run: >-
           caffeinate -dimsu
           xcodebuild test
           -project Veya.xcodeproj
           -scheme Veya
           -destination 'platform=macOS'
+          -test-timeouts-enabled YES
+          -default-test-execution-time-allowance 300
           $(scripts/ui-test-shard.sh ${{ matrix.shard }} 3)
           -clonedSourcePackagesDirPath "$SPM_DIR"
           -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"

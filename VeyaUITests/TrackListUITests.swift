@@ -236,7 +236,7 @@ final class TrackListUITests: XCTestCase {
     /// 10,000 liked songs open as one list. Not a frame-rate check: XCUITest's
     /// accessibility snapshot of a table this size takes tens of seconds per query.
     @MainActor func testTenThousandLikedSongsOpen() {
-        let app = likedSongs(.largeLibrary, timeout: 60)
+        let app = likedSongs(.largeLibrary, timeout: 180)
 
         XCTAssertTrue(app.trackList.staticTexts["Song 2"].exists)
     }
