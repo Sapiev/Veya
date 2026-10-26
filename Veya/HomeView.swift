@@ -95,7 +95,7 @@ private struct Shelf: View {
                 ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
                     MediaCard(
                         title: tile.title, subtitle: tile.subtitle, subtitleLines: subtitleLines, artwork: tile.artwork,
-                        round: tile.round, playable: tile.route == nil && tile.playable
+                        playable: tile.route == nil && tile.playable
                     ) {
                         activate(index, tile)
                     }
@@ -135,7 +135,6 @@ private struct QuickTile: View {
         Button(action: open) {
             HStack(spacing: Theme.s3) {
                 ArtworkView(artwork: tile.artwork, side: 56)
-                    .clipShape(tile.round ? AnyShape(Circle()) : AnyShape(Rectangle()))
                 Text(tile.title)
                     .modifier(Theme.cardTitle)
                     .lineLimit(1)
@@ -165,7 +164,6 @@ private struct Tile {
     let title: String
     var subtitle: String?
     let artwork: [Artwork]
-    var round = false
     var route: Route?
     var playable = true
 }
@@ -187,7 +185,7 @@ private extension Tile {
         case let .artist(artist):
             self.init(
                 uri: artist.uri, title: artist.name, subtitle: String(localized: "Artist"), artwork: artist.artwork,
-                round: true, route: .artist(uri: artist.uri)
+                route: .artist(uri: artist.uri)
             )
         case let .show(show):
             self.init(
