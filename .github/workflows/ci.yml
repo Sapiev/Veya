@@ -167,17 +167,19 @@ jobs:
       - name: UI tests (shard ${{ matrix.shard }})
         # Failures cluster after the first ~15 minutes, all "not foreground": the idle display sleeps or locks.
         # A UI event can also stall forever ("Synthesize event"); the allowance fails that test instead of the job.
-        run: >-
-          caffeinate -dimsu
-          xcodebuild test
-          -project Veya.xcodeproj
-          -scheme Veya
-          -destination 'platform=macOS'
-          -test-timeouts-enabled YES
-          -default-test-execution-time-allowance 300
-          $(scripts/ui-test-shard.sh ${{ matrix.shard }} 3)
-          -clonedSourcePackagesDirPath "$SPM_DIR"
-          -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"
+        # Not on the perf shard: its launch metric measured ~0.7 s without the allowance and ~1.3 s with it.
+        run: |
+          limits="-test-timeouts-enabled YES -default-test-execution-time-allowance 300"
+          if [ "${{ matrix.shard }}" = perf ]; then limits=""; fi
+          caffeinate -dimsu \
+            xcodebuild test \
+            -project Veya.xcodeproj \
+            -scheme Veya \
+            -destination 'platform=macOS' \
+            $limits \
+            $(scripts/ui-test-shard.sh ${{ matrix.shard }} 3) \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resultBundlePath "$RUNNER_TEMP/ui-tests.xcresult"
       # PBI-803: PerformanceUITests record the metrics; the budgets live in the script.
       - name: Performance budget
         if: matrix.shard == 'perf'
