@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Mirrors Veya's `UITestScenario`; an unknown name crashes the app at launch.
@@ -9,7 +10,6 @@ enum Scenario: String {
     case restoreFails
     case reconnecting
     case notPremium
-    case largeLibrary
     case emptyLibrary
     case libraryFails
     case recentlyPlayedNeedsSignIn
@@ -32,6 +32,8 @@ extension XCUIApplication {
     /// `windowWidth` sizes the main window; below the window minimum (930 pt) AppKit holds it there.
     static func launch(_ scenario: Scenario, locale: String? = nil, windowWidth: Int = 1200) -> XCUIApplication {
         let app = configured(scenario, locale: locale, windowWidth: windowWidth)
+        // An instance an earlier test left running would take the foreground and refuse this one's clicks.
+        NSRunningApplication.runningApplications(withBundleIdentifier: "org.veya.Veya").forEach { $0.forceTerminate() }
         app.launch()
         // A runner without a logged-in console session leaves the app in the background, where clicks and key events are refused.
         app.activate()

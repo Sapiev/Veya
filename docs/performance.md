@@ -15,7 +15,7 @@ The budget targets an M1 Mac running the Release build. "Memory" is the physical
 
 ## How CI enforces it
 
-`VeyaUITests/PerformanceUITests` records XCTest metrics: `XCTApplicationLaunchMetric` (average of 5 launches), `XCTMemoryMetric` (peak physical) and `XCTCPUMetric` over a 10 s window. A test cannot read its own measurements, so `scripts/check-performance-budget.sh` reads them from the result bundle and fails over budget, or when a metric is missing.
+`VeyaUITests/PerformanceUITests` records XCTest metrics: `XCTApplicationLaunchMetric` (median of 5 launches), `XCTMemoryMetric` (peak physical) and `XCTCPUMetric` over a 10 s window. A test cannot read its own measurements, so `scripts/check-performance-budget.sh` reads them from the result bundle and fails over budget, or when a metric is missing.
 
 The CI `UI tests` step writes the bundle and the `Performance budget` step checks it. Locally:
 

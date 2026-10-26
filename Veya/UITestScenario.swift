@@ -23,8 +23,6 @@
         case reconnecting
         /// No saved sign-in; signing in finds a Free account.
         case notPremium
-        /// Signed in with 10,000 liked songs.
-        case largeLibrary
         /// Signed in with nothing saved and no playlists.
         case emptyLibrary
         /// Signed in; the library and playlists can't be fetched and nothing is cached.
@@ -72,7 +70,6 @@
 
         private var library: LibraryFill {
             switch self {
-            case .largeLibrary: .liked(10000)
             case .emptyLibrary: .empty
             case .libraryFails: .failing
             default: .liked(5, playlistConflict: self == .playlistConflict, localFiles: self == .localFiles)

@@ -306,6 +306,11 @@ let tokens = OAuthTokens(
 @MainActor
 final class LogSpy {
     var entries: [(LogLevel, String)] = []
+    /// Warnings minus the slow-restore one, which fires on any machine too loaded to restore within the budget.
+    var warnings: [String] {
+        entries.filter { $0.0 == .warn && !$0.1.hasPrefix("Session restored") }.map(\.1)
+    }
+
     var log: SessionLog {
         { [self] in entries.append(($0, $1)) }
     }

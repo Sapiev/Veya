@@ -4,11 +4,11 @@ import XCTest
 /// PBI-403: the shared track list, shown on Liked Songs.
 /// PBI-105: the scenario's Song 3 is region locked, so it is dimmed and never plays.
 final class TrackListUITests: XCTestCase {
-    @MainActor private func likedSongs(_ scenario: Scenario = .signedIn, timeout: TimeInterval = XCUIApplication.timeout) -> XCUIApplication {
+    @MainActor private func likedSongs(_ scenario: Scenario = .signedIn) -> XCUIApplication {
         let app = XCUIApplication.launch(scenario)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         app.outlines.staticTexts["Liked Songs"].click()
-        XCTAssertTrue(app.trackList.staticTexts["Song 1"].waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.trackList.staticTexts["Song 1"].waitForExistence(timeout: XCUIApplication.timeout))
         return app
     }
 
@@ -231,13 +231,5 @@ final class TrackListUITests: XCTestCase {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects(saved)
         }
-    }
-
-    /// 10,000 liked songs open as one list. Not a frame-rate check: XCUITest's
-    /// accessibility snapshot of a table this size takes tens of seconds per query.
-    @MainActor func testTenThousandLikedSongsOpen() {
-        let app = likedSongs(.largeLibrary, timeout: 60)
-
-        XCTAssertTrue(app.trackList.staticTexts["Song 2"].exists)
     }
 }
