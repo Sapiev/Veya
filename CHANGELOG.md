@@ -18,6 +18,11 @@ tag without one. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 - Settings form dividers use the system separator color.
 - The player bar picks its accessory layout from the bar width, so it settles when the queue closes.
 - The compact sidebar hides the equalizer on the playing row.
+- Artist tiles on Home show square artwork.
+
+### Changed
+
+- The menu bar mini-player opens the window from its artwork instead of a separate button.
 
 ## [1.0.0] - 2026-10-19
 
