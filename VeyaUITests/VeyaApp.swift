@@ -10,7 +10,6 @@ enum Scenario: String {
     case restoreFails
     case reconnecting
     case notPremium
-    case largeLibrary
     case emptyLibrary
     case libraryFails
     case recentlyPlayedNeedsSignIn
