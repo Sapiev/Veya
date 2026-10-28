@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SpotCoreKit
 import Testing
 
@@ -8,8 +9,13 @@ struct SessionModelTests {
     private let connector = FakeConnector()
     private let logs = LogSpy()
 
-    private func model(_ store: FakeStore) -> SessionModel {
-        SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
+    /// The clock reads `restoreTook` later on every call after the first, so a restore's duration
+    /// never depends on how loaded the machine running the test is.
+    private func model(_ store: FakeStore, restoreTook: Duration = .milliseconds(100)) -> SessionModel {
+        let base = ContinuousClock.now
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let now = { calls.withLock { n -> ContinuousClock.Instant in defer { n += 1 }; return n == 0 ? base : base + restoreTook } }
+        return SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log, now: now)
     }
 
     @Test func startsRestoringSoSignInNeverFlashes() {
@@ -84,6 +90,18 @@ struct SessionModelTests {
         #expect(store.blob == refreshedBlob)
         #expect(logs.entries.count == 1)
         #expect(logs.entries.first?.0 == .info)
+        #expect(logs.entries.first?.1.hasPrefix("Session restored in ") == true)
+    }
+
+    @Test func aRestoreSlowerThanTheBudgetLogsAWarning() async throws {
+        let model = model(FakeStore(blob: storedBlob), restoreTook: SessionModel.readyBudget + .milliseconds(1))
+
+        let task = model.restore()
+        try await waitUntil { connector.pending == 1 }
+        connector.resolve(0, with: .success(FakeSession()))
+        await task.value
+
+        #expect(logs.entries.map(\.0) == [.warn])
         #expect(logs.entries.first?.1.hasPrefix("Session restored in ") == true)
     }
 
