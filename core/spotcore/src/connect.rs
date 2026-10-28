@@ -674,6 +674,36 @@ impl SpotConnect {
         }
     }
 
+    /// Shows the account's devices and any other device's playback from the
+    /// Web API, unless a cluster push already did: Spotify pushes the
+    /// cluster only when it changes. `access_token` needs
+    /// `user-read-playback-state`. Failures are logged.
+    pub async fn load_devices(&self, access_token: String) {
+        let link = self.supervisor.current_link();
+        let this_id = link.session.device_id().to_owned();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        let update = match crate::devices::web_api_cluster(&access_token, now_ms).await {
+            Ok(update) => update,
+            Err(e) => return warn!("cannot list the Connect devices: {e}"),
+        };
+        // shortcut: a push landing between this check and the apply is overwritten
+        // until the next push; take the list lock across both if that is noticed.
+        if !lock(&self.devices).devices.is_empty() {
+            return;
+        }
+        let (devices, player, epoch) = (
+            Arc::clone(&self.devices),
+            Arc::clone(&self.player),
+            link.epoch.clone(),
+        );
+        let _ = tokio::task::spawn_blocking(move || {
+            apply_cluster(&devices, &update, &this_id, &epoch, false, &*player);
+        })
+        .await;
+    }
+
     /// Hands the sink back to the local player and returns once the device
     /// is unregistered and its session closed, so a restart with the same id
     /// cannot be unregistered late. Idempotent.

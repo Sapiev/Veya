@@ -3,6 +3,9 @@
 # .tools/bin (or $1). CI and local runs use the same versions, so a new
 # upstream rule cannot fail strict lint on unchanged code.
 #
+# It also points git at .githooks, whose pre-commit hook formats and lints
+# staged files with them.
+#
 # Usage: scripts/install-linters.sh [bin-dir]
 # Bump a version by updating its URL and sha256 together.
 set -euo pipefail
@@ -38,3 +41,5 @@ install_tool() {
 
 install_tool swiftlint "$SWIFTLINT_VERSION" "$SWIFTLINT_URL" "$SWIFTLINT_SHA256"
 install_tool swiftformat "$SWIFTFORMAT_VERSION" "$SWIFTFORMAT_URL" "$SWIFTFORMAT_SHA256"
+
+git -C "$ROOT" config core.hooksPath .githooks 2>/dev/null || true

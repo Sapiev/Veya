@@ -420,6 +420,7 @@
         func shutdown() async {}
 
         func restoreLastPlayback(accessToken _: String, saved _: SavedPlayback?) async {}
+        func loadDevices(accessToken _: String) async {}
 
         func transfer(deviceId: String) async throws {
             if deviceId == "tv" {

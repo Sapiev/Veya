@@ -56,7 +56,7 @@ struct NowPlayingBar: View {
                 .accessibilityLabel("Show Now Playing")
                 .help("Show Now Playing")
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(nowPlaying.title)
+                    Text(trackTitle: nowPlaying.title)
                         .scaledFont(size: 14, weight: .semibold)
                     ArtistLinks(artists: nowPlaying.artists) { history.navigate(to: .artist(uri: $0)) }
                         .scaledFont(size: 12)
@@ -422,6 +422,13 @@ struct Scrubber: View {
     }
 }
 
+extension Text {
+    /// An empty title keeps its line, so the text block does not jump when the title arrives.
+    init(trackTitle title: String) {
+        self.init(verbatim: title.isEmpty ? " " : title)
+    }
+}
+
 /// Comma-separated artist names; each opens the artist unless it has no URI (an episode's show).
 struct ArtistLinks: View {
     let artists: [ItemRef]
@@ -429,6 +436,10 @@ struct ArtistLinks: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // Artists load after the title; keep the line so the text block does not jump when they arrive.
+            if artists.isEmpty {
+                Text(verbatim: " ")
+            }
             ForEach(Array(artists.enumerated()), id: \.offset) { index, artist in
                 if index > 0 {
                     Text(", ")

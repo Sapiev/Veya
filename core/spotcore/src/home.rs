@@ -13,7 +13,7 @@ use crate::player::{is_spotify_context, restorable_context};
 use crate::session::SpotSession;
 
 const RECENTLY_PLAYED_URL: &str = "https://api.spotify.com/v1/me/player/recently-played";
-const PLAYER_URL: &str = "https://api.spotify.com/v1/me/player";
+pub(crate) const PLAYER_URL: &str = "https://api.spotify.com/v1/me/player";
 /// The Web API's maximum page size for recently played.
 const RECENTLY_PLAYED_LIMIT: u32 = 50;
 
@@ -130,7 +130,7 @@ async fn history_at(url: &str, access_token: &str) -> Result<Vec<Play>, HomeErro
     Ok(history.items)
 }
 
-async fn web_api_get(url: &str, access_token: &str) -> Result<Vec<u8>, HomeError> {
+pub(crate) async fn web_api_get(url: &str, access_token: &str) -> Result<Vec<u8>, HomeError> {
     let http = web_api_client().map_err(network)?;
     let response = http
         .get(url)

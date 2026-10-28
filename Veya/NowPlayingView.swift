@@ -142,7 +142,7 @@ struct NowPlayingView: View {
                         value: player.isPlaying
                     )
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(nowPlaying.title)
+                    Text(trackTitle: nowPlaying.title)
                         .scaledFont(size: 22, weight: .bold)
                     ArtistLinks(artists: nowPlaying.artists) { uri in
                         close()

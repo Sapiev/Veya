@@ -158,6 +158,7 @@ public final class SessionModel {
     @ObservationIgnored private let refreshTokenStore: any CredentialStore
     @ObservationIgnored private let connector: any SessionConnector
     @ObservationIgnored private let log: SessionLog
+    @ObservationIgnored private let now: () -> ContinuousClock.Instant
     @ObservationIgnored private var attempt = 0
     /// Set exactly while `state` is `.ready`.
     public private(set) var session: (any SessionHandle)?
@@ -173,12 +174,14 @@ public final class SessionModel {
         store: any CredentialStore,
         refreshTokenStore: any CredentialStore,
         connector: any SessionConnector = SpotSessionConnector(),
-        log: @escaping SessionLog = { logMessage(level: $0, category: "session", message: $1) }
+        log: @escaping SessionLog = { logMessage(level: $0, category: "session", message: $1) },
+        now: @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.store = store
         self.refreshTokenStore = refreshTokenStore
         self.connector = connector
         self.log = log
+        self.now = now
     }
 
     isolated deinit {
@@ -189,7 +192,7 @@ public final class SessionModel {
     @discardableResult
     public func restore() -> Task<Void, Never> {
         let current = begin(.restoring)
-        let started = ContinuousClock.now
+        let started = now()
         return Task { await runRestore(attempt: current, started: started) }
     }
 
@@ -377,7 +380,7 @@ public final class SessionModel {
         state = .ready
         observe(session, attempt: current)
         if let started {
-            let elapsed = ContinuousClock.now - started
+            let elapsed = now() - started
             let millis = Int(elapsed / .milliseconds(1))
             log(elapsed > Self.readyBudget ? .warn : .info, "Session restored in \(millis) ms")
         }

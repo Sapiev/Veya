@@ -11,7 +11,7 @@ Veya's reason to exist next to the official desktop app is being light. PBI-803 
 | Memory during playback | < 200 MB | `testPlayback` |
 | CPU during playback, % of one core | < 3 % | `testPlayback` |
 
-The budget targets an M1 Mac running the Release build. "Memory" is the physical footprint, the figure Activity Monitor's Memory column shows.
+The budget targets an M1 Mac running the Release build. CI measures the Debug build on shared runners, where the median launch varied between 0.95 and 1.96 s on identical code, so it enforces cold launch at 2.5 s to catch regressions without flaking; the other three budgets are enforced as listed. "Memory" is the physical footprint, the figure Activity Monitor's Memory column shows.
 
 ## How CI enforces it
 

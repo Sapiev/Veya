@@ -9,7 +9,9 @@ MB = 1024  # memory metrics are in kB
 
 # (test, metric display name prefix, budget, unit)
 BUDGETS = [
-    ("testColdLaunch", "Duration (ApplicationLaunch)", 1, "s"),
+    # docs/performance.md budgets 1 s on an M1 Release build; this measures Debug on a shared
+    # runner, where the median of 5 launches read 0.95 s and 1.96 s on the same code.
+    ("testColdLaunch", "Duration (ApplicationLaunch)", 2.5, "s"),
     ("testIdle", "Memory Peak Physical", 120 * MB, "kB"),
     ("testPlayback", "Memory Peak Physical", 200 * MB, "kB"),
     ("testPlayback", "CPU", 3, "%"),
