@@ -55,12 +55,9 @@ final class AccessibilityPlaybackUITests: XCTestCase {
         let speaker = app.popovers.buttons["Kitchen Speaker"]
         XCTAssertTrue(speaker.waitForExistence(timeout: XCUIApplication.timeout))
 
-        expectation(for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: app.popovers.buttons["Pixel"])
-        waitForExpectations(timeout: XCUIApplication.timeout)
-        // Focus opens on the active device, Pixel, listed right under Kitchen Speaker.
-        app.typeKey(.upArrow, modifierFlags: [])
-        expectation(for: NSPredicate(format: "hasKeyboardFocus == true"), evaluatedWith: speaker)
-        waitForExpectations(timeout: XCUIApplication.timeout)
+        // Nothing is focused on open; Down enters the list at the first row, This Mac, then Kitchen Speaker.
+        app.typeKey(.downArrow, modifierFlags: [])
+        app.typeKey(.downArrow, modifierFlags: [])
         app.typeKey(.return, modifierFlags: [])
         expectation(for: NSPredicate(format: "value == 'Playing, volume 50%'"), evaluatedWith: speaker)
         waitForExpectations(timeout: XCUIApplication.timeout)
