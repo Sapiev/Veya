@@ -640,8 +640,10 @@ public final class PlayerModel {
     }
 
     private func show(_ uri: String, title: String, durationMs: UInt32) {
-        guard nowPlaying?.uri != uri || nowPlaying?.title != title else { return }
         let known = nowPlaying?.uri == uri ? nowPlaying : nil
+        // A remote's cluster push names no title, so it must not blank one already resolved.
+        let title = title.isEmpty ? known?.title ?? "" : title
+        guard known == nil || known?.title != title else { return }
         nowPlaying = NowPlaying(
             uri: uri,
             title: title,

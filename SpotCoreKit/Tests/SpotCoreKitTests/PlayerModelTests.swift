@@ -191,6 +191,18 @@ struct PlayerModelTests {
         #expect(player.nowPlaying == nil)
     }
 
+    /// A remote's cluster push names no title; it must not blank the one already shown for that track.
+    @Test func aTitlelessTrackChangeForTheShownTrackKeepsItsTitleAndArtists() async {
+        let player = model()
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+        await player.resolution?.value
+
+        player.apply(.trackChanged(uri: trackURI, name: "", durationMs: 200_000))
+
+        #expect(player.nowPlaying?.title == "Song")
+        #expect(player.nowPlaying?.artists == [ItemRef(uri: "spotify:artist:1", name: "Band")])
+    }
+
     @Test func trackChangeShowsTheTrackThenItsMetadata() async {
         let player = model()
         player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
