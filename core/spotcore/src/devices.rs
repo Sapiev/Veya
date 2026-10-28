@@ -189,7 +189,10 @@ fn cluster_from_web_api(
         let item = player.item;
         // No title: real pushes carry none either, and the app resolves it from the URI.
         let track = ProvidedTrack {
-            uri: item.as_ref().and_then(|i| i.uri.clone()).unwrap_or_default(),
+            uri: item
+                .as_ref()
+                .and_then(|i| i.uri.clone())
+                .unwrap_or_default(),
             ..Default::default()
         };
         let duration = item.and_then(|i| i.duration_ms).unwrap_or(0).max(0);
