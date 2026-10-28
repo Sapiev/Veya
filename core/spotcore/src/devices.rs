@@ -3,9 +3,11 @@
 
 use std::sync::{Arc, Mutex};
 
-use librespot_protocol::connect::ClusterUpdate;
+use librespot_protocol::connect::{Capabilities, Cluster, ClusterUpdate, DeviceInfo};
 use librespot_protocol::devices::DeviceType;
+use librespot_protocol::player::{PlayerState, ProvidedTrack};
 
+use crate::home::{HomeError, PLAYER_URL, web_api_get};
 use crate::util::lock;
 
 /// Messages never carry tokens or usernames.
@@ -86,8 +88,145 @@ pub(crate) fn connect_devices(update: &ClusterUpdate, this_id: &str) -> Vec<Conn
             is_this_device: id == this_id,
         })
         .collect();
-    devices.sort_by_cached_key(|d| (!d.is_this_device, d.name.to_lowercase(), d.id.clone()));
+    sort_devices(&mut devices);
     devices
+}
+
+fn sort_devices(devices: &mut [ConnectDevice]) {
+    devices.sort_by_cached_key(|d| (!d.is_this_device, d.name.to_lowercase(), d.id.clone()));
+}
+
+const DEVICES_URL: &str = "https://api.spotify.com/v1/me/player/devices";
+
+/// The account's devices and playback per the Web API, as the cluster
+/// Spotify would push: it pushes only when something changes, and the
+/// connect-state endpoint does not answer a GET. Needs the
+/// `user-read-playback-state` scope.
+pub(crate) async fn web_api_cluster(
+    access_token: &str,
+    now_ms: i64,
+) -> Result<ClusterUpdate, HomeError> {
+    let devices = web_api_get(DEVICES_URL, access_token).await?;
+    let player = web_api_get(PLAYER_URL, access_token).await?;
+    cluster_from_web_api(&devices, &player, now_ms)
+}
+
+#[derive(serde::Deserialize)]
+struct WebDevices {
+    devices: Vec<WebDevice>,
+}
+
+#[derive(serde::Deserialize)]
+struct WebDevice {
+    id: Option<String>,
+    name: String,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    is_active: bool,
+    #[serde(default)]
+    is_restricted: bool,
+    volume_percent: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+struct WebPlayer {
+    #[serde(default)]
+    is_playing: bool,
+    progress_ms: Option<i64>,
+    item: Option<WebItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct WebItem {
+    uri: Option<String>,
+    duration_ms: Option<i64>,
+}
+
+/// Server text is untrusted: restricted devices and ones without an id are
+/// left out, and the volume is clamped. `player` is empty (204) when the
+/// account has no playback session.
+fn cluster_from_web_api(
+    devices: &[u8],
+    player: &[u8],
+    now_ms: i64,
+) -> Result<ClusterUpdate, HomeError> {
+    let listed: WebDevices = serde_json::from_slice(devices)?;
+    let player: Option<WebPlayer> = if player.iter().all(u8::is_ascii_whitespace) {
+        None
+    } else {
+        Some(serde_json::from_slice(player)?)
+    };
+    let mut cluster = Cluster {
+        server_timestamp_ms: now_ms,
+        ..Default::default()
+    };
+    for device in listed.devices.into_iter().filter(|d| !d.is_restricted) {
+        let Some(id) = device.id.filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        if device.is_active {
+            id.clone_into(&mut cluster.active_device_id);
+        }
+        let percent = device.volume_percent.unwrap_or(0).min(100);
+        cluster.device.insert(
+            id,
+            DeviceInfo {
+                name: device.name,
+                device_type: web_api_type(&device.kind).into(),
+                volume: percent * u32::from(u16::MAX) / 100,
+                can_play: true,
+                capabilities: Some(Capabilities {
+                    is_controllable: true,
+                    ..Default::default()
+                })
+                .into(),
+                ..Default::default()
+            },
+        );
+    }
+    if let Some(player) = player {
+        let item = player.item;
+        // No title: real pushes carry none either, and the app resolves it from the URI.
+        let track = ProvidedTrack {
+            uri: item.as_ref().and_then(|i| i.uri.clone()).unwrap_or_default(),
+            ..Default::default()
+        };
+        let duration = item.and_then(|i| i.duration_ms).unwrap_or(0).max(0);
+        cluster.player_state = Some(PlayerState {
+            track: Some(track).into(),
+            timestamp: now_ms,
+            position_as_of_timestamp: player.progress_ms.unwrap_or(0).clamp(0, duration.max(0)),
+            duration,
+            is_playing: player.is_playing,
+            is_paused: !player.is_playing,
+            ..Default::default()
+        })
+        .into();
+    }
+    Ok(ClusterUpdate {
+        cluster: Some(cluster).into(),
+        ..Default::default()
+    })
+}
+
+fn web_api_type(kind: &str) -> DeviceType {
+    match kind {
+        "Computer" => DeviceType::COMPUTER,
+        "Smartphone" => DeviceType::SMARTPHONE,
+        "Tablet" => DeviceType::TABLET,
+        "Speaker" => DeviceType::SPEAKER,
+        "AVR" => DeviceType::AVR,
+        "AudioDongle" => DeviceType::AUDIO_DONGLE,
+        "CastAudio" => DeviceType::CAST_AUDIO,
+        "TV" => DeviceType::TV,
+        "STB" => DeviceType::STB,
+        "CastVideo" => DeviceType::CAST_VIDEO,
+        "Automobile" => DeviceType::AUTOMOBILE,
+        "GameConsole" | "Game_Console" => DeviceType::GAME_CONSOLE,
+        "Smartwatch" => DeviceType::SMARTWATCH,
+        _ => DeviceType::UNKNOWN,
+    }
 }
 
 /// How playback moves to a device.
@@ -617,5 +756,42 @@ mod transfer_tests {
             .await
             .unwrap();
         assert!(port.calls().is_empty());
+    }
+
+    #[test]
+    fn web_api_cluster_lists_devices_and_the_remote_playback() {
+        let devices = br#"{"devices":[
+            {"id":"phone","name":"Phone","type":"Smartphone","is_active":true,"is_restricted":false,"volume_percent":50},
+            {"id":"mac","name":"Veya","type":"Computer","is_active":false,"is_restricted":false,"volume_percent":100},
+            {"id":"locked","name":"Locked","type":"Speaker","is_active":false,"is_restricted":true,"volume_percent":10},
+            {"id":null,"name":"Ghost","type":"Speaker","is_active":false,"is_restricted":false,"volume_percent":10}
+        ]}"#;
+        let player = br#"{"is_playing":true,"progress_ms":30000,
+            "item":{"uri":"spotify:track:4uLU6hMCjMI75M1A2tKUQA","name":"Song","duration_ms":200000}}"#;
+        let update = cluster_from_web_api(devices, player, 5_000).unwrap();
+
+        let listed = connect_devices(&update, "mac");
+        let names: Vec<_> = listed.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["Veya", "Phone"]);
+        assert_eq!(listed[0].volume, u16::MAX);
+        assert!(listed[1].is_active);
+        let remote = crate::remote::remote_playback(&update, "mac").unwrap();
+        assert_eq!(
+            (remote.title.as_str(), remote.position_ms, remote.playing),
+            ("", 30_000, true)
+        );
+        assert_eq!(remote.device_name, "Phone");
+    }
+
+    #[test]
+    fn web_api_cluster_without_playback_has_no_remote() {
+        let devices =
+            br#"{"devices":[{"id":"phone","name":"Phone","type":"Smartphone","is_active":true}]}"#;
+        let update = cluster_from_web_api(devices, b"", 5_000).unwrap();
+        assert_eq!(connect_devices(&update, "mac").len(), 1);
+        assert_eq!(
+            crate::remote::remote_playback(&update, "mac").unwrap().uri,
+            ""
+        );
     }
 }

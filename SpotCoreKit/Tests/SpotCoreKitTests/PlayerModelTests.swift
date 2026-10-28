@@ -431,6 +431,23 @@ struct PlayerModelTests {
         #expect(devices.made.map(\.restores) == [["web-token"], []])
     }
 
+    /// Spotify pushes the cluster only on change, so a new Connect device lists the account's devices itself.
+    @Test func connectDeviceListsTheAccountsDevicesWithTheWebAPIToken() async {
+        let settings = PlaybackSettings(defaults: defaults, macName: "Studio Mac")
+        let devices = ConnectStarts()
+        let player = PlayerModel(
+            player: FakePlayer(), engine: nil, metadata: StubMetadata([trackItem]), settings: settings,
+            startConnect: devices.start, restoreToken: { "web-token" }, clock: Date.init, log: { _, _ in }
+        )
+        await player.connectStart?.value
+        while devices.made[0].deviceLoads.isEmpty {
+            await Task.yield()
+        }
+        await player.loadDevices()?.value
+
+        #expect(devices.made[0].deviceLoads == ["web-token", "web-token"])
+    }
+
     /// PBI-501: this Mac's playback is saved on track change, pause, every 5 s of play and quit.
     @Test func localPlaybackIsSavedForTheNextLaunch() {
         let clock = Clock()
@@ -771,6 +788,16 @@ final class FakeConnect: SpotConnectProtocol, Sendable {
 
     var restoredFrom: [SavedPlayback?] {
         calls.withLock { $0.restoredFrom }
+    }
+
+    private let deviceLoadTokens = OSAllocatedUnfairLock<[String]>(initialState: [])
+
+    var deviceLoads: [String] {
+        deviceLoadTokens.withLock { $0 }
+    }
+
+    func loadDevices(accessToken: String) async {
+        deviceLoadTokens.withLock { $0.append(accessToken) }
     }
 
     func restoreLastPlayback(accessToken: String, saved: SavedPlayback?) async {

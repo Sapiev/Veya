@@ -69,13 +69,15 @@ private struct DeviceList: View {
         .padding(Theme.s3)
         .frame(width: 280)
         .background(PopoverAccessibilityLabel(label: String(localized: "Devices")))
+        // The list takes the popover's initial focus, so no row shows a ring until an arrow key picks one.
+        .focusable()
+        .focusEffectDisabled()
         .arrowKeyList(player.devices.map(\.id), focus: $focused) { id in
             if player.canTransfer {
                 player.transfer(to: id)
             }
         }
-        // Set after the popover takes focus, which would otherwise land on the first row.
-        .task { focused = (player.devices.first(where: \.isActive) ?? player.devices.first)?.id }
+        .task { player.loadDevices() }
         .task {
             for await allowed in localNetworkAccess() {
                 localNetworkAllowed = allowed

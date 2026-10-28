@@ -126,6 +126,8 @@ public final class PlayerModel {
     @ObservationIgnored private var lastSaved = Date.distantPast
     /// The Web API token for the launch restore, which the first Connect device runs.
     @ObservationIgnored private var restoreToken: (@Sendable () async throws -> String)?
+    /// The same token for listing devices, which Spotify's cluster pushes leave empty until another client acts.
+    @ObservationIgnored private let deviceToken: (@Sendable () async throws -> String)?
 
     private struct Applied: Equatable {
         var volume: UInt16
@@ -153,6 +155,7 @@ public final class PlayerModel {
         self.player = player
         self.startConnect = startConnect
         self.restoreToken = restoreToken
+        deviceToken = restoreToken
         self.engine = engine
         self.metadata = metadata
         self.settings = settings
@@ -582,6 +585,7 @@ public final class PlayerModel {
                 connectDevice = device
                 hasConnect = true
                 restoreLastPlayback(on: device)
+                loadDevices()
             } catch {
                 // Type name only: messages may carry server text.
                 log(.warn, "Couldn't start Spotify Connect: \(String(describing: type(of: error)))")
@@ -605,6 +609,17 @@ public final class PlayerModel {
             positionMs: position(at: now),
             savedAtMs: Int64(now.timeIntervalSince1970 * 1000)
         )
+    }
+
+    /// Lists the account's devices from the Web API while no cluster push has; a no-op after one has.
+    @discardableResult
+    public func loadDevices() -> Task<Void, Never>? {
+        guard let connectDevice, let deviceToken, devices.isEmpty else { return nil }
+        return Task {
+            // No token is logged once by the restore, and this runs on every popover open.
+            guard let token = try? await deviceToken() else { return }
+            await connectDevice.loadDevices(accessToken: token)
+        }
     }
 
     /// Runs once, off the start task so a slow Web API holds up no restart.

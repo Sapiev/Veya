@@ -34,6 +34,24 @@ final class DevicesUITests: XCTestCase {
         attachScreenshot(of: app.popovers.firstMatch, named: "devices-active-tint")
     }
 
+    @MainActor func testNoRowIsFocusedUntilAnArrowKeyMovesFocus() {
+        let app = openDevices()
+        XCTAssertTrue(device(app, "Pixel").waitForExistence(timeout: XCUIApplication.timeout))
+        attachScreenshot(of: app.popovers.firstMatch, named: "devices-opened")
+
+        // Nothing is focused on open, so Return has no row to choose.
+        app.typeKey(.return, modifierFlags: [])
+        let button = app.buttons["Devices"].firstMatch
+        XCTAssertEqual(button.value as? String, "Playing on Pixel")
+
+        app.typeKey(.downArrow, modifierFlags: [])
+        attachScreenshot(of: app.popovers.firstMatch, named: "devices-after-down")
+        app.typeKey(.return, modifierFlags: [])
+        let movedHere = NSPredicate(format: "value != 'Playing on Pixel'")
+        expectation(for: movedHere, evaluatedWith: button)
+        waitForExpectations(timeout: XCUIApplication.timeout)
+    }
+
     @MainActor func testAFailedTransferIsShownThenChoosingADeviceTransfersPlaybackToIt() {
         let app = openDevices()
 
