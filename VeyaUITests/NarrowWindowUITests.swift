@@ -68,11 +68,11 @@ final class NarrowWindowUITests: XCTestCase {
         func track(_ fraction: CGFloat) -> XCUICoordinate {
             slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: 48 - 96 * fraction))
         }
-        // Hover first and outwait the pop-up's 300 ms grace period: on a slow runner the pointer can reach the
+        // Hover first and outwait the pop-up's 600 ms grace period: on a slow runner the pointer can reach the
         // popover late, which closes it and invalidates the slider element mid-click.
         func drag(to fraction: CGFloat) {
             track(fraction).hover()
-            XCTAssertFalse(slider.waitForNonExistence(timeout: 0.6), "pop-up stays open under the pointer")
+            XCTAssertFalse(slider.waitForNonExistence(timeout: 1.2), "pop-up stays open under the pointer")
             track(fraction).click()
             let reached = expectation(
                 for: NSPredicate(format: "normalizedSliderPosition BETWEEN {%f, %f}", fraction - 0.05, fraction + 0.05),
