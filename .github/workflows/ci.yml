@@ -17,6 +17,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Docs, the release workflow and Dependabot config cannot break the app, so they skip the UI tests.
+  changes:
+    runs-on: xcode-27
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.diff.outputs.app }}
+    steps:
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Anything unclear (dispatch, new branch, truncated compare) counts as an app change.
+          files=""
+          if [[ "$EVENT" == pull_request ]]; then
+            files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"
+          elif [[ "$EVENT" == push && ! "$BEFORE" =~ ^0+$ ]]; then
+            files="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" --jq 'select(.files|length < 300)|.files[].filename')"
+          fi
+          app_files="$(grep -vE '^(docs/|.*\.md$|LICENSE$|\.github/dependabot\.yml$|\.github/workflows/release\.yml$)' <<< "$files" || true)"
+          if [[ -n "$files" && -z "$app_files" ]]; then
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          fi
   lint:
     runs-on: xcode-27
     timeout-minutes: 10
@@ -112,6 +139,8 @@ jobs:
 
   # Debug build with the VEYA_UI_TEST_SCENARIO fakes, built once for every UI test shard.
   xcframework-debug:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
@@ -143,7 +172,8 @@ jobs:
   # (scripts/ui-test-shard.sh); PerformanceUITests keeps a runner to itself for stable metrics.
   ui-tests:
     needs: xcframework-debug
-    # Uses sudo and brew on the runner, so never for code from a fork.
+    # Uses sudo and brew on the runner, so never for code from a fork. A skipped xcframework-debug
+    # (no app change) skips this too.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: xcode-27
     timeout-minutes: 120
