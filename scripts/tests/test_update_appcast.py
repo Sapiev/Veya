@@ -33,6 +33,13 @@ class UpdateAppcastTests(unittest.TestCase):
         self.assertEqual(item.findtext("description"), "- Fixed")
         self.assertIsNone(item.find(s("channel")))
 
+    def test_check_build_refuses_a_build_below_the_feed(self):
+        self.add("1.0.0", "10")
+        appcast.check_build(self.path, "10")
+        appcast.check_build(self.path, "11")
+        with self.assertRaises(SystemExit):
+            appcast.check_build(self.path, "9")
+
     def test_prerelease_goes_on_beta_channel(self):
         self.add("1.1.0-beta.1", "11")
         self.assertEqual(self.items()[0].findtext(s("channel")), "beta")

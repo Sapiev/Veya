@@ -4,3 +4,12 @@ members = ["spotcore", "uniffi-bindgen"]
 
 [workspace.dependencies]
 uniffi = "0.32.2"
+
+[profile.release]
+# Sizes and offsets from the network must trap on overflow, not wrap.
+overflow-checks = true
+lto = "thin"
+strip = "symbols"
+codegen-units = 1
+# Keep unwind: UniFFI's scaffolding catches panics at the FFI boundary; abort would kill the app.
+panic = "unwind"

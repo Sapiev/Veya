@@ -1,0 +1,17 @@
+# cargo deny check advisories bans sources   (licenses are not policed)
+[advisories]
+version = 2
+ignore = [
+    # rsa via librespot: only public-key signature verification, no private-key operation is reachable.
+    { id = "RUSTSEC-2023-0071", reason = "Marvin attack needs private-key operations; Veya only verifies" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/librespot-org/librespot"]
