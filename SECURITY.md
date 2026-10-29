@@ -38,8 +38,9 @@ Releases are self-signed and not notarized (no paid Apple account), so macOS
 asks the user to approve the app once, and the Homebrew cask tells users to
 clear quarantine. Updates are delivered by Sparkle over https and each archive
 is verified against the Ed25519 public key built into the app
-(`SUPublicEDKey`). The appcast itself is not signed yet, so a tampered feed
-cannot install code but could alter release notes or withhold updates. The
+(`SUPublicEDKey`). The appcast is signed with the same key
+(`SURequireSignedFeed`), so a tampered feed is rejected, and archives are verified
+before extraction (`SUVerifyUpdateBeforeExtraction`). The
 release build adds `com.apple.security.cs.disable-library-validation` because a
 self-signed certificate has no Team ID for library validation to match against
 Sparkle.framework; the sandbox still bounds what the app can do. Release

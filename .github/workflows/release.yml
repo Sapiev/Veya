@@ -112,10 +112,14 @@ jobs:
         working-directory: pages
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           ../scripts/update-appcast.py appcast.xml "$VERSION" "$(git -C .. rev-list --count HEAD)" \
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Veya-$VERSION.dmg" \
             "$SIGNATURE" "$(stat -f%z "$DMG")" "$RUNNER_TEMP/notes.md"
+          # The app requires a signed feed (SURequireSignedFeed): any later edit needs re-signing.
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - appcast.xml
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - --verify appcast.xml
           git add appcast.xml
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
             commit -m "appcast: Veya $VERSION"

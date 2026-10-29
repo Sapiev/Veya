@@ -32,6 +32,13 @@ A version with a suffix (`v1.2.0-beta.1`) is a beta: a GitHub prerelease on the
 appcast's `beta` channel, offered only to people who turned on Settings ›
 Advanced › Include beta versions, and not pushed to Homebrew.
 
+The workflow signs `appcast.xml` with the Sparkle key after adding the item
+(`sign_update` embeds a `sparkle-signatures` comment). The app sets
+`SURequireSignedFeed`, so never edit the published feed by hand; if you must,
+re-sign it with `sign_update --ed-key-file <key> appcast.xml`. Builds before the
+one that added this key accept signed and unsigned feeds alike, so the first
+signed release needs no special step.
+
 Re-running a failed workflow is safe: the DMG asset is replaced, the appcast
 item for that build is replaced rather than duplicated, and an unchanged cask
 is not recommitted.
