@@ -21,6 +21,8 @@ public final class WebAPIConnection {
     public private(set) var attempt: SignInModel?
     /// The refresh token could not be saved after a successful sign-in.
     public private(set) var saveFailed = false
+    /// The stored refresh token could not be deleted; the connection stays.
+    public private(set) var disconnectFailed = false
 
     @ObservationIgnored public let tokens: WebAPITokenProvider
     @ObservationIgnored private let store: any CredentialStore
@@ -73,7 +75,6 @@ public final class WebAPIConnection {
             do {
                 try disconnect()
             } catch {
-                logMessage(level: .warn, category: "webapi", message: "Couldn't delete the old refresh token: \(error)")
                 return nil
             }
             clientID = newID
@@ -106,7 +107,15 @@ public final class WebAPIConnection {
     public func disconnect() throws {
         attempt?.cancel()
         attempt = nil
-        try store.delete()
+        saveFailed = false
+        disconnectFailed = false
+        do {
+            try store.delete()
+        } catch {
+            logMessage(level: .warn, category: "webapi", message: "Couldn't delete the refresh token: \(error)")
+            disconnectFailed = true
+            throw error
+        }
         isConnected = false
     }
 }

@@ -3,7 +3,8 @@ import OSLog
 /// Writes spotcore log records to the unified log, one subsystem per crate
 /// (`<prefix>.librespot_core`) and the module path as category. Records from
 /// Swift (crate `veya`) use the bare prefix. Rust redacts messages before they
-/// cross the FFI, so they are logged as public.
+/// cross the FFI, but redaction is pattern-based, so the unified log still masks them.
+/// Export Diagnostics reads the core's own buffer, not this log.
 public final class OSLogSink: LogSink {
     private let subsystemPrefix: String
     private let loggers = OSAllocatedUnfairLock<[String: Logger]>(initialState: [:])
@@ -13,7 +14,7 @@ public final class OSLogSink: LogSink {
     }
 
     public func log(record: LogRecord) {
-        logger(for: record).log(level: record.level.osLogType, "\(record.message, privacy: .public)")
+        logger(for: record).log(level: record.level.osLogType, "\(record.message, privacy: .private)")
     }
 
     func subsystem(for record: LogRecord) -> String {

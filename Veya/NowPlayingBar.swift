@@ -392,9 +392,9 @@ struct Scrubber: View {
                 .monospacedDigit()
             } else {
                 HStack(spacing: Theme.s2) {
-                    elapsed.frame(width: 40, alignment: .trailing)
+                    elapsed.frame(minWidth: 40, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
                     slider
-                    Text(Self.format(duration)).frame(width: 40, alignment: .leading)
+                    Text(Self.format(duration)).frame(minWidth: 40, alignment: .leading).fixedSize(horizontal: true, vertical: false)
                 }
                 .scaledFont(size: 11)
                 .monospacedDigit()

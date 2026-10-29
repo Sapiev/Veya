@@ -68,6 +68,21 @@ struct ArtworkLoaderTests {
         #expect(fetches.value == 2)
     }
 
+    @Test(arguments: [
+        ("https://i.scdn.co/image/abc", true),
+        ("https://image-cdn-ak.spotifycdn.com/image/abc", true),
+        ("http://i.scdn.co/image/abc", false),
+        ("https://scdn.co.evil.com/image/abc", false),
+        ("https://evil.com/scdn.co", false),
+        ("https://i.scdn.co@evil.com/x", false),
+        ("https://user:pw@i.scdn.co/x", false),
+        ("https://i.scdn.co:8443/x", false),
+        ("file:///etc/passwd", false),
+    ])
+    func downloadsOnlyFromTheCDNOverHTTPS(text: String, allowed: Bool) throws {
+        #expect(try ArtworkLoader.isAllowed(#require(URL(string: text))) == allowed)
+    }
+
     @Test func diskCacheEvictsTheLeastRecentlyUsedFile() async throws {
         let cache = ArtworkDiskCache(directory: directory, limitBytes: 250)
         let urls = (0 ..< 3).map { URL(string: "https://i.scdn.co/image/\($0)")! }

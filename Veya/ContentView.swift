@@ -29,10 +29,13 @@ struct ContentView: View {
                     session.connect(tokens: credentials.tokens)
                 }
             }
-            .onChange(of: session.state) { _, state in
-                // Another account may sign in next; its searches are its own.
+            .onChange(of: session.state) { old, state in
+                // Another account may sign in next; its searches and any link held for the old one are not its own.
                 if state == .signedOut {
                     recentSearches.clear()
+                    if old != .restoring {
+                        openedLink = nil
+                    }
                 }
             }
     }

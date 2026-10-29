@@ -184,6 +184,13 @@ struct HomeModelTests {
         #expect(home.madeForYou == [page(weekly), page(mix)])
     }
 
+    @Test func returningToFreshHomeDoesNotReload() async {
+        let home = model()
+        await home.loadIfStale()?.value
+        #expect(home.state == .loaded)
+        #expect(home.loadIfStale() == nil)
+    }
+
     @Test func recentlyPlayedFailureHidesOnlyItsSections() async {
         var logged: [String] = []
         let home = model(recent: .failure(.MissingScope)) { logged.append($1) }

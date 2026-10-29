@@ -46,6 +46,8 @@ struct AppShell: View {
     @State private var nowPlayingTab: NowPlayingView.Tab?
     @State private var creatingPlaylist = false
     @State private var openingLink = false
+    /// An outside play link waits in the Open Link sheet for the user's confirmation.
+    @State private var linkToConfirm = ""
     @Binding private var openedLink: SpotifyLink?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -194,6 +196,14 @@ struct AppShell: View {
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarShown)
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarCompact)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
+        // The overlay covers the shell: Tab and the key monitors must not reach what lies beneath.
+        .disabled(nowPlayingTab != nil)
+        // A focused table would still take Return as its primary action.
+        .onChange(of: nowPlayingTab != nil) { _, covered in
+            if covered {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
         .overlay {
             if let nowPlayingTab, let player {
                 NowPlayingView(player: player, library: library, metadata: metadata, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
@@ -212,14 +222,17 @@ struct AppShell: View {
         .focusedSceneValue(\.focusSearch, action(focusSearch))
         .focusedSceneValue(\.newPlaylist, action(newPlaylist))
         .focusedSceneValue(\.newFolder, action(newFolder))
-        .focusedSceneValue(\.openLink, action { openingLink = true })
+        .focusedSceneValue(\.openLink, action {
+            linkToConfirm = ""
+            openingLink = true
+        })
         .sheet(isPresented: $openingLink) {
-            OpenLinkSheet(open: open)
+            OpenLinkSheet(initialText: linkToConfirm, open: open)
         }
         .onChange(of: openedLink, initial: true) {
             guard let openedLink else { return }
             self.openedLink = nil
-            open(openedLink)
+            openFromOutside(openedLink)
         }
         .sheet(isPresented: $creatingPlaylist) {
             PlaylistDetailsSheet(title: "New Playlist", confirm: "Create") { name, description, _ in
@@ -303,6 +316,16 @@ struct AppShell: View {
 
     private func newPlaylist() {
         creatingPlaylist = true
+    }
+
+    /// A link from another app only opens pages; playing needs the user's confirmation.
+    private func openFromOutside(_ link: SpotifyLink) {
+        switch link {
+        case .page: open(link)
+        case let .play(uri):
+            linkToConfirm = uri
+            openingLink = true
+        }
     }
 
     private func open(_ link: SpotifyLink) {
@@ -777,8 +800,13 @@ struct NavigationCommands: Commands {
 /// File › Open Link: a pasted `open.spotify.com` link or `spotify:` URI.
 private struct OpenLinkSheet: View {
     let open: (SpotifyLink) -> Void
-    @State private var text = ""
+    @State private var text: String
     @Environment(\.dismiss) private var dismiss
+
+    init(initialText: String, open: @escaping (SpotifyLink) -> Void) {
+        self.open = open
+        _text = State(initialValue: initialText)
+    }
 
     var body: some View {
         let link = SpotifyLink(text)

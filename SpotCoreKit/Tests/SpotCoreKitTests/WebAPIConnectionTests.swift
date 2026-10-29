@@ -115,6 +115,23 @@ struct WebAPIConnectionTests {
         #expect(connection.isConnected)
     }
 
+    @Test func aFailedDeleteIsReportedAndKeepsTheConnection() async throws {
+        let connection = connection()
+        try await #require(connection.connect(clientID: "0123456789abcdef0123456789abcdef")).value
+        #expect(connection.isConnected)
+        store.failDeletes(with: KeychainError(status: -25308))
+
+        #expect(throws: KeychainError(status: -25308)) { try connection.disconnect() }
+        #expect(connection.disconnectFailed)
+        #expect(connection.isConnected)
+        #expect(connection.connect(clientID: otherClientID) == nil, "a changed client ID needs the old token gone")
+
+        store.failDeletes(with: nil)
+        try connection.disconnect()
+        #expect(!connection.disconnectFailed)
+        #expect(!connection.isConnected)
+    }
+
     @Test func disconnectIsIdempotent() async throws {
         let connection = connection()
         await connection.connect(clientID: ownClientID)?.value

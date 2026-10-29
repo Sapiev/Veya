@@ -153,6 +153,7 @@ extension ShortcutActions.Failure: @retroactive CustomLocalizedStringResourceCon
         case .notReady: "Veya isn't signed in or couldn't start playback."
         case .nothingPlaying: "Nothing is playing in Veya."
         case .invalidURI: "That isn't a Spotify URI, such as spotify:track:…"
+        case .notPlayable: "Veya couldn't play that item."
         }
     }
 }

@@ -102,10 +102,24 @@ public actor ArtworkLoader {
         return URLSession(configuration: configuration)
     }()
 
+    static let maxDownloadBytes = 5 * 1024 * 1024
+
+    /// Cover art comes from Spotify's CDN over https; metadata is server data, so nothing else is fetched.
+    static func isAllowed(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", url.user == nil, url.port == nil,
+              let host = url.host?.lowercased() else { return false }
+        return ["scdn.co", "spotifycdn.com", "spotify.com"].contains { host == $0 || host.hasSuffix(".\($0)") }
+    }
+
     private static func download(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+        guard isAllowed(url) else { throw URLError(.unsupportedURL) }
+        let (bytes, response) = try await session.bytes(from: url)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
+              response.expectedContentLength <= Int64(maxDownloadBytes) else { throw URLError(.badServerResponse) }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < maxDownloadBytes else { throw URLError(.dataLengthExceedsMaximum) }
+            data.append(byte)
         }
         return data
     }

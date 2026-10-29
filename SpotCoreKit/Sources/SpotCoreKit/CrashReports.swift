@@ -57,19 +57,24 @@ public final class CrashReports {
     /// crash message could quote a token or username the core registered.
     private func save(_ reports: [String]) {
         let fileManager = FileManager.default
+        // Pruned even after a failed write, so a full disk cannot let the folder grow.
+        defer { prune() }
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             for report in reports {
                 let name = "\(Date.now.timeIntervalSince1970)-\(UUID().uuidString).json"
-                try Data(redact(text: report).utf8).write(to: directory.appending(path: name))
-            }
-            let saved = try fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-                .sorted { $0.lastPathComponent > $1.lastPathComponent }
-            for old in saved.dropFirst(Self.limit) {
-                try fileManager.removeItem(at: old)
+                try Data(redact(text: report).utf8).write(to: directory.appending(path: name), options: .atomic)
             }
         } catch {
             logMessage(level: .error, category: "diagnostics", message: "Crash report not saved: \(error)")
+        }
+    }
+
+    private func prune() {
+        let fileManager = FileManager.default
+        guard let saved = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for old in saved.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).dropFirst(Self.limit) {
+            try? fileManager.removeItem(at: old)
         }
     }
 }

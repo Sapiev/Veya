@@ -112,6 +112,13 @@ struct MediaControlsTests {
         try await waitUntil { fake.recorded == ["next"] }
     }
 
+    @Test func aRemoteCommandWithNothingLoadedIsNotClaimed() async {
+        let handler = MediaControls.handler({ (_: Int) in .next }, isAvailable: { false }) { [controls] in controls.perform($0) }
+        let status = await Task.detached { handler(0) }.value
+        #expect(status == .noActionableNowPlayingItem)
+        #expect(fake.recorded.isEmpty)
+    }
+
     @Test func unbindingClearsControlCenterAndIgnoresCommands() async throws {
         player.apply(.trackChanged(uri: "spotify:track:1", name: "Song", durationMs: 1))
         try await waitUntil { published.last != nil }

@@ -60,12 +60,14 @@ final class DetailPagesUITests: XCTestCase {
         app.artistPage.scroll(byDeltaX: 0, deltaY: 1000)
         let following = app.buttons["Following"]
         XCTAssertTrue(following.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertNotEqual(following.value as? String, "On", "the label already says Following")
         following.click()
         XCTAssertTrue(app.buttons["Follow"].waitForExistence(timeout: XCUIApplication.timeout))
 
         // PBI-105: a region-locked top track does not play.
         let locked = app.buttons["3, Song 3, 2:03"]
         XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertEqual(locked.value as? String, "Unavailable", "VoiceOver hears what the dimming shows")
         locked.click()
 
         XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))

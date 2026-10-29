@@ -207,4 +207,31 @@ final class NowPlayingUITests: XCTestCase {
         XCTAssertFalse(app.scrollViews["nowPlayingQueue"].exists)
         attachScreenshot(of: app.windows.firstMatch, named: "now-playing-no-panes")
     }
+
+    /// The track list under the full view must not take Delete or Return meant for the view on top.
+    @MainActor func testKeysDoNotReachTheHiddenTrackListBeneathTheFullView() {
+        let app = XCUIApplication.launch(.signedIn)
+        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.sidebarItem("Road Trip").click()
+        let song = app.trackList.staticTexts["Song 1"]
+        XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
+        song.click()
+        let selected = app.trackList.outlineRows.containing(.staticText, identifier: "Song 1").firstMatch
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: selected
+        )], timeout: XCUIApplication.timeout), .completed)
+
+        app.buttons["Full-Window Now Playing"].click()
+        let close = app.buttons["Close Now Playing"]
+        XCTAssertTrue(close.waitForExistence(timeout: XCUIApplication.timeout))
+        app.typeKey(.delete, modifierFlags: [])
+        XCTAssertFalse(app.buttons["Pause"].exists)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 1), "Return played the hidden selection")
+        attachScreenshot(of: app.windows.firstMatch, named: "now-playing-over-playlist")
+        close.click()
+
+        XCTAssertTrue(app.waitForSongs(["Song 1", "Song 2", "Song 5"]), "Delete removed nothing")
+        XCTAssertFalse(app.buttons["Pause"].exists, "Return played nothing")
+    }
 }

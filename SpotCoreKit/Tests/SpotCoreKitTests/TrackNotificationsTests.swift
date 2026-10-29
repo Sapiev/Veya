@@ -7,6 +7,7 @@ struct TrackNotificationsTests {
     private final class Posted {
         var all: [(info: MediaControls.Info, image: CGImage?)] = []
         var enabled = true
+        var clears = 0
     }
 
     private let posted = Posted()
@@ -14,9 +15,10 @@ struct TrackNotificationsTests {
 
     init() {
         let posted = posted
-        notifications = TrackNotifications(settle: .milliseconds(20), isEnabled: { posted.enabled }) {
-            posted.all.append(($0, $1))
-        }
+        notifications = TrackNotifications(
+            settle: .milliseconds(20), isEnabled: { posted.enabled },
+            post: { posted.all.append(($0, $1)) }, clear: { posted.clears += 1 }
+        )
     }
 
     private static func info(_ title: String, playing: Bool = true, elapsedMs: UInt32 = 0) -> MediaControls.Info {
@@ -69,6 +71,14 @@ struct TrackNotificationsTests {
         await settle()
 
         #expect(posted.all.map(\.info.title) == ["One", "One"])
+    }
+
+    @Test func nothingPlayingTakesTheLastBannerOffTheNotificationCenter() async {
+        notifications.update(Self.info("One"), nil)
+        await settle()
+        notifications.update(nil, nil)
+
+        #expect(posted.clears == 1)
     }
 
     private static func image() -> CGImage? {

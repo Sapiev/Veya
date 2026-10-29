@@ -168,6 +168,8 @@ public final class SessionModel {
     /// Playing on `session`; stopped when it ends so buffered audio does not outlive it.
     @ObservationIgnored private weak var player: PlayerModel?
 
+    private let forgetPlayback: @MainActor () -> Void
+
     public static let readyBudget = Duration.seconds(2)
 
     public init(
@@ -175,8 +177,10 @@ public final class SessionModel {
         refreshTokenStore: any CredentialStore,
         connector: any SessionConnector = SpotSessionConnector(),
         log: @escaping SessionLog = { logMessage(level: $0, category: "session", message: $1) },
-        now: @escaping () -> ContinuousClock.Instant = { .now }
+        now: @escaping () -> ContinuousClock.Instant = { .now },
+        forgetPlayback: @escaping @MainActor () -> Void = {}
     ) {
+        self.forgetPlayback = forgetPlayback
         self.store = store
         self.refreshTokenStore = refreshTokenStore
         self.connector = connector
@@ -240,7 +244,7 @@ public final class SessionModel {
     /// can save the blob back. Safe to repeat; the session ends even if a
     /// Keychain delete or a cache clear throws, and every step is attempted
     /// before the first error is rethrown.
-    public func signOut() throws {
+    public func signOut() async throws {
         _ = begin(.signedOut)
         var failure: (any Error)?
         for item in [store, refreshTokenStore] {
@@ -251,13 +255,15 @@ public final class SessionModel {
                 failure = failure ?? error
             }
         }
-        let caches: [(name: String, clear: () throws -> Void)] = [
-            ("metadata", connector.clearMetadataCache),
-            ("audio", connector.clearAudioCache),
+        // A cache can hold gigabytes; deleting it must not block the main actor.
+        let connector = connector
+        let caches: [(name: String, clear: @Sendable () throws -> Void)] = [
+            ("metadata", { try connector.clearMetadataCache() }),
+            ("audio", { try connector.clearAudioCache() }),
         ]
         for (cache, clear) in caches {
             do {
-                try clear()
+                try await Task.detached { try clear() }.value
             } catch {
                 log(.warn, "Couldn't clear the \(cache) cache on sign out: \(Self.summary(error))")
                 failure = failure ?? error
@@ -295,7 +301,7 @@ public final class SessionModel {
 
     /// For app termination; the stored credentials stay.
     public func shutdown() {
-        _ = begin(.signedOut)
+        _ = begin(.signedOut, forgettingPlayback: false)
     }
 
     public func systemDidWake() {
@@ -314,12 +320,16 @@ public final class SessionModel {
         session?.reconnect()
     }
 
-    private func begin(_ next: SessionState) -> Int {
+    /// An account ending for any reason but quitting takes its saved playback with it, after the player's teardown saved it.
+    private func begin(_ next: SessionState, forgettingPlayback: Bool = true) -> Int {
         attempt += 1
         events?.cancel()
         events = nil
         player?.teardown()
         player = nil
+        if forgettingPlayback, next == .signedOut {
+            forgetPlayback()
+        }
         session?.shutdown()
         session = nil
         knownBlob = nil
@@ -352,6 +362,7 @@ public final class SessionModel {
             switch error {
             case SessionError.CredentialsRejected, SessionError.InvalidStoredCredentials:
                 deleteIfUnchanged(blob)
+                forgetPlayback()
                 state = .signedOut
             default:
                 state = .failed(SessionFailure(error))

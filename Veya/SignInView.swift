@@ -90,6 +90,7 @@ private struct SpotifyButton: View {
     let isBusy: Bool
     let action: () -> Void
     @State private var hovering = false
+    @State private var cursorPushed = false
 
     var body: some View {
         Button(action: action) {
@@ -110,10 +111,19 @@ private struct SpotifyButton: View {
         .accessibilityHint("Opens Spotify's sign-in page in your browser")
         .onHover { inside in
             hovering = inside
-            if inside {
+            if inside, !cursorPushed {
                 NSCursor.pointingHand.push()
-            } else {
+                cursorPushed = true
+            } else if !inside, cursorPushed {
                 NSCursor.pop()
+                cursorPushed = false
+            }
+        }
+        // The view can go away while the pointer is over it, which never reports leaving.
+        .onDisappear {
+            if cursorPushed {
+                NSCursor.pop()
+                cursorPushed = false
             }
         }
         .animation(Theme.fast, value: hovering)

@@ -78,6 +78,18 @@ public final class HomeModel {
         self.log = log
     }
 
+    static let freshFor = Duration.seconds(60)
+    @ObservationIgnored private var loadedAt: ContinuousClock.Instant?
+
+    /// `load()` unless Home loaded within the last minute, so coming back to it does not refetch everything.
+    @discardableResult
+    public func loadIfStale() -> Task<Void, Never>? {
+        if state == .loaded, let loadedAt, .now - loadedAt < Self.freshFor {
+            return nil
+        }
+        return load()
+    }
+
     /// Reloads every section; sections keep their old content until replaced.
     @discardableResult
     public func load() -> Task<Void, Never> {
@@ -91,6 +103,7 @@ public final class HomeModel {
             let (recentOK, madeOK) = await (recentLoaded, madeForYouLoaded)
             guard mine == generation else { return }
             state = recentOK || madeOK ? .loaded : .failed
+            loadedAt = state == .loaded ? .now : nil
         }
         running = task
         return task

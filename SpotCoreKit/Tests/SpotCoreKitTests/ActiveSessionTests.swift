@@ -61,7 +61,7 @@ struct ActiveSessionTests {
         try await connect(session, to: FakeSession(), call: 0)
         try await waitUntil { active.current != nil }
 
-        try session.signOut()
+        try await session.signOut()
 
         #expect(active.current == nil)
         try await waitUntil { active.scope == nil }

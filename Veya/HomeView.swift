@@ -56,7 +56,7 @@ struct HomeView: View {
             }
         }
         .navigationTitle("Home")
-        .task { home.load() }
+        .task { home.loadIfStale() }
         .task(id: library.items[.artists]) { library.resolve((library.items[.artists] ?? []).map(\.uri)) }
     }
 
@@ -100,6 +100,7 @@ private struct Shelf: View {
                         activate(index, tile)
                     }
                     .opacity(tile.playable ? 1 : 0.45)
+                    .unavailableValue(!tile.playable)
                 }
             }
         }
@@ -153,6 +154,7 @@ private struct QuickTile: View {
             }
         }
         .opacity(tile.playable ? 1 : 0.45)
+        .unavailableValue(!tile.playable)
         .onHover { hovering = $0 }
         .animation(Theme.fast, value: hovering)
     }

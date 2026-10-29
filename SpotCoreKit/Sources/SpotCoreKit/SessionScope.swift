@@ -115,10 +115,12 @@ public extension SessionModel {
     /// Signs out and calls `failed` on the next main-actor turn if any step
     /// failed, so an alert button's own action can't reset the flag it raised.
     func signOut(failed: @escaping @MainActor () -> Void) {
-        do {
-            try signOut()
-        } catch {
-            Task { @MainActor in failed() }
+        Task {
+            do {
+                try await signOut()
+            } catch {
+                failed()
+            }
         }
     }
 }

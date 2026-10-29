@@ -178,8 +178,8 @@ struct PlaybackSettingsTests {
         #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [mixes.path])
     }
 
-    /// A moved folder is still found, and a deleted one is dropped from the saved list.
-    @Test func movedLocalFolderFollowsAndDeletedOneIsDropped() throws {
+    /// A moved folder is still found; a missing one is hidden but its bookmark survives for a remount.
+    @Test func movedLocalFolderFollowsAndMissingOneIsHiddenNotForgotten() throws {
         let music = try temporaryFolder("Music")
         let mixes = try temporaryFolder("Mixes")
         PlaybackSettings(defaults: defaults).addLocalFolders([music, mixes])
@@ -188,8 +188,29 @@ struct PlaybackSettingsTests {
         try FileManager.default.removeItem(at: mixes)
 
         #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [moved.path])
-        #expect((defaults.array(forKey: "playback.localFolders") as? [Data])?.count == 1)
+        #expect((defaults.array(forKey: "playback.localFolders") as? [Data])?.count == 2)
         #expect(PlaybackSettings(defaults: defaults).localFolderPaths == [moved.path])
+        #expect((defaults.array(forKey: "playback.localFolders") as? [Data])?.count == 2)
+    }
+
+    @Test func hostileSavedPlaybackIsRejectedOrClamped() {
+        func store(_ saved: [String: Any]) {
+            defaults.set(saved, forKey: "playback.last")
+        }
+        store(["track": "javascript:alert(1)", "positionMs": 10, "savedAtMs": Int64(1)])
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback == nil)
+        store(["track": "spotify:track:" + String(repeating: "a", count: 5000), "positionMs": 10, "savedAtMs": Int64(1)])
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback == nil)
+        store(["track": "spotify:track:a", "positionMs": 10])
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback == nil)
+        store(["track": "spotify:track:a", "positionMs": -5, "savedAtMs": Int64(1), "context": "https://evil"])
+        let clamped = PlaybackSettings(defaults: defaults).lastPlayback
+        #expect(clamped?.positionMs == 0)
+        #expect(clamped?.contextUri == nil)
+        store(["track": "spotify:track:a", "positionMs": Int.max, "savedAtMs": Int64(1)])
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback?.positionMs == UInt32.max)
+        defaults.set("not a dictionary", forKey: "playback.last")
+        #expect(PlaybackSettings(defaults: defaults).lastPlayback == nil)
     }
 
     private func temporaryFolder(_ name: String) throws -> URL {

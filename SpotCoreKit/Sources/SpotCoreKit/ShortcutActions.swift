@@ -9,6 +9,8 @@ public final class ShortcutActions {
         case notReady
         case nothingPlaying
         case invalidURI
+        /// The core could not load the URI, such as an unavailable or removed item.
+        case notPlayable
     }
 
     private let player: () -> PlayerModel?
@@ -83,8 +85,9 @@ public final class ShortcutActions {
     /// Plays a track, playlist, album or other `spotify:` URI as the context.
     public func play(_ uri: String) async throws(Failure) {
         // AppleScript passes any text; only Spotify URIs reach the core.
-        guard uri.hasPrefix("spotify:"), uri.count > "spotify:".count else { throw .invalidURI }
-        try await ready(player).play(uri, startingAt: 0).value
+        guard uri.hasPrefix("spotify:"), SpotifyLink(uri) != nil else { throw .invalidURI }
+        let task = try await ready(player).play(uri, startingAt: 0)
+        do { try await task.value } catch { throw .notPlayable }
     }
 
     // shortcut: polls every 100 ms; observe ActiveSession instead if this ever shows up in a profile.

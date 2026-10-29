@@ -132,6 +132,7 @@ private struct EpisodeRow: View {
         }
         .padding(.vertical, 6)
         .opacity(episode.playability == .playable ? 1 : 0.45)
+        .unavailableValue(episode.playability != .playable)
     }
 
     private var status: some View {
