@@ -36,7 +36,7 @@ final class ProfileUITests: XCTestCase {
 
         let heart = app.buttons["Remove from Your Library"]
         XCTAssertTrue(heart.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(heart.value as? String, "On")
+        XCTAssertTrue(heart.isSelected)
 
         app.sidebarItem("Road Trip").click()
         XCTAssertTrue(app.showsRoute("Road Trip"))
