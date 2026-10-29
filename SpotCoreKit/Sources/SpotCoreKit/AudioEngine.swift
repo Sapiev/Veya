@@ -20,6 +20,7 @@ public final class AudioEngine {
     private let timePitch = AVAudioUnitTimePitch()
     private var deviceListener: SystemAudioListener?
     private var wantsToRun = false
+    private var failedDevice: AudioObjectID?
 
     /// UID of the chosen output device; `nil` follows the system default.
     public var outputDeviceUID: String? {
@@ -81,8 +82,8 @@ public final class AudioEngine {
     }
 
     public func start() throws {
-        wantsToRun = true
         try engine.start()
+        wantsToRun = true
     }
 
     public func stop() {
@@ -99,11 +100,14 @@ public final class AudioEngine {
     /// Returns whether it stopped the engine to switch devices.
     private func switchToTargetDevice() -> Bool {
         let target = outputDeviceUID.flatMap(SystemAudio.outputDevice(uid:)) ?? SystemAudio.defaultOutputDevice
-        guard target != kAudioObjectUnknown, target != outputDevice else { return false }
+        guard target != kAudioObjectUnknown, target != outputDevice, target != failedDevice else { return false }
         engine.stop()
         do {
             try engine.outputNode.auAudioUnit.setDeviceID(target)
+            failedDevice = nil
         } catch {
+            // Not retried on every configuration change; the engine restarts on whatever it has.
+            failedDevice = target
             Self.log.error("audio output device switch failed: \(error, privacy: .public)")
         }
         return true

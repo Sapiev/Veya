@@ -8,7 +8,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -18,6 +18,11 @@ jobs:
   release:
     runs-on: xcode-27
     timeout-minutes: 90
+    # Required reviewers on this environment gate the signing and tap secrets.
+    environment: release
+    permissions:
+      contents: write
+      actions: read
     env:
       SPARKLE_VERSION: 2.10.0
       SPARKLE_SHA256: c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
@@ -27,9 +32,21 @@ jobs:
           persist-credentials: false
           # scripts/release.sh numbers builds by commit count.
           fetch-depth: 0
+      # A tag pushed from a side branch, or on a commit CI never passed, must not reach the secrets.
+      - name: Require a CI-passed commit on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main ||
+            { echo "error: $GITHUB_SHA is not on main" >&2; exit 1; }
+          passed="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --event push --status success \
+            --json databaseId --jq length)"
+          [[ "$passed" -ge 1 ]] || { echo "error: no successful CI run on $GITHUB_SHA" >&2; exit 1; }
       - name: Version and release notes
         run: |
           version="${GITHUB_REF_NAME#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] ||
+            { echo "error: bad version '$version'" >&2; exit 1; }
           scripts/changelog-section.sh "$version" > "$RUNNER_TEMP/notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           [[ "$version" == *-* ]] && prerelease=true || prerelease=false
@@ -37,11 +54,22 @@ jobs:
       - name: Install Rust toolchain
         working-directory: core
         run: rustup toolchain install
+      # Dependency build scripts run here, before the signing keychain exists.
+      - name: Build Rust core
+        run: scripts/build-xcframework.sh release
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gh-pages
+          path: pages
+          persist-credentials: false
+      - name: Check build number against the live appcast
+        run: scripts/update-appcast.py --check-build pages/appcast.xml "$(git rev-list --count HEAD)"
       - name: Import signing certificate
         env:
           P12: ${{ secrets.SIGNING_CERT_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.SIGNING_CERT_P12_PASSWORD }}
         run: |
+          trap 'rm -f "$RUNNER_TEMP/signing.p12"' EXIT
           keychain="$RUNNER_TEMP/release.keychain-db"
           password="$(uuidgen)"
           security create-keychain -p "$password" "$keychain"
@@ -49,7 +77,6 @@ jobs:
           security unlock-keychain -p "$password" "$keychain"
           base64 --decode <<< "$P12" > "$RUNNER_TEMP/signing.p12"
           security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/signing.p12"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
       - name: Build and sign
         env:
@@ -57,16 +84,8 @@ jobs:
         run: |
           SIGNING_KEYCHAIN="$RUNNER_TEMP/release.keychain-db" scripts/release.sh "$VERSION"
           echo "DMG=$PWD/build/release/Veya-$VERSION.dmg" >> "$GITHUB_ENV"
-      # Reruns replace the asset; appcast and cask below follow the new DMG.
-      - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          flags=()
-          [[ "$PRERELEASE" == true ]] && flags=(--prerelease)
-          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 ||
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "Veya $VERSION" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
-          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+      - name: Remove signing keychain
+        run: security delete-keychain "$RUNNER_TEMP/release.keychain-db" || true
       - name: Sign update
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
@@ -77,30 +96,46 @@ jobs:
           mkdir "$RUNNER_TEMP/sparkle"
           tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
           signature="$(echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - -p "$DMG")"
+          "$RUNNER_TEMP/sparkle/bin/sign_update" --verify "$DMG" "$signature"
           echo "SIGNATURE=$signature" >> "$GITHUB_ENV"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: gh-pages
-          path: pages
+      # Order: signed DMG on a draft, release published, appcast last. Clients only see the
+      # new version once its download works, and a failed run leaves the appcast untouched.
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Veya $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease="$PRERELEASE"
       - name: Publish appcast
         working-directory: pages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           ../scripts/update-appcast.py appcast.xml "$VERSION" "$(git -C .. rev-list --count HEAD)" \
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Veya-$VERSION.dmg" \
             "$SIGNATURE" "$(stat -f%z "$DMG")" "$RUNNER_TEMP/notes.md"
+          # The app requires a signed feed (SURequireSignedFeed): any later edit needs re-signing.
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - appcast.xml
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - --verify appcast.xml
           git add appcast.xml
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
             commit -m "appcast: Veya $VERSION"
-          git push
+          git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64)" push
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: env.PRERELEASE == 'false'
         with:
           repository: Sapiev/homebrew-veya
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
+          persist-credentials: false
       - name: Update Homebrew cask
         if: env.PRERELEASE == 'false'
         working-directory: tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           mkdir -p Casks
           sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$(shasum -a 256 "$DMG" | cut -d' ' -f1)/" \
@@ -109,7 +144,7 @@ jobs:
           git diff --cached --quiet && exit 0
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
             commit -m "veya $VERSION"
-          git push
+          git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAP_TOKEN" | base64)" push
       - name: Remove signing keychain
         if: always()
         run: |

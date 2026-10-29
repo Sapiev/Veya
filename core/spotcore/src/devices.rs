@@ -69,9 +69,10 @@ pub(crate) fn connect_devices(update: &ClusterUpdate, this_id: &str) -> Vec<Conn
     let mut devices: Vec<_> = cluster
         .device
         .iter()
-        .filter(|(_, info)| {
+        .filter(|(id, info)| {
             let capabilities = &info.capabilities;
-            info.can_play
+            is_device_id(id)
+                && info.can_play
                 && !info.is_offline
                 && !capabilities.hidden
                 && capabilities.is_controllable
@@ -90,6 +91,12 @@ pub(crate) fn connect_devices(update: &ClusterUpdate, this_id: &str) -> Vec<Conn
         .collect();
     sort_devices(&mut devices);
     devices
+}
+
+/// Ids go into the transfer endpoint's path, so a hostile one must never
+/// reach it; real ids are 40 hex characters.
+fn is_device_id(id: &str) -> bool {
+    crate::util::is_path_id(id, 128)
 }
 
 fn sort_devices(devices: &mut [ConnectDevice]) {
@@ -162,7 +169,7 @@ fn cluster_from_web_api(
         ..Default::default()
     };
     for device in listed.devices.into_iter().filter(|d| !d.is_restricted) {
-        let Some(id) = device.id.filter(|id| !id.is_empty()) else {
+        let Some(id) = device.id.filter(|id| is_device_id(id)) else {
             continue;
         };
         if device.is_active {
@@ -281,18 +288,36 @@ pub(crate) struct Listed {
 }
 
 impl Listed {
-    /// Calls `emit` unless a newer list was already reported. Holds the
-    /// report lock across `emit`, so `emit` must not report a list itself.
+    /// Calls `emit` unless a newer list was already reported. The report
+    /// lock is released first, so `emit` may call back into the list or
+    /// report again; two racing reports can then arrive out of order once.
     pub(crate) fn report(self, emit: impl FnOnce(Vec<ConnectDevice>)) {
-        let mut last = lock(&self.reported);
-        if self.version > *last {
-            *last = self.version;
+        let newer = {
+            let mut last = lock(&self.reported);
+            let newer = self.version > *last;
+            if newer {
+                *last = self.version;
+            }
+            newer
+        };
+        if newer {
             emit(self.devices);
         }
     }
 }
 
 impl DeviceList {
+    /// Stamp for `untouched_since`, taken before slow work.
+    pub(crate) fn stamp(&self) -> u64 {
+        self.version
+    }
+
+    /// True while nothing was listed or reported since `stamp`, so a slow
+    /// Web API answer cannot overwrite a cluster push that landed meanwhile.
+    pub(crate) fn untouched_since(&self, stamp: u64) -> bool {
+        self.version == stamp && self.devices.is_empty()
+    }
+
     /// Returns whether the list or the active device changed.
     pub(crate) fn update(&mut self, update: &ClusterUpdate, this_id: &str) -> bool {
         let devices = connect_devices(update, this_id);
@@ -373,6 +398,9 @@ pub(crate) async fn transfer(
         Transfer::Stay => return Ok(()),
         Transfer::ToThisMac => port.to_this_mac().map_err(failed)?,
         Transfer::Between { from, to } => {
+            if !is_device_id(&from) || !is_device_id(&to) {
+                return Err(failed("device id is not a plain identifier".to_owned()));
+            }
             port.between(&from, &to).await.map_err(failed)?;
             port.pause_local();
         }
@@ -572,6 +600,33 @@ mod tests {
         assert_eq!(transfer_plan(Some("phone"), "mac", "phone"), Transfer::Stay);
         assert_eq!(transfer_plan(Some("mac"), "mac", "mac"), Transfer::Stay);
     }
+
+    #[test]
+    fn only_plain_device_ids_are_listed() {
+        let hostile = [
+            "",
+            ".",
+            "..",
+            "x/../..",
+            "a?b",
+            "a%2f",
+            "a b",
+            &"f".repeat(129),
+        ];
+        let devices = hostile
+            .iter()
+            .copied()
+            .chain(["a0b1.c_d-e"])
+            .map(|id| (id, info(id, DeviceType::SPEAKER, 0)))
+            .collect();
+        let listed = connect_devices(&update(devices, ""), "mac");
+        let ids: Vec<_> = listed.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["a0b1.c_d-e"]);
+
+        let json = r#"{"devices":[{"id":"x/../..","name":"Evil","type":"Speaker"},{"id":"ok","name":"Ok","type":"Speaker"}]}"#;
+        let update = cluster_from_web_api(json.as_bytes(), b"", 0).unwrap();
+        assert_eq!(connect_devices(&update, "mac").len(), 1);
+    }
 }
 
 #[cfg(test)]
@@ -759,6 +814,43 @@ mod transfer_tests {
             .await
             .unwrap();
         assert!(port.calls().is_empty());
+    }
+
+    #[test]
+    fn a_push_during_a_slow_fetch_makes_the_fetched_list_stale() {
+        let mut list = DeviceList::default();
+        let stamp = list.stamp();
+        assert!(list.untouched_since(stamp));
+        list.devices.push(device("phone", "phone"));
+        let _ = list.changed();
+        assert!(!list.untouched_since(stamp));
+        list.clear();
+        assert!(
+            !list.untouched_since(stamp),
+            "a clear keeps the version bump"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hostile_active_device_id_never_reaches_the_transfer_path() {
+        let devices = list("x/../..");
+        let port = Port::default();
+        let result = transfer(&devices, "mac", "speaker".to_owned(), &port).await;
+        assert!(matches!(result, Err(ConnectError::Transfer { .. })));
+        assert!(port.calls().is_empty());
+    }
+
+    #[test]
+    fn a_report_may_call_back_into_the_list() {
+        let devices = list("phone");
+        let listed = lock(&devices).changed();
+        let seen = Mutex::new(false);
+        listed.report(|_| {
+            // A held report lock would deadlock the nested report.
+            let nested = lock(&devices).changed();
+            nested.report(|_| *seen.lock().unwrap() = true);
+        });
+        assert!(*seen.lock().unwrap());
     }
 
     #[test]

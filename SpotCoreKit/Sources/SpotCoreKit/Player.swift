@@ -101,6 +101,12 @@ public final class PlayerModel {
 
     /// What Veya last started playback from; the player itself doesn't report it.
     public private(set) var context: String?
+    /// Whether `context` is what the player holds now. The context outlives `.stopped`, which clears the
+    /// track, so a page whose list has finished plays from the top instead of resuming nothing.
+    public func isLoaded(context uri: String) -> Bool {
+        context == uri && nowPlaying != nil
+    }
+
     private(set) var positionMs: UInt32 = 0
     /// When `positionMs` was reported; playback has advanced since if playing.
     private(set) var positionAnchor = Date.distantPast
@@ -112,6 +118,7 @@ public final class PlayerModel {
     @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private let log: PlayerLog
     @ObservationIgnored private var events: Task<Void, Never>?
+    @ObservationIgnored private var unresolvedURI: String?
     @ObservationIgnored private(set) var resolution: Task<Void, Never>?
     @ObservationIgnored private(set) var unplayableResolution: Task<Void, Never>?
     /// What the player and engine were last given, so a change is sent once.
@@ -191,11 +198,19 @@ public final class PlayerModel {
     isolated deinit {
         events?.cancel()
         connectStart?.cancel()
-        if let connectDevice {
-            Task { await connectDevice.shutdown() }
-        }
+        shutDownConnectDevice()
         player.stopLocal()
     }
+
+    /// Once: sign-out does it at teardown, so a quick sign-in never meets the old device still advertised.
+    private func shutDownConnectDevice() {
+        guard let device = connectDevice else { return }
+        connectDevice = nil
+        Self.lastShutdown = Task { await device.shutdown() }
+    }
+
+    /// The latest unawaited device shutdown; the next player's Connect start waits on it.
+    private static var lastShutdown: Task<Void, Never>?
 
     /// Creates the session's player and applies its events until the model is released.
     /// `restoreToken` is the Web API token behind the launch restore.
@@ -224,7 +239,7 @@ public final class PlayerModel {
     }
 
     /// The speed the current item plays at.
-    var rate: Float {
+    public var rate: Float {
         settings.rate(for: nowPlaying?.uri ?? "")
     }
 
@@ -307,17 +322,18 @@ public final class PlayerModel {
 
     /// Plays the single item `uri`, such as an episode, from `startMs`.
     @discardableResult
-    public func play(_ uri: String, startingAt startMs: UInt32) -> Task<Void, Never> {
+    public func play(_ uri: String, startingAt startMs: UInt32) -> Task<Void, any Error> {
         let player = player
         return Task {
+            defer { refreshQueue() }
             do {
                 try await player.load(uri: uri, startMs: startMs, autoplay: true)
                 context = uri
             } catch {
                 // Type name only: messages may carry server text.
                 log(.warn, "Couldn't play: \(String(describing: type(of: error)))")
+                throw error
             }
-            refreshQueue()
         }
     }
 
@@ -401,6 +417,8 @@ public final class PlayerModel {
     /// commands a device it is controlling. Safe to repeat.
     public func teardown() {
         saveLastPlayback()
+        connectStart?.cancel()
+        shutDownConnectDevice()
         player.stopLocal()
         apply(.stopped)
     }
@@ -435,8 +453,10 @@ public final class PlayerModel {
     }
 
     public func seek(to positionMs: UInt32) {
-        player.seek(positionMs: positionMs)
-        report(positionMs)
+        // The core ignores a seek past the end, so the position shown must not run ahead of it.
+        let target = nowPlaying.map { $0.durationMs > 0 ? min(positionMs, $0.durationMs) : positionMs } ?? positionMs
+        player.seek(positionMs: target)
+        report(target)
     }
 
     public func setShuffle(_ on: Bool) {
@@ -575,6 +595,7 @@ public final class PlayerModel {
         let pending = connectStart
         connectStart = Task { [weak self] in
             await pending?.value
+            await Self.lastShutdown?.value
             guard let self, !Task.isCancelled else { return }
             await connectDevice?.shutdown()
             connectDevice = nil
@@ -658,7 +679,10 @@ public final class PlayerModel {
         let known = nowPlaying?.uri == uri ? nowPlaying : nil
         // A remote's cluster push names no title, so it must not blank one already resolved.
         let title = title.isEmpty ? known?.title ?? "" : title
-        guard known == nil || known?.title != title else { return }
+        guard known == nil || known?.title != title else {
+            retryFailedResolution(of: uri)
+            return
+        }
         nowPlaying = NowPlaying(
             uri: uri,
             title: title,
@@ -673,6 +697,13 @@ public final class PlayerModel {
         }
     }
 
+    /// The next event for an item whose lookup failed is the retry; one lookup at a time.
+    private func retryFailedResolution(of uri: String) {
+        guard unresolvedURI == uri else { return }
+        unresolvedURI = nil
+        resolution = Task { await resolve(uri) }
+    }
+
     private func resolve(_ uri: String) async {
         let item: MetadataItem
         do {
@@ -681,6 +712,7 @@ public final class PlayerModel {
         } catch {
             // Type name only: messages may carry server text.
             log(.warn, "Couldn't load now-playing metadata: \(String(describing: type(of: error)))")
+            unresolvedURI = uri
             return
         }
         guard var current = nowPlaying, current.uri == uri else { return }

@@ -30,6 +30,25 @@ struct CrashReportsTests {
         #expect(saved.isEmpty)
     }
 
+    @Test func aCrashUnansweredAtQuitAsksAgainOnRelaunchAndIsKeptOnYes() {
+        CrashReports(defaults: defaults, directory: directory).received(["first"])
+
+        let relaunched = CrashReports(defaults: defaults, directory: directory)
+        #expect(relaunched.asksForConsent)
+        relaunched.answer(keep: true)
+
+        #expect(saved == ["first"])
+        #expect(!CrashReports(defaults: defaults, directory: directory).asksForConsent)
+    }
+
+    @Test func decliningDiscardsTheUnansweredCrash() {
+        CrashReports(defaults: defaults, directory: directory).received(["first"])
+        CrashReports(defaults: defaults, directory: directory).answer(keep: false)
+
+        #expect(!CrashReports(defaults: defaults, directory: directory).asksForConsent)
+        #expect(saved.isEmpty)
+    }
+
     @Test func optingInKeepsTheCrashThatAskedAndLaterOnes() {
         let reports = CrashReports(defaults: defaults, directory: directory)
         reports.received(["first"])

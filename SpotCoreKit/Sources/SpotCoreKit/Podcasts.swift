@@ -68,13 +68,16 @@ public final class PodcastModel {
                 guard case let .show(show) = try await metadata.items(uris: [uri]).first else {
                     throw PodcastLoadError.notAShow
                 }
+                // Progress is fetched alongside the episodes' metadata, not after it.
+                let progressLookup = Task { try await progressProvider.progress(uris: show.episodes) }
+                defer { progressLookup.cancel() }
                 let episodes = try await metadata.items(uris: show.episodes)
                 guard mine == generation else { return }
                 self.show = show
                 self.episodes = episodes
                 state = .loaded
                 do {
-                    let found = try await progressProvider.progress(uris: show.episodes)
+                    let found = try await progressLookup.value
                     guard mine == generation else { return }
                     progress = Dictionary(found.map { ($0.uri, $0) }) { first, _ in first }
                 } catch {

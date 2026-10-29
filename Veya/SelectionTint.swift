@@ -1,5 +1,6 @@
 import AppKit
 import ObjectiveC
+import SpotCoreKit
 
 /// AppKit paints table and list selection, and the right-click outline, in the system accent,
 /// which SwiftUI's `tint` never reaches; this repaints both in `color`.
@@ -27,23 +28,33 @@ import ObjectiveC
     }
 
     private static let swapped: Void = {
-        swap(NSTableRowView.self, #selector(NSTableRowView.drawSelection(in:)), #selector(NSTableRowView.drawTintedSelection(in:)))
-        swap(NSTableView.self, Selector(("drawContextMenuHighlightForRow:")), #selector(NSTableView.drawTintedContextMenuHighlight(forRow:)))
-        swap(NSVisualEffectView.self, #selector(NSVisualEffectView.layout), #selector(NSVisualEffectView.layoutTinted))
-        swap(NSVisualEffectView.self, #selector(setter: NSVisualEffectView.isEmphasized), #selector(NSVisualEffectView.setTintedEmphasized(_:)))
-        // A press can select and emphasize a row without laying out its material view again.
-        swap(NSTableRowView.self, #selector(setter: NSTableRowView.isEmphasized), #selector(NSTableRowView.setTintedEmphasized(_:)))
-        swap(NSTableRowView.self, #selector(setter: NSTableRowView.isSelected), #selector(NSTableRowView.setTintedSelected(_:)))
+        let results = [
+            swap(NSTableRowView.self, #selector(NSTableRowView.drawSelection(in:)), #selector(NSTableRowView.drawTintedSelection(in:))),
+            swap(NSTableView.self, Selector(("drawContextMenuHighlightForRow:")), #selector(NSTableView.drawTintedContextMenuHighlight(forRow:))),
+            // Hooked on the row, not on NSVisualEffectView, so no other material in the app is touched.
+            swap(NSTableRowView.self, #selector(NSTableRowView.layout), #selector(NSTableRowView.layoutTinted)),
+            // A press can select and emphasize a row without laying out its material view again.
+            swap(NSTableRowView.self, #selector(setter: NSTableRowView.isEmphasized), #selector(NSTableRowView.setTintedEmphasized(_:))),
+            swap(NSTableRowView.self, #selector(setter: NSTableRowView.isSelected), #selector(NSTableRowView.setTintedSelected(_:))),
+        ]
+        let missing = results.compactMap(\.self)
+        guard !missing.isEmpty else { return }
+        // An OS update removed a selector; selection falls back to the system tint. Debug builds (and so the UI tests) trap.
+        let names = missing.map(NSStringFromSelector).joined(separator: ", ")
+        logMessage(level: .error, category: "selection-tint", message: "Selectors missing, tint not applied: \(names)")
+        assertionFailure("SelectionTint selectors missing: \(names)")
     }()
 
-    private static func swap(_ type: AnyClass, _ original: Selector, _ tinted: Selector) {
-        guard let originalMethod = class_getInstanceMethod(type, original), let tintedMethod = class_getInstanceMethod(type, tinted) else { return }
+    /// Returns the original selector when the class lacks it or the repaint, `nil` once swapped.
+    private static func swap(_ type: AnyClass, _ original: Selector, _ tinted: Selector) -> Selector? {
+        guard let originalMethod = class_getInstanceMethod(type, original), let tintedMethod = class_getInstanceMethod(type, tinted) else { return original }
         // An inherited method is added to `type` first, so the exchange never reaches the superclass.
         if class_addMethod(type, original, method_getImplementation(tintedMethod), method_getTypeEncoding(tintedMethod)) {
             class_replaceMethod(type, tinted, method_getImplementation(originalMethod), method_getTypeEncoding(originalMethod))
         } else {
             method_exchangeImplementations(originalMethod, tintedMethod)
         }
+        return nil
     }
 
     /// Recolors only the pixels AppKit just drew in `rect`; what lies behind is clear.
@@ -67,6 +78,11 @@ private extension NSTableRowView {
 }
 
 private extension NSTableRowView {
+    @objc func layoutTinted() {
+        layoutTinted()
+        tintSelectionMaterial()
+    }
+
     @objc func setTintedEmphasized(_ emphasized: Bool) {
         setTintedEmphasized(emphasized)
         tintSelectionMaterial()
@@ -96,16 +112,6 @@ private extension NSTableView {
 
 private extension NSVisualEffectView {
     private static let tintName = "veyaSelectionTint"
-
-    @objc func layoutTinted() {
-        layoutTinted()
-        applyTint()
-    }
-
-    @objc func setTintedEmphasized(_ emphasized: Bool) {
-        setTintedEmphasized(emphasized)
-        applyTint()
-    }
 
     /// Covers the material with the tint, solid while the list has focus and a wash otherwise: a click or
     /// press on the sidebar never focuses it, so it would only ever show the platform gray.

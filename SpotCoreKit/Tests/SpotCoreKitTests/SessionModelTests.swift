@@ -229,7 +229,7 @@ struct SessionModelTests {
         connector.setPremium(.success(false))
         await model.connect(tokens: tokens).value
 
-        try model.signOut()
+        try await model.signOut()
 
         #expect(model.state == .signedOut)
     }

@@ -42,7 +42,7 @@ private final class CollectingSink: LogSink {
         let crashes = FileManager.default.temporaryDirectory.appending(path: "Crashes-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: crashes, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: crashes) }
-        try Data("{}".utf8).write(to: crashes.appending(path: "1.json"))
+        try Data(#"{"m": "access_token=crashsecret"}"#.utf8).write(to: crashes.appending(path: "1.json"))
 
         let zip = try DiagnosticsArchive.make(named: "Veya Diagnostics", appVersion: "1.0 (1)", crashReports: crashes)
         defer { try? FileManager.default.removeItem(at: zip.deletingLastPathComponent()) }
@@ -54,6 +54,13 @@ private final class CollectingSink: LogSink {
         let logs = try run("/usr/bin/unzip", "-p", zip.path, "Veya Diagnostics/logs.txt")
         #expect(logs.contains("access_token=<redacted>"))
         #expect(!logs.contains("secret123"))
+        let crash = try run("/usr/bin/unzip", "-p", zip.path, "Veya Diagnostics/Crashes/1.json")
+        #expect(!crash.contains("crashsecret"), "crash reports are redacted again at export")
+    }
+
+    @Test(arguments: ["", ".", "..", "../x", "a/b", "/etc"])
+    func archiveRejectsNamesThatCouldEscapeTheTemporaryFolder(name: String) {
+        #expect(throws: (any Error).self) { try DiagnosticsArchive.make(named: name, appVersion: "1") }
     }
 
     @Test func subsystemPerCrateAndLevelMapping() {

@@ -7,6 +7,7 @@
 //! librespot fixes the limit when a cache opens and a session keeps its
 //! cache for life, so a new limit takes effect once sessions reconnect.
 
+use crate::util::lock;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -42,6 +43,7 @@ pub struct AudioCache {
     /// Replaced by `set_limit_bytes`; sessions hold clones of the old one
     /// until they reconnect.
     cache: Mutex<Cache>,
+    limit_bytes: Mutex<u64>,
     directory: PathBuf,
 }
 
@@ -54,7 +56,11 @@ impl AudioCache {
     pub fn new(directory: String, limit_bytes: u64) -> Result<Arc<Self>, CacheError> {
         let directory = PathBuf::from(directory);
         let cache = Mutex::new(open(&directory, limit_bytes)?);
-        Ok(Arc::new(Self { cache, directory }))
+        Ok(Arc::new(Self {
+            cache,
+            limit_bytes: Mutex::new(limit_bytes),
+            directory,
+        }))
     }
 
     /// Evicts least recently used files down to `limit_bytes` now, and
@@ -62,7 +68,13 @@ impl AudioCache {
     /// moves the current one over.
     pub fn set_limit_bytes(&self, limit_bytes: u64) -> Result<(), CacheError> {
         let mut cache = self.lock();
+        let mut current = lock(&self.limit_bytes);
+        // Reopening forks the size accounting from clones sessions still hold.
+        if *current == limit_bytes {
+            return Ok(());
+        }
         *cache = open(&self.directory, limit_bytes)?;
+        *current = limit_bytes;
         Ok(())
     }
 
@@ -105,6 +117,7 @@ impl AudioCache {
 
 /// Scans `directory` and evicts by access time down to `limit_bytes`.
 fn open(directory: &Path, limit_bytes: u64) -> Result<Cache, CacheError> {
+    crate::util::create_private_dir(directory)?;
     Ok(Cache::new(None, None, Some(directory), Some(limit_bytes))?)
 }
 
@@ -151,6 +164,17 @@ mod tests {
 
     fn open_at(dir: &Path, limit: u64) -> Arc<AudioCache> {
         AudioCache::new(dir.to_str().unwrap().to_owned(), limit).unwrap()
+    }
+
+    #[test]
+    fn a_new_cache_directory_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("private").join("audio");
+        open_at(&dir, 1_000);
+        assert_eq!(
+            fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 
     #[test]

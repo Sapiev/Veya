@@ -110,7 +110,7 @@ public final class SearchModel {
     /// Whether "See all" can load more of `kind`.
     public func hasMore(_ kind: SearchKind) -> Bool {
         guard let group = groups.first(where: { $0.kind == kind }) else { return false }
-        return group.offset + UInt32(group.hits.count) < group.total
+        return group.resumeOffset < group.total
     }
 
     /// Appends the next page of `kind`; a no-op while one is already loading.
@@ -122,7 +122,7 @@ public final class SearchModel {
         guard hasMore(kind), let group = groups.first(where: { $0.kind == kind }) else { return nil }
         let query = query
         let mine = generation
-        let offset = group.offset + UInt32(group.hits.count)
+        let offset = group.resumeOffset
         let task = Task { [limit] in
             defer {
                 if mine == generation {
@@ -134,11 +134,12 @@ public final class SearchModel {
             }
             guard mine == generation, let page,
                   let index = groups.firstIndex(where: { $0.kind == kind }),
-                  groups[index].offset + UInt32(groups[index].hits.count) == offset
+                  groups[index].resumeOffset == offset
             else { return }
             groups[index].hits += page.hits
+            groups[index].nextOffset = page.nextOffset
             // An empty page means the server's total overcounted.
-            groups[index].total = page.hits.isEmpty ? offset : max(page.total, offset + UInt32(page.hits.count))
+            groups[index].total = page.hits.isEmpty ? offset : max(page.total, page.nextOffset != 0 ? page.nextOffset : offset + UInt32(page.hits.count))
         }
         pages[kind] = task
         return task
@@ -186,5 +187,12 @@ public final class SearchModel {
         case .Request: "Request"
         case .Malformed: "Malformed"
         }
+    }
+}
+
+private extension SearchGroup {
+    /// The server's next offset when the core reports one (it skips unparseable hits), else after the hits we hold.
+    var resumeOffset: UInt32 {
+        nextOffset != 0 ? nextOffset : offset + UInt32(hits.count)
     }
 }

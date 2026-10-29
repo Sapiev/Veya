@@ -149,7 +149,7 @@ struct ArtistPage: View {
                     let following = library.isSaved(artist.uri)
                     Button(following ? "Following" : "Follow") { library.setSaved(artist.uri, !following) }
                         .buttonStyle(PillStyle(isOn: following))
-                        .accessibilityValue(following ? Text("On") : Text("Off"))
+                        .accessibilityAddTraits(following ? .isSelected : [])
                 }
                 VStack(alignment: .leading, spacing: 28) {
                     if !artist.topTracks.isEmpty {
@@ -341,6 +341,8 @@ struct PlaylistDetailsSheet: View {
     @State private var draftName = ""
     @State private var draftDescription = ""
     @State private var photo: Data?
+    /// Decoded once per choice; the body runs on every keystroke in the fields.
+    @State private var photoPreview: NSImage?
     @Environment(\.choosePhoto) private var choosePhoto
     @Environment(\.dismiss) private var dismiss
 
@@ -352,8 +354,8 @@ struct PlaylistDetailsSheet: View {
             if let artwork {
                 HStack(spacing: Theme.s4) {
                     Group {
-                        if let image = photo.flatMap(NSImage.init(data:)) {
-                            Image(nsImage: image).resizable().scaledToFill()
+                        if let photoPreview {
+                            Image(nsImage: photoPreview).resizable().scaledToFill()
                         } else {
                             ArtworkView(artwork: artwork, side: 64)
                         }
@@ -364,8 +366,9 @@ struct PlaylistDetailsSheet: View {
                     Button("Choose Photo…") {
                         Task {
                             guard let url = await choosePhoto() else { return }
-                            // An unreadable file goes on as empty data, which the model reports as not an image.
-                            photo = (try? Data(contentsOf: url)) ?? Data()
+                            let data = await Task.detached { Self.readPhoto(at: url) }.value
+                            photo = data
+                            photoPreview = NSImage(data: data)
                         }
                     }
                 }
@@ -396,6 +399,16 @@ struct PlaylistDetailsSheet: View {
             draftName = name
             draftDescription = description
         }
+    }
+
+    /// Larger than this is no playlist photo; the model re-encodes what is left to its upload limit.
+    private static let maxPhotoBytes = 25 * 1024 * 1024
+
+    /// An unreadable or oversized file goes on as empty data, which the model reports as not an image.
+    private nonisolated static func readPhoto(at url: URL) -> Data {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= maxPhotoBytes else { return Data() }
+        return (try? Data(contentsOf: url)) ?? Data()
     }
 
     private func confirmSheet(_ name: String) {
@@ -604,7 +617,7 @@ private struct PageActions<Extra: View>: View {
         HStack(spacing: Theme.s4) {
             Group {
                 PlayFab(label: pagePlaying ? "Pause" : "Play", large: true, systemImage: pagePlaying ? "pause.fill" : "play.fill") {
-                    if pagePlaying || player?.context == context {
+                    if pagePlaying || player?.isLoaded(context: context) == true {
                         player?.togglePlayPause()
                     } else {
                         player?.play(uris, from: 0, context: context, inContextOrder: true)
@@ -647,7 +660,8 @@ private struct IconButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(isOn == true ? AnyShapeStyle(Color(palette.tintText)) : hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         .accessibilityLabel(Text(label))
-        .accessibilityValue(isOn.map { $0 ? Text("On") : Text("Off") } ?? Text(verbatim: ""))
+        // The label already names the state ("Save to Library", "Remove from Library"); a value would repeat it.
+        .accessibilityAddTraits(isOn == true ? .isSelected : [])
         .help(Text(label))
         .onHover { hovering = $0 }
         .animation(Theme.fast, value: hovering)
@@ -757,6 +771,7 @@ private struct TopTrackRow: View {
         }
         .buttonStyle(.plain)
         .opacity(playability == .playable ? 1 : 0.45)
+        .unavailableValue(playability != .playable)
         .help(playability.unavailableHelp ?? "")
         .onHover { hovering = $0 }
     }

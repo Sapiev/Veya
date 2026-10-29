@@ -32,7 +32,7 @@ struct AppDependencies {
             }
         #endif
         let metadataStore = openMetadataStore()
-        deleteSharedClientRefreshToken()
+        deleteSharedClientRefreshToken(defaults: .standard)
         return AppDependencies(
             store: KeychainCredentialStore(
                 service: Bundle.main.bundleIdentifier ?? "Veya",
@@ -51,14 +51,25 @@ struct AppDependencies {
     }
 
     /// Builds before PBI-309 kept the shared client ID's refresh token for the
-    /// Web API, which is rate limited there. Deleting a missing item succeeds,
-    /// so this runs at every launch until it once gets through.
-    private static func deleteSharedClientRefreshToken() {
-        let legacy = KeychainCredentialStore(service: Bundle.main.bundleIdentifier ?? "Veya", account: "spotify-refresh-token")
-        do {
-            try legacy.delete()
-        } catch {
-            Logger(subsystem: "veya", category: "session").error("stale refresh token not deleted: \(error)")
+    /// Web API, which is rate limited there. Runs off the main thread until one
+    /// delete gets through (a missing item counts), then never again.
+    private static func deleteSharedClientRefreshToken(defaults: UserDefaults) {
+        let doneKey = "legacyRefreshTokenDeleted"
+        guard !defaults.bool(forKey: doneKey) else { return }
+        Task {
+            let deleted = await Task.detached(priority: .utility) {
+                let legacy = KeychainCredentialStore(service: Bundle.main.bundleIdentifier ?? "Veya", account: "spotify-refresh-token")
+                do {
+                    try legacy.delete()
+                    return true
+                } catch {
+                    Logger(subsystem: "veya", category: "session").error("stale refresh token not deleted: \(error)")
+                    return false
+                }
+            }.value
+            if deleted {
+                defaults.set(true, forKey: doneKey)
+            }
         }
     }
 

@@ -43,7 +43,13 @@ enum Diagnostics {
 
     static let crashReportsDirectory = URL.libraryDirectory.appending(path: "Logs/Veya/Crashes", directoryHint: .isDirectory)
 
-    static func export(crashReports: URL) async {
+    /// A second Export Diagnostics while the first runs would stack save panels and archives.
+    @MainActor private static var isExporting = false
+
+    @MainActor static func export(crashReports: URL) async {
+        guard !isExporting else { return }
+        isExporting = true
+        defer { isExporting = false }
         let localDay = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
         let name = "Veya Diagnostics \(Date.now.formatted(localDay))"
         let panel = NSSavePanel()

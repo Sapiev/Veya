@@ -44,7 +44,8 @@ struct QueuePanel: View {
         .accessibilityLabel("Queue Panel")
         .accessibilityIdentifier("queue")
         // Track list rows drag their URIs.
-        .dropDestination(for: String.self) { uris, _ in
+        .dropDestination(for: String.self) { dropped, _ in
+            let uris = dropped.compactMap(SpotifyLink.queueableURI)
             guard let player, !uris.isEmpty else { return false }
             player.addToQueue(uris)
             return true

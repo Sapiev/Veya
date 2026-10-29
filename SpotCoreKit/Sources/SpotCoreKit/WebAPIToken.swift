@@ -90,7 +90,12 @@ public actor WebAPITokenProvider {
         do {
             tokens = try await refresher.refresh(clientID: clientID, refreshToken: refreshToken)
         } catch AuthError.RefreshRejected {
-            try replace(refreshToken, with: nil)
+            // A Keychain failure must not hide that Spotify rejected the token.
+            do {
+                try replace(refreshToken, with: nil)
+            } catch {
+                logMessage(level: .warn, category: "webapi", message: "Couldn't delete the rejected refresh token: \(error)")
+            }
             throw WebAPITokenError.rejected
         }
         // Spotify may already have revoked the old token, so persist the rotated one first.

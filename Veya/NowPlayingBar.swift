@@ -392,9 +392,9 @@ struct Scrubber: View {
                 .monospacedDigit()
             } else {
                 HStack(spacing: Theme.s2) {
-                    elapsed.frame(width: 40, alignment: .trailing)
+                    elapsed.frame(minWidth: 40, alignment: .trailing).fixedSize(horizontal: true, vertical: false)
                     slider
-                    Text(Self.format(duration)).frame(width: 40, alignment: .leading)
+                    Text(Self.format(duration)).frame(minWidth: 40, alignment: .leading).fixedSize(horizontal: true, vertical: false)
                 }
                 .scaledFont(size: 11)
                 .monospacedDigit()
@@ -408,7 +408,7 @@ struct Scrubber: View {
             guard player.isPlaying, dragged == nil else { return }
             repeat {
                 now = .now
-            } while await (try? Task.sleep(for: .milliseconds(1000 - player.position(at: now) % 1000))) != nil
+            } while await (try? Task.sleep(for: .milliseconds(Double(1000 - player.position(at: now) % 1000) / Double(max(player.rate, 0.1))))) != nil
         }
     }
 

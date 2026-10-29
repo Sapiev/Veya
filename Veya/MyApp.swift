@@ -41,7 +41,8 @@ import SwiftUI
         let session = SessionModel(
             store: dependencies.store,
             refreshTokenStore: dependencies.refreshTokenStore,
-            connector: dependencies.connector
+            connector: dependencies.connector,
+            forgetPlayback: { settings.lastPlayback = nil }
         )
         session.restore()
         let webAPI = WebAPIConnection(
@@ -194,6 +195,8 @@ private struct QuitCommand: Commands {
             Button("Quit Veya") {
                 AppDelegate.quitRequested = true
                 NSApp.terminate(nil)
+                // Only reached when something cancelled the quit.
+                AppDelegate.quitRequested = false
             }
             .keyboardShortcut("q")
         }
@@ -228,9 +231,7 @@ private struct AccountCommands: Commands {
         }
     }
 
-    /// The saved playback is cleared after the player's teardown saved it; another account may sign in next.
-    static func signOut(_ session: SessionModel, settings: PlaybackSettings, failed: Binding<Bool>) {
+    static func signOut(_ session: SessionModel, settings _: PlaybackSettings, failed: Binding<Bool>) {
         session.signOut { failed.wrappedValue = true }
-        settings.lastPlayback = nil
     }
 }

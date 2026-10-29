@@ -28,7 +28,10 @@ struct ArtworkView: View {
         // Every cover sits beside its title, so VoiceOver skips it.
         .accessibilityHidden(true)
         .task(id: [artwork.first?.url, String(pixels)]) {
-            image = await loader?.image(for: artwork, pixels: pixels)
+            let loaded = await loader?.image(for: artwork, pixels: pixels)
+            // A cancelled load must not paint a cover the view no longer shows.
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
     }
 }

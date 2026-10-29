@@ -179,6 +179,7 @@ struct AdaptiveColors: ViewModifier {
     @Environment(\.artworkLoader) private var loader
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var colors: (accent: RGB, dominant: RGB)?
     /// How far the cycle has turned the accent's hue, in turns of the wheel.
     @State private var turns = 0.0
@@ -203,19 +204,18 @@ struct AdaptiveColors: ViewModifier {
             }
             // Cycle steps blend into each other, so the hue never stops moving.
             .animation(reduceMotion ? nil : cycling ? .linear(duration: 1) : Theme.themeChange, value: palette)
-            .task(id: cycling ? cycleSeconds : nil) {
-                guard cycling, cycleSeconds > 0 else { return }
+            // Paused while the app is in the background, so a hidden window does not relayout every second.
+            .task(id: cycling && scenePhase == .active ? cycleSeconds : nil) {
+                guard cycling, scenePhase == .active, cycleSeconds > 0 else { return }
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     turns = (turns + 1 / cycleSeconds).truncatingRemainder(dividingBy: 1)
                 }
             }
             .task(id: artwork.first?.url) {
-                guard let image = await loader?.image(for: artwork, pixels: 64) else {
-                    colors = nil
-                    return
-                }
-                colors = ArtworkColors.extract(from: image)
+                let image = await loader?.image(for: artwork, pixels: 64)
+                guard !Task.isCancelled else { return }
+                colors = image.flatMap(ArtworkColors.extract(from:))
             }
     }
 }
@@ -309,6 +309,7 @@ struct PlayFab: View {
     var systemImage = "play.fill"
     let action: () -> Void
     @Environment(\.palette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
 
     var body: some View {
@@ -319,7 +320,7 @@ struct PlayFab: View {
                 .frame(width: large ? 56 : 44, height: large ? 56 : 44)
                 .background(Color(palette.tint), in: .circle)
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 6)
-                .scaleEffect(hovering ? 1.05 : 1)
+                .scaleEffect(hovering && !reduceMotion ? 1.05 : 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(label))
@@ -416,6 +417,17 @@ private struct AccentForeground<Fallback: ShapeStyle>: ViewModifier {
             content.foregroundStyle(Color(palette.tintText))
         } else {
             content.foregroundStyle(fallback)
+        }
+    }
+}
+
+extension View {
+    /// Dimmed unplayable rows also say so to VoiceOver; playable ones get no value at all, which keeps their text elements as they were.
+    @ViewBuilder func unavailableValue(_ unavailable: Bool) -> some View {
+        if unavailable {
+            accessibilityValue(Text("Unavailable"))
+        } else {
+            self
         }
     }
 }

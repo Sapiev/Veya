@@ -119,8 +119,13 @@ fingerprint() {
     } | shasum | cut -d' ' -f1
 }
 FINGERPRINT="$(fingerprint)"
-if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$FINGERPRINT" \
-      && -d "$XCFRAMEWORK" && -f "$SWIFT_OUT" ]]; then
+# The stamp is "<fingerprint> <digest of the outputs>", so a hand-edited or damaged output rebuilds.
+output_digest() {
+    { find "$XCFRAMEWORK" -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum; shasum < "$SWIFT_OUT"; } \
+        | shasum | cut -d' ' -f1
+}
+if [[ -f "$STAMP" && -d "$XCFRAMEWORK" && -f "$SWIFT_OUT" \
+      && "$(cat "$STAMP")" == "$FINGERPRINT $(output_digest)" ]]; then
     echo "spotcore unchanged, skipping Rust build"
     exit 0
 fi
@@ -129,11 +134,11 @@ rm -f "$STAMP"
 # rustup resolves core/rust-toolchain.toml from the cwd, and bindgen's
 # `cargo metadata` needs the workspace as cwd.
 cd "$CORE"
-# CI must build the shipped library from exactly the committed Cargo.lock.
-LOCKED=()
-[[ -n "${CI:-}" ]] && LOCKED=(--locked)
+# Always build from exactly the committed Cargo.lock.
+# Remapped prefixes keep the build machine's home and toolchain paths out of the binary.
+REMAP="--remap-path-prefix=$CORE=/core --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$HOME=/home"
 for target in "${TARGETS[@]}"; do
-    clean_env cargo build ${LOCKED[@]+"${LOCKED[@]}"} -p spotcore \
+    clean_env RUSTFLAGS="$REMAP" cargo build --locked -p spotcore \
         --target "$target" --profile "$CARGO_PROFILE"
 done
 
@@ -148,7 +153,7 @@ for target in "${TARGETS[@]}"; do
 done
 clean_env lipo -create -output "$STAGING/libspotcore.a" "${SLICES[@]}"
 
-clean_env cargo run ${LOCKED[@]+"${LOCKED[@]}"} --quiet -p uniffi-bindgen -- \
+clean_env RUSTFLAGS="$REMAP" cargo run --locked --quiet -p uniffi-bindgen -- \
     generate --library "$CORE/target/${TARGETS[0]}/$PROFILE/libspotcore.a" \
     --language swift --out-dir "$STAGING/swift"
 
@@ -174,5 +179,5 @@ if ! cmp -s "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"; then
     mv "$STAGING/swift/spotcore.swift" "$SWIFT_OUT"
 fi
 rm -rf "$STAGING"
-echo "$FINGERPRINT" > "$STAMP"
+echo "$FINGERPRINT $(output_digest)" > "$STAMP"
 echo "built $XCFRAMEWORK ($PROFILE)"

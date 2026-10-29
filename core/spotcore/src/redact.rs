@@ -21,7 +21,13 @@ static RULES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+", "$1 <redacted>"),
         (
-            r#"(?i)("?\b(?:access_token|refresh_token|auth_token|client_secret|password|auth_data|auth_blob|blob|client_?key|code_verifier|username|user_name)\b"?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|\[[^\]\n]*\]|[^\s,;&)}\]]+)"#,
+            r#"(?i)("?\b(?:access_token|refresh_token|auth_token|client_secret|password|auth_data|auth_blob|blob|client_?key|code_verifier|username|user_name|client_?token|client-token|set-cookie|cookie)\b"?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|\[[^\]\n]*\]|[^\s,;&)}\]]+)"#,
+            "${1}<redacted>",
+        ),
+        // Signed CDN URLs carry their credentials in the query string
+        // (`__token__=exp=..~hmac=..`, `Signature=..&AccessKeyId=..`).
+        (
+            r#"(?i)([?&](?:__token__|token|hmac|signature|sig|expires|policy|key-pair-id|accesskeyid|x-amz-[a-z0-9-]+)=)[^&\s#"']+"#,
             "${1}<redacted>",
         ),
         // OAuth callback and PKCE parameters; a bare `code` key is too common
@@ -58,6 +64,11 @@ static OPAQUE_TOKEN: LazyLock<Regex> =
 /// A run with `/` is a path unless every long segment holds a digit or `+`;
 /// random base64 almost always does, words like `Frameworks` never do.
 fn is_base64_blob(run: &str) -> bool {
+    // A CDN path ends in a hex file id (`.../audio/<40 hex>`), which holds digits too.
+    let last = run.rsplit('/').next().unwrap_or_default();
+    if run.contains('/') && last.len() >= 32 && last.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return false;
+    }
     run.split('/')
         .filter(|segment| segment.len() >= 8)
         .all(|segment| segment.bytes().any(|b| b.is_ascii_digit() || b == b'+'))
@@ -239,6 +250,75 @@ mod tests {
         let line = "Loading <spotify:track:4uLU6hMCjMI75M1A2tKUQC> file 0123456789abcdef0123456789abcdef01234567 \
                     from /Applications/Veya.app/Contents/Frameworks/SomeVeryLongFrameworkName/Versions/A";
         assert_eq!(r(line), line);
+    }
+
+    #[test]
+    fn scrubs_signed_cdn_query_strings() {
+        let cases = [
+            (
+                "GET https://audio-ak.spotifycdn.com/audio/abc?__token__=exp=1700000000~hmac=deadbeef",
+                "GET https://audio-ak.spotifycdn.com/audio/abc?__token__=<redacted>",
+            ),
+            (
+                "https://x.akamaized.net/f?Signature=AbC123&AccessKeyId=AKIA1&Expires=99&keep=1",
+                "https://x.akamaized.net/f?Signature=<redacted>&AccessKeyId=<redacted>&Expires=<redacted>&keep=1",
+            ),
+            (
+                "?X-Amz-Credential=a%2Fb&X-Amz-Signature=ff",
+                "?X-Amz-Credential=<redacted>&X-Amz-Signature=<redacted>",
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(r(input), expected, "input: {input}");
+            assert_eq!(r(expected), expected);
+        }
+    }
+
+    #[test]
+    fn scrubs_cookies_and_short_client_tokens_in_debug_headers() {
+        assert_eq!(
+            r(r#"Error was: {"set-cookie": "sp_t=abc123; Path=/", "content-type": "text/plain"}"#),
+            r#"Error was: {"set-cookie": <redacted>, "content-type": "text/plain"}"#
+        );
+        assert_eq!(r("client-token: AAAAbbbb1234"), "client-token: <redacted>");
+        assert_eq!(r("clienttoken=short"), "clienttoken=<redacted>");
+    }
+
+    #[test]
+    fn cdn_paths_with_a_file_id_stay_readable() {
+        let line = "Fetching https://audio-ak.akamaized.net/audio/0123456789abcdef0123456789abcdef01234567 ok";
+        assert_eq!(r(line), line);
+    }
+
+    #[test]
+    fn short_and_empty_secrets() {
+        let mut secrets = Vec::new();
+        add_secret("");
+        add_secret("  ab ");
+        assert!(
+            SECRETS
+                .read()
+                .unwrap()
+                .iter()
+                .all(|s| s.len() >= MIN_SECRET_LEN)
+        );
+        // The shortest accepted secret also rewrites ordinary words around it.
+        secrets.push("act".to_owned());
+        assert_eq!(redact_with("exact", &secrets), "ex<redacted>");
+        assert_eq!(redact_with("no match here", &secrets), "no match here");
+        assert_eq!(redact_with("", &secrets), "");
+    }
+
+    #[test]
+    fn long_legitimate_ids_survive_the_blob_heuristic() {
+        let ids = [
+            "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+            "0123456789abcdef0123456789abcdef01234567",
+            "/Applications/Veya.app/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate",
+        ];
+        for id in ids {
+            assert_eq!(r(id), id);
+        }
     }
 
     #[test]

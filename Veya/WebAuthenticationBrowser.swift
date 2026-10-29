@@ -12,6 +12,8 @@ final class WebAuthenticationBrowser: NSObject, SignInBrowser {
     private final class Presentation {
         var session: ASWebAuthenticationSession?
         var continuation: CheckedContinuation<SignInBrowserResult, Never>?
+        /// A cancel that lands before the session starts must still stop it from starting.
+        var cancelled = false
 
         func resume(_ result: SignInBrowserResult) {
             continuation?.resume(returning: result)
@@ -19,6 +21,7 @@ final class WebAuthenticationBrowser: NSObject, SignInBrowser {
         }
 
         func close() {
+            cancelled = true
             resume(.closed)
             session?.cancel()
         }
@@ -30,6 +33,7 @@ final class WebAuthenticationBrowser: NSObject, SignInBrowser {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 presentation.continuation = continuation
+                guard !presentation.cancelled else { return presentation.resume(.closed) }
                 // A close() from us resumes first, so a late canceledLogin here is ignored.
                 // @Sendable: AuthenticationServices calls this off the main thread, and the
                 // default MainActor isolation would otherwise trap on its executor check.
@@ -41,7 +45,8 @@ final class WebAuthenticationBrowser: NSObject, SignInBrowser {
                     Task { @MainActor in presentation.resume(dismissed ? .dismissedByUser : .unavailable) }
                 }
                 session.presentationContextProvider = self
-                session.prefersEphemeralWebBrowserSession = false
+                // A shared Mac must not sign the next person in as this account through the browser's cookies.
+                session.prefersEphemeralWebBrowserSession = true
                 presentation.session = session
                 if !session.start() {
                     presentation.resume(.unavailable)

@@ -8,12 +8,15 @@ use librespot_core::SpotifyUri;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
 
-use crate::account::web_api_client;
+use crate::account::{MAX_BODY_BYTES, read_capped, web_api_client};
 use crate::metadata::{Artwork, ArtworkSize};
 
 const SEARCH_URL: &str = "https://api.spotify.com/v1/search";
 /// Development-mode apps get HTTP 400 above 10 results per type.
 const MAX_LIMIT: u32 = 10;
+/// The Web API refuses longer queries and offsets past 1000.
+const MAX_QUERY_CHARS: usize = 250;
+const MAX_OFFSET: u32 = 1000;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum SearchError {
@@ -117,6 +120,11 @@ pub struct SearchGroup {
     pub total: u32,
     pub offset: u32,
     pub hits: Vec<SearchHit>,
+    /// Where the next page starts: `offset` plus every item the server sent,
+    /// also the ones dropped as null or unparseable, which `hits` omits.
+    /// 0 from a caller that does not know it; then use `offset + hits.len()`.
+    #[uniffi(default = 0)]
+    pub next_offset: u32,
 }
 
 /// One per access token; the token needs no scope.
@@ -142,7 +150,9 @@ impl SearchService {
         let body = self
             .get(&endpoint(&self.base, &query, &SearchKind::ALL, 0, limit))
             .await?;
-        groups_of(&body, &SearchKind::ALL, 0)
+        let mut groups = groups_of(&body, &SearchKind::ALL, 0)?;
+        groups.retain(|group| !group.hits.is_empty());
+        Ok(groups)
     }
 
     /// One "See all" page of a single group.
@@ -158,6 +168,7 @@ impl SearchService {
             total: 0,
             offset,
             hits: Vec::new(),
+            next_offset: offset,
         };
         if query.trim().is_empty() {
             return Ok(empty);
@@ -189,7 +200,12 @@ impl SearchService {
         if let Some(error) = status_error(response.status().as_u16()) {
             return Err(error);
         }
-        Ok(response.bytes().await.map_err(network)?.to_vec())
+        read_capped(response, MAX_BODY_BYTES, network, || {
+            SearchError::Malformed {
+                message: "response too large".to_owned(),
+            }
+        })
+        .await
     }
 }
 
@@ -214,11 +230,13 @@ fn network(error: reqwest::Error) -> SearchError {
 /// The query is percent-encoded since it lands in the query string.
 fn endpoint(base: &str, query: &str, kinds: &[SearchKind], offset: u32, limit: u32) -> String {
     let types: Vec<&str> = kinds.iter().map(|k| k.filter()).collect();
+    let clipped: String = query.trim().chars().take(MAX_QUERY_CHARS).collect();
     format!(
-        "{base}?q={}&type={}&limit={}&offset={offset}",
-        utf8_percent_encode(query.trim(), NON_ALPHANUMERIC),
+        "{base}?q={}&type={}&limit={}&offset={}",
+        utf8_percent_encode(&clipped, NON_ALPHANUMERIC),
         types.join(","),
         limit.clamp(1, MAX_LIMIT),
+        offset.min(MAX_OFFSET),
     )
 }
 
@@ -289,18 +307,20 @@ fn groups_of(
         .iter()
         .filter_map(|&kind| {
             let group = Group::deserialize(response.get(kind.key())?).ok()?;
+            let sent = u32::try_from(group.items.len()).unwrap_or(u32::MAX);
             let hits: Vec<SearchHit> = group
                 .items
                 .into_iter()
                 .filter_map(|value| hit_of(kind, Item::deserialize(value).ok()?))
                 .collect();
-            (!hits.is_empty()).then_some(SearchGroup {
+            (sent > 0).then_some(SearchGroup {
                 kind,
                 total: group
                     .total
                     .max(offset.saturating_add(u32::try_from(hits.len()).unwrap_or(u32::MAX))),
                 offset,
                 hits,
+                next_offset: offset.saturating_add(sent),
             })
         })
         .collect())
@@ -344,7 +364,7 @@ fn hit_of(kind: SearchKind, item: Item) -> Option<SearchHit> {
 fn artwork(images: Vec<Image>) -> Vec<Artwork> {
     let mut artwork: Vec<Artwork> = images
         .into_iter()
-        .filter(|i| i.url.starts_with("https://"))
+        .filter(|i| crate::util::is_artwork_url(&i.url))
         .map(|i| Artwork {
             url: i.url,
             size: ArtworkSize::Default,
@@ -398,6 +418,27 @@ mod tests {
           ]}}
         }}"#
         )
+    }
+
+    #[test]
+    fn dropped_hits_still_advance_the_next_page() {
+        let body = format!(
+            r#"{{"playlists": {{"total": 90, "items": [null, null, {{"uri": "{PLAYLIST}", "name": "Mix"}}]}}}}"#
+        );
+        let groups = groups_of(body.as_bytes(), &[SearchKind::Playlist], 20).unwrap();
+        assert_eq!((groups[0].hits.len(), groups[0].next_offset), (1, 23));
+
+        let all_null = br#"{"playlists": {"total": 90, "items": [null, null]}}"#;
+        let groups = groups_of(all_null, &[SearchKind::Playlist], 20).unwrap();
+        assert_eq!((groups[0].hits.len(), groups[0].next_offset), (0, 22));
+    }
+
+    #[test]
+    fn long_queries_and_deep_offsets_are_clamped() {
+        let query = "a".repeat(400);
+        let url = endpoint("https://x", &query, &[SearchKind::Track], 5000, 10);
+        assert!(url.contains(&format!("q={}&", "a".repeat(250))));
+        assert!(url.ends_with("&offset=1000"));
     }
 
     #[test]

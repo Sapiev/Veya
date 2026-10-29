@@ -122,6 +122,7 @@ struct MenuBarLabel: View {
     @State private var step = 0
 
     var body: some View {
+        let isPlaying = activeSession.scope?.player?.isPlaying == true
         if showsTitle, let title = activeSession.scope?.player?.nowPlaying?.title {
             Group {
                 if reduceMotion || title.count <= Self.width {
@@ -130,8 +131,8 @@ struct MenuBarLabel: View {
                     // A sleeping task, not a TimelineView: the status item rebuilds its label on
                     // every change, which restarts a TimelineView and refires it without pause.
                     Text(Self.marquee(title, step: step))
-                        .task(id: title) {
-                            while await (try? Task.sleep(for: .milliseconds(300))) != nil {
+                        .task(id: [title, String(isPlaying)]) {
+                            while isPlaying, await (try? Task.sleep(for: .milliseconds(300))) != nil {
                                 step += 1
                             }
                         }

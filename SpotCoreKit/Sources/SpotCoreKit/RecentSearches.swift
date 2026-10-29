@@ -8,19 +8,29 @@ public final class RecentSearches {
     public private(set) var queries: [String]
 
     public static let limit = 6
+    public static let maxLength = 100
 
     @ObservationIgnored private let defaults: UserDefaults
     private static let key = "recentSearches"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        queries = defaults.stringArray(forKey: Self.key) ?? []
+        queries = (defaults.stringArray(forKey: Self.key) ?? []).compactMap(Self.normalised).prefix(Self.limit).map(\.self)
+    }
+
+    /// A pasted link keeps no query string (it can carry a `si=` share id); long text is cut.
+    static func normalised(_ query: String) -> String? {
+        var text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.contains("://"), let mark = text.firstIndex(of: "?") {
+            text = String(text[..<mark])
+        }
+        text = String(text.prefix(maxLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     /// Moves `query` to the front, matching earlier entries case-insensitively.
     public func add(_ query: String) {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard let trimmed = Self.normalised(query) else { return }
         queries.removeAll { $0.caseInsensitiveCompare(trimmed) == .orderedSame }
         queries.insert(trimmed, at: 0)
         queries = Array(queries.prefix(Self.limit))

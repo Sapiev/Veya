@@ -474,6 +474,9 @@ private struct WebAPISection: View {
         if webAPI.saveFailed {
             return "Couldn't save the connection in the Keychain."
         }
+        if webAPI.disconnectFailed {
+            return "Couldn't remove the connection from the Keychain."
+        }
         if !trimmed.isEmpty, !WebAPIConnection.isValid(clientID: trimmed) {
             return "A Client ID is 32 letters and digits (0-9, a-f)."
         }

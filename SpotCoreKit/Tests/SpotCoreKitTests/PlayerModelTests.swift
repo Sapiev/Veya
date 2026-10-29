@@ -272,6 +272,38 @@ struct PlayerModelTests {
         #expect(player.position(at: .distantFuture) == 5000)
     }
 
+    @Test func aContextIsNoLongerLoadedOnceTheListHasStopped() {
+        let player = model()
+        player.play([trackURI], from: 0, context: "spotify:playlist:1")
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10000))
+        #expect(player.isLoaded(context: "spotify:playlist:1"))
+        player.apply(.stopped)
+        #expect(!player.isLoaded(context: "spotify:playlist:1"))
+        #expect(player.context == "spotify:playlist:1")
+    }
+
+    @Test func seekPastTheEndStopsAtTheDuration() {
+        let fake = FakePlayer()
+        let player = model(fake)
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 10000))
+        player.seek(to: 99000)
+        #expect(fake.recorded == ["seek 10000"])
+        #expect(player.position(at: .distantFuture) == 10000)
+    }
+
+    @Test func nowPlayingMetadataLoadsOnTheNextEventAfterAFailure() async {
+        let metadata = StubMetadata([trackItem])
+        metadata.failNext(1)
+        let player = model(metadata: metadata)
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+        await player.resolution?.value
+        #expect(player.nowPlaying?.artists.isEmpty == true)
+
+        player.apply(.trackChanged(uri: trackURI, name: "Song", durationMs: 200_000))
+        await player.resolution?.value
+        #expect(player.nowPlaying?.artists.isEmpty == false)
+    }
+
     @Test func togglePlayPauseFollowsTheReportedState() {
         let fake = FakePlayer()
         let player = model(fake)
@@ -676,7 +708,7 @@ struct PlayerModelTests {
     @Test func playOneItemLoadsItFromTheStartPositionAsTheContext() async {
         let fake = FakePlayer()
         let player = model(fake)
-        await player.play(episodeURI, startingAt: 90000).value
+        try? await player.play(episodeURI, startingAt: 90000).value
         #expect(fake.recorded == ["load \(episodeURI) 90000"])
         #expect(player.context == episodeURI)
     }
@@ -684,7 +716,7 @@ struct PlayerModelTests {
     @Test func playOneItemThatFailsToLoadKeepsTheContext() async {
         let player = model(FakePlayer(failsLoad: true))
         player.play(["a"], from: 0, context: "spotify:playlist:1")
-        await player.play(episodeURI, startingAt: 0).value
+        await #expect(throws: (any Error).self) { try await player.play(episodeURI, startingAt: 0).value }
         #expect(player.context == "spotify:playlist:1")
     }
 

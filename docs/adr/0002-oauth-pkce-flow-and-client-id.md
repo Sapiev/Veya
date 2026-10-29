@@ -64,6 +64,10 @@ Options considered:
 - The default Client ID is the shared keymaster ID on port 8898. The ID and
   port travel through `OAuthConfig`, so a user-supplied ID can be added in
   Settings later without touching the flow.
+- Risk note: the keymaster ID is public, not a secret, but it belongs to
+  librespot, not Veya. Spotify can revoke it or object to its use under their
+  terms, which would break sign-in for every user of the default ID. The
+  Settings override for a user-supplied ID is the mitigation.
 - Scopes are the minimum for streaming, library and playlist read/modify,
   plus `user-read-private` for the Premium and region check (PBI-105):
   `streaming`, `user-read-private`, `user-library-read`,

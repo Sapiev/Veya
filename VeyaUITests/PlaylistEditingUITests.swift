@@ -195,7 +195,7 @@ final class PlaylistEditingUITests: XCTestCase {
 }
 
 @MainActor
-private extension XCUIApplication {
+extension XCUIApplication {
     /// Waits until the track list shows exactly `titles`, in order.
     func waitForSongs(_ titles: [String]) -> Bool {
         let deadline = Date().addingTimeInterval(Self.timeout)
