@@ -245,7 +245,7 @@ fn push_new(list: &mut Vec<String>, uri: Option<String>) {
 
 pub(crate) fn canonical(uri: &str, accept: fn(&SpotifyUri) -> bool) -> Option<String> {
     let parsed = SpotifyUri::from_uri(uri).ok().filter(accept)?;
-    parsed.to_uri().ok()
+    Some(parsed.to_uri())
 }
 
 fn is_track(uri: &SpotifyUri) -> bool {

@@ -190,7 +190,7 @@ private struct PopUpVolume<Button: View, Slider: View>: View {
             .task(id: overButton || overSlider) {
                 if overButton || overSlider {
                     shown = true
-                } else if await (try? Task.sleep(for: .milliseconds(300))) != nil {
+                } else if await (try? Task.sleep(for: .milliseconds(600))) != nil {
                     // The grace period lets the pointer cross from the button to the popover.
                     shown = false
                 }

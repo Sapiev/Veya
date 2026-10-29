@@ -23,12 +23,13 @@ Security and reliability fixes from an audit of the app, the Rust core and the r
 - The sign-in log shows the port the listener actually bound.
 - Devices are listed from the Web API until the first Connect cluster push.
 - Title and artist lines in Now Playing no longer collapse or blank.
+- The volume pop-up stays open longer while the pointer crosses to it, so slow pointer movement no longer closes it.
 
 ### Changed
 
 - The theme cycle pauses while the app is inactive.
 - Podcast episode progress pages load concurrently.
-- Dependencies updated: rustls, time and other Cargo crates.
+- Dependencies updated: rustls, time and other Cargo crates, and librespot to its latest upstream.
 
 ## [1.1.0] - 2026-10-24
 
