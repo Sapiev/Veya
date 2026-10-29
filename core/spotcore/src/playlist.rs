@@ -30,6 +30,8 @@ use crate::store::MetadataStore;
 use crate::util::{blocking, lock};
 
 const ROOTLIST_PAGE: usize = 120;
+/// Far above any real library; stops a server that never ends the list.
+const ROOTLIST_MAX_ITEMS: usize = 20_000;
 const PUSH_URI: &str = "hm://playlist/";
 const PLAYLIST_PREFIX: &str = "spotify:playlist:";
 const IMAGE_UPLOAD_URL: &str = "https://image-upload.spotify.com/v4/playlist";
@@ -546,17 +548,51 @@ async fn raw_rootlist(session: &Session) -> Result<RawRootlist, PlaylistError> {
         let received = contents.items.len();
         let mut page_metas = contents.meta_items;
         page_metas.resize_with(received, MetaItem::default);
+        let step = rootlist_step(&raw.items, &contents.items, total);
         raw.items.extend(contents.items);
         raw.metas.extend(page_metas);
-        if received == 0 || raw.items.len() >= total {
-            break;
+        match step {
+            RootlistStep::More => {}
+            RootlistStep::Done => break,
+            RootlistStep::Runaway => {
+                return Err(PlaylistError::Request {
+                    message: "the root list never ended".to_owned(),
+                });
+            }
         }
     }
     Ok(raw)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RootlistStep {
+    More,
+    Done,
+    Runaway,
+}
+
+/// What to do after `page` joined `have`, given the server's `total`: a
+/// page that repeats the last one or a list past the cap is a server loop.
+fn rootlist_step(have: &[Item], page: &[Item], total: usize) -> RootlistStep {
+    if page.is_empty() || have.len() + page.len() >= total {
+        return RootlistStep::Done;
+    }
+    if have.ends_with(page) || have.len() + page.len() > ROOTLIST_MAX_ITEMS {
+        return RootlistStep::Runaway;
+    }
+    RootlistStep::More
+}
+
+/// The username comes from the login response, so it is escaped for the path.
+fn rootlist_changes_path(username: &str) -> String {
+    format!(
+        "/playlist/v2/user/{}/rootlist/changes",
+        utf8_percent_encode(username, NON_ALPHANUMERIC)
+    )
+}
+
 async fn send_rootlist(session: &Session, revision: Vec<u8>, op: Op) -> Result<(), PlaylistError> {
-    let endpoint = format!("/playlist/v2/user/{}/rootlist/changes", session.username());
+    let endpoint = rootlist_changes_path(&session.username());
     spclient_post(session, &endpoint, changes(revision, op).write_to_bytes()?).await?;
     Ok(())
 }
@@ -955,10 +991,7 @@ async fn get(session: &Session, endpoint: &str) -> Result<Vec<u8>, PlaylistError
 
 /// Usernames land in a path; real ones are ids or legacy names of these characters.
 fn is_username(owner: &str) -> bool {
-    !owner.is_empty()
-        && owner
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    crate::util::is_path_id(owner, 128)
 }
 
 /// The `name` of a `user-profile-view` response, when present and not blank.
@@ -1039,7 +1072,7 @@ fn profile_of(
 
 /// Only web images load; profiles also carry `spotify:` image URIs.
 fn profile_artwork(url: Option<String>) -> Vec<Artwork> {
-    url.filter(|url| url.starts_with("https://"))
+    url.filter(|url| crate::util::is_artwork_url(url))
         .map(|url| Artwork {
             url,
             size: ArtworkSize::Default,
@@ -1151,7 +1184,7 @@ fn artwork(
     .into_iter()
     .filter_map(|(target, size)| {
         let found = sizes.iter().find(|s| s.target_name() == target)?;
-        Some(Artwork {
+        crate::util::is_artwork_url(found.url()).then_some(Artwork {
             url: found.url().to_owned(),
             size,
             width: 0,
@@ -1162,8 +1195,12 @@ fn artwork(
     if !sized.is_empty() || picture.is_empty() {
         return sized;
     }
+    let url = image_url.replace("{file_id}", &hex(picture));
+    if !crate::util::is_artwork_url(&url) {
+        return Vec::new();
+    }
     vec![Artwork {
-        url: image_url.replace("{file_id}", &hex(picture)),
+        url,
         size: ArtworkSize::Default,
         width: 0,
         height: 0,
@@ -1174,9 +1211,10 @@ fn change_of(push_uri: &str) -> Option<PlaylistChange> {
     let path = push_uri.strip_prefix("hm://playlist/v2/")?;
     if let Some(id) = path.strip_prefix("playlist/") {
         let id = id.split(['/', '?']).next().unwrap_or_default();
-        return (!id.is_empty()).then(|| PlaylistChange::Playlist {
-            uri: format!("{PLAYLIST_PREFIX}{id}"),
-        });
+        let uri = format!("{PLAYLIST_PREFIX}{id}");
+        return playlist_id(&uri)
+            .is_ok()
+            .then_some(PlaylistChange::Playlist { uri });
     }
     (path.starts_with("user/") && path.ends_with("/rootlist")).then_some(PlaylistChange::Rootlist)
 }
@@ -1341,10 +1379,10 @@ mod tests {
     fn artwork_prefers_sized_urls_then_picture_id() {
         let mut large = PictureSize::new();
         large.set_target_name("large".into());
-        large.set_url("https://mosaic/640".into());
+        large.set_url("https://mosaic.scdn.co/640".into());
         let mut small = PictureSize::new();
         small.set_target_name("small".into());
-        small.set_url("https://mosaic/60".into());
+        small.set_url("https://mosaic.scdn.co/60".into());
         let sized = artwork(&[0xff], &[large, small], "u/{file_id}");
         assert_eq!(
             sized
@@ -1352,11 +1390,20 @@ mod tests {
                 .map(|a| (a.url.as_str(), a.size))
                 .collect::<Vec<_>>(),
             vec![
-                ("https://mosaic/60", ArtworkSize::Small),
-                ("https://mosaic/640", ArtworkSize::Large)
+                ("https://mosaic.scdn.co/60", ArtworkSize::Small),
+                ("https://mosaic.scdn.co/640", ArtworkSize::Large)
             ]
         );
-        assert_eq!(artwork(&[0x0f, 0xa0], &[], "u/{file_id}")[0].url, "u/0fa0");
+        let template = "https://i.scdn.co/image/{file_id}";
+        assert_eq!(
+            artwork(&[0x0f, 0xa0], &[], template)[0].url,
+            "https://i.scdn.co/image/0fa0"
+        );
+        let mut foreign = PictureSize::new();
+        foreign.set_target_name("small".into());
+        foreign.set_url("https://evil.example/x".into());
+        assert!(artwork(&[], &[foreign], template).is_empty());
+        assert!(artwork(&[0x0f], &[], "https://evil.example/{file_id}").is_empty());
     }
 
     #[test]
@@ -1386,6 +1433,16 @@ mod tests {
             change_of("hm://playlist/v2/user/me/rootlist"),
             Some(PlaylistChange::Rootlist)
         );
+        for hostile in [
+            "",
+            "x",
+            "../..",
+            "37i9dQZF1DXcBWIGoYBM5%",
+            &format!("{ID}x"),
+        ] {
+            let uri = format!("hm://playlist/v2/playlist/{hostile}");
+            assert_eq!(change_of(&uri), None, "{hostile}");
+        }
         assert_eq!(change_of("hm://playlist/v2/other"), None);
         assert_eq!(change_of("hm://collection/x"), None);
     }
@@ -1450,11 +1507,50 @@ mod tests {
     }
 
     #[test]
+    fn a_rootlist_that_never_ends_stops_paging() {
+        let page = [item("spotify:playlist:a"), item("spotify:playlist:b")];
+        let other = [item("spotify:playlist:c")];
+        assert_eq!(rootlist_step(&[], &page, 5), RootlistStep::More);
+        assert_eq!(rootlist_step(&page, &other, 5), RootlistStep::More);
+        assert_eq!(rootlist_step(&page, &other, 3), RootlistStep::Done);
+        assert_eq!(rootlist_step(&page, &[], 99), RootlistStep::Done);
+        assert_eq!(rootlist_step(&page, &page, 99), RootlistStep::Runaway);
+        let full = vec![item("spotify:playlist:x"); ROOTLIST_MAX_ITEMS];
+        assert_eq!(
+            rootlist_step(&full, &other, usize::MAX),
+            RootlistStep::Runaway
+        );
+    }
+
+    #[test]
+    fn the_username_is_escaped_in_the_rootlist_path() {
+        assert_eq!(
+            rootlist_changes_path("alice.99"),
+            "/playlist/v2/user/alice%2E99/rootlist/changes"
+        );
+        assert_eq!(
+            rootlist_changes_path("../x?y"),
+            "/playlist/v2/user/%2E%2E%2Fx%3Fy/rootlist/changes"
+        );
+    }
+
+    #[test]
     fn only_plain_usernames_are_looked_up() {
         for owner in ["31abcdefghijklmnopqrstuvwxyz", "spotify", "first.last_1-2"] {
             assert!(is_username(owner), "{owner}");
         }
-        for owner in ["", "../me", "a/b", "a?b=c", "a b", "jos\u{e9}"] {
+        for owner in [
+            "",
+            ".",
+            "..",
+            "...",
+            "../me",
+            "a/b",
+            "a?b=c",
+            "a b",
+            "jos\u{e9}",
+            &"a".repeat(129),
+        ] {
             assert!(!is_username(owner), "{owner}");
         }
     }

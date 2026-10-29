@@ -7,7 +7,7 @@
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, Write};
-use std::os::unix::fs::FileExt;
+use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -286,7 +286,7 @@ struct FileState {
 
 impl LogFile {
     fn open(dir: PathBuf, now: OffsetDateTime) -> std::io::Result<Self> {
-        fs::create_dir_all(&dir)?;
+        crate::util::create_private_dir(&dir)?;
         // Best effort: an undeletable old file must not disable file logging.
         let _ = prune(&dir, now.date());
         Ok(Self {
@@ -316,6 +316,7 @@ impl LogFile {
                 .create(true)
                 .read(true)
                 .append(true)
+                .mode(0o600)
                 .open(day_path(&self.dir, now.date()))?;
             state.bytes = file.metadata()?.len();
             // Terminate a line torn by a crash so the next record parses.
@@ -406,7 +407,19 @@ fn prune(dir: &Path, today: Date) -> std::io::Result<()> {
 /// cut short by a crash) are skipped. Re-redacts line by line, to catch
 /// secrets registered after the line was written.
 fn read_recent(dir: &Path, since: OffsetDateTime) -> std::io::Result<String> {
-    let mut out = String::new();
+    read_recent_capped(dir, since, MAX_RECENT_BYTES)
+}
+
+/// Export size limit; the newest lines are kept.
+const MAX_RECENT_BYTES: usize = 4 * 1024 * 1024;
+
+fn read_recent_capped(
+    dir: &Path,
+    since: OffsetDateTime,
+    max_bytes: usize,
+) -> std::io::Result<String> {
+    let mut lines = std::collections::VecDeque::new();
+    let mut bytes = 0;
     for (day, path) in log_files(dir)? {
         if day < since.date() {
             continue;
@@ -421,12 +434,16 @@ fn read_recent(dir: &Path, since: OffsetDateTime) -> std::io::Result<String> {
             let line = String::from_utf8_lossy(&line);
             let ts = line.split('\t').next().unwrap_or_default();
             if OffsetDateTime::parse(ts, &Rfc3339).is_ok_and(|t| t >= since) {
-                out.push_str(&redact(&line));
-                out.push('\n');
+                let line = redact(&line) + "\n";
+                bytes += line.len();
+                lines.push_back(line);
+                while bytes > max_bytes {
+                    bytes -= lines.pop_front().map_or(0, |dropped| dropped.len());
+                }
             }
         }
     }
-    Ok(out)
+    Ok(lines.into_iter().collect::<String>())
 }
 
 fn internal(e: impl std::fmt::Display) -> SpotCoreError {
@@ -533,6 +550,24 @@ mod tests {
     }
 
     #[test]
+    fn log_files_and_new_directories_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new("private");
+        let nested = dir.0.join("a").join("logs");
+        let config = LoggingConfig {
+            log_dir: Some(nested.to_str().unwrap().to_owned()),
+            max_level: LogLevel::Info,
+        };
+        let sink = Arc::new(CollectingSink::default());
+        let now = datetime!(2026-10-08 12:00 UTC);
+        let p = Pipeline::new(config, Some(sink), now).unwrap();
+        emit(&p, log::Level::Info, "veya", "hello", now);
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&nested), 0o700);
+        assert_eq!(mode(&nested.join("veya-2026-10-08.log")), 0o600);
+    }
+
+    #[test]
     fn trace_is_never_enabled_and_dependencies_stop_at_info() {
         let dir = TempDir::new("levels");
         let sink = Arc::new(CollectingSink::default());
@@ -566,6 +601,26 @@ mod tests {
             format_line(&entry, datetime!(2026-10-08 12:00 UTC)),
             "2026-10-08T12:00:00Z\tWARN\tveya/ui\ta\\nb\\r\\nc\n"
         );
+    }
+
+    #[test]
+    fn recent_logs_keep_only_the_newest_lines_within_the_cap() {
+        let dir = TempDir::new("recent-cap");
+        let p = pipeline(&dir, LogLevel::Info, Arc::new(CollectingSink::default()));
+        let since = datetime!(2026-10-08 0:00 UTC);
+        for minute in 0..5 {
+            emit(
+                &p,
+                log::Level::Info,
+                "spotcore",
+                &format!("line {minute}"),
+                since + time::Duration::minutes(minute),
+            );
+        }
+        let line_len = read_recent_capped(&dir.0, since, usize::MAX).unwrap().len() / 5;
+        let kept = read_recent_capped(&dir.0, since, line_len * 2).unwrap();
+        assert_eq!(kept.lines().count(), 2);
+        assert!(kept.contains("line 4") && kept.contains("line 3") && !kept.contains("line 2"));
     }
 
     #[test]

@@ -103,17 +103,22 @@ impl MetadataStore {
 impl MetadataStore {
     fn open_at(path: &Path, busy_timeout: Duration) -> Result<Arc<Self>, CacheError> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::util::create_private_dir(parent)?;
         }
         let connection = match connect(path, busy_timeout) {
             Ok(connection) => connection,
             Err(OpenError::Unusable(reason)) => {
                 warn!("metadata store unusable, recreating: {reason}");
-                remove_database(path)?;
+                set_aside(path)?;
                 connect(path, busy_timeout)?
             }
             Err(OpenError::Failed(e)) => return Err(e),
         };
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_owned();
+            file.push(suffix);
+            crate::util::make_private(Path::new(&file));
+        }
         Ok(Arc::new(Self {
             connection: Mutex::new(connection),
             generation: AtomicU64::new(0),
@@ -154,7 +159,7 @@ impl MetadataStore {
             tx.execute(
                 "INSERT OR REPLACE INTO library_set (username, name, sync_token, body)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![username, name, sync_token, encode(body)],
+                params![username, name, sync_token, encode(body)?],
             )
             .map(drop)
         });
@@ -195,7 +200,7 @@ impl MetadataStore {
                 "INSERT OR REPLACE INTO metadata_item (uri, body, fetched_at) VALUES (?1, ?2, ?3)",
             )?;
             for (uri, item) in items {
-                statement.execute(params![uri, encode(item), fetched_at])?;
+                statement.execute(params![uri, encode(item)?, fetched_at])?;
             }
             Ok(())
         });
@@ -218,7 +223,7 @@ impl MetadataStore {
         self.write(generation, |tx| {
             tx.execute(
                 "INSERT OR REPLACE INTO rootlist (username, body) VALUES (?1, ?2)",
-                params![username, encode(body)],
+                params![username, encode(body)?],
             )
             .map(drop)
         });
@@ -281,13 +286,13 @@ impl MetadataStore {
             }
             tx.execute(
                 "INSERT OR REPLACE INTO playlist (uri, revision, body) VALUES (?1, ?2, ?3)",
-                params![uri, revision, encode(attributes)],
+                params![uri, revision, encode(attributes)?],
             )?;
             let mut statement = tx.prepare_cached(
                 "INSERT OR REPLACE INTO playlist_track (uri, position, body) VALUES (?1, ?2, ?3)",
             )?;
             for (position, track) in (offset..).zip(tracks) {
-                statement.execute(params![uri, position, encode(track)])?;
+                statement.execute(params![uri, position, encode(track)?])?;
             }
             Ok(())
         });
@@ -372,13 +377,17 @@ fn connect(path: &Path, busy_timeout: Duration) -> Result<Connection, OpenError>
 /// version and a concurrent opener waits instead of migrating twice. A
 /// current database takes no write lock.
 fn migrate(connection: &mut Connection) -> Result<(), OpenError> {
-    let latest = MIGRATIONS.len() as u32;
+    migrate_with(connection, MIGRATIONS)
+}
+
+fn migrate_with(connection: &mut Connection, migrations: &[&str]) -> Result<(), OpenError> {
+    let latest = migrations.len() as u32;
     if checked_version(connection, latest)? == latest {
         return Ok(());
     }
     let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let version = checked_version(&tx, latest)?;
-    for migration in &MIGRATIONS[version as usize..] {
+    for migration in &migrations[version as usize..] {
         tx.execute_batch(migration)?;
     }
     tx.pragma_update(None, "user_version", latest)?;
@@ -396,6 +405,18 @@ fn checked_version(connection: &Connection, latest: u32) -> Result<u32, OpenErro
     Ok(version)
 }
 
+/// Keeps the unusable database as `<name>.bak` (replacing an older one), so a
+/// downgrade or a bad build does not lose the only copy of the cache.
+fn set_aside(path: &Path) -> std::io::Result<()> {
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(".bak");
+    match fs::rename(path, &backup) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    remove_database(path)
+}
+
 fn remove_database(path: &Path) -> std::io::Result<()> {
     for suffix in ["", "-wal", "-shm"] {
         let mut file = path.as_os_str().to_owned();
@@ -408,8 +429,9 @@ fn remove_database(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn encode<T: Serialize>(value: &T) -> String {
-    serde_json::to_string(value).expect("cached records serialize")
+/// An error rolls the write back instead of panicking across the FFI.
+fn encode<T: Serialize>(value: &T) -> rusqlite::Result<String> {
+    serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
 
 /// A body from an older layout of the same schema version reads as a miss.
@@ -458,6 +480,63 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_store_is_owner_only_even_when_an_older_version_left_it_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = temp_path("private");
+        let store = open(&path);
+        drop(store);
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(path.parent().unwrap()), 0o700);
+        assert_eq!(mode(&path), 0o600);
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        drop(open(&path));
+        assert_eq!(mode(&path), 0o600);
+    }
+
+    #[test]
+    fn an_upgrade_from_an_older_version_keeps_its_data() {
+        let mut db = Connection::open_in_memory().unwrap();
+        let v1 = "CREATE TABLE t (x TEXT);";
+        assert!(migrate_with(&mut db, &[v1]).is_ok());
+        db.execute("INSERT INTO t VALUES ('kept')", []).unwrap();
+
+        let v2 = "ALTER TABLE t ADD COLUMN y TEXT DEFAULT 'new';";
+        assert!(migrate_with(&mut db, &[v1, v2]).is_ok());
+        let row: (String, String) = db
+            .query_row("SELECT x, y FROM t", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(row, ("kept".to_owned(), "new".to_owned()));
+        let version: u32 = db
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        assert!(migrate_with(&mut db, &[v1, v2]).is_ok(), "idempotent");
+    }
+
+    #[test]
+    fn a_failing_migration_step_leaves_the_old_version_and_data() {
+        let mut db = Connection::open_in_memory().unwrap();
+        let v1 = "CREATE TABLE t (x TEXT);";
+        assert!(migrate_with(&mut db, &[v1]).is_ok());
+        db.execute("INSERT INTO t VALUES ('kept')", []).unwrap();
+
+        let good = "ALTER TABLE t ADD COLUMN y TEXT;";
+        let bad = "ALTER TABLE missing ADD COLUMN z TEXT;";
+        assert!(migrate_with(&mut db, &[v1, good, bad]).is_err());
+        let version: u32 = db
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 1, "all or nothing");
+        let columns: i64 = db
+            .query_row("SELECT count(*) FROM pragma_table_info('t')", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(columns, 1, "the earlier step was rolled back too");
+    }
+
+    #[test]
     fn newer_schema_is_recreated_empty() {
         let path = temp_path("newer");
         let store = open(&path);
@@ -471,6 +550,18 @@ pub(crate) mod tests {
         let store = open(&path);
         assert_eq!(store.rootlist::<i32>("u"), None);
         assert_eq!(user_version(&path), MIGRATIONS.len() as i64);
+        let backup = path.with_extension("sqlite.bak");
+        assert_eq!(user_version(&backup), 99, "the newer database is kept");
+    }
+
+    #[test]
+    fn a_record_that_cannot_serialize_fails_the_write_without_panicking() {
+        use std::collections::BTreeMap;
+        let store = temp_store("unserializable");
+        // JSON object keys must be strings.
+        let body = BTreeMap::from([((1, 2), 3)]);
+        store.put_library_set(store.generation(), "u", "tracks", "t", &body);
+        assert!(store.library_set::<i32>("u", "tracks").is_none());
     }
 
     /// A raw connection holding the write lock on a WAL database at

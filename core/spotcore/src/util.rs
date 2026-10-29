@@ -19,6 +19,50 @@ pub(crate) fn unix_now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
+/// An id safe to put in a URL path segment unescaped: ASCII letters, digits,
+/// `.`, `_` and `-`, at most `max` bytes, and not `.` or `..`.
+pub(crate) fn is_path_id(id: &str, max: usize) -> bool {
+    (1..=max).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        && id.bytes().any(|b| b != b'.')
+}
+
+/// Creates `dir` and missing parents owner-only (0700), which shields the
+/// files in it that other code creates with the default umask. An existing
+/// directory keeps its mode.
+pub(crate) fn create_private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+}
+
+/// Best effort: tightens a file an earlier version created with the umask.
+pub(crate) fn make_private(file: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600));
+}
+
+/// Artwork loads only from Spotify's image CDNs over https, whatever URL a
+/// server response or template supplies.
+pub(crate) fn is_artwork_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    // Userinfo or a port makes the host ambiguous; real CDN URLs have neither.
+    if authority.contains(['@', ':']) {
+        return false;
+    }
+    let host = authority.to_ascii_lowercase();
+    ["scdn.co", "spotifycdn.com"]
+        .iter()
+        .any(|domain| host.strip_suffix(domain).is_some_and(|h| h.ends_with('.')))
+}
+
 pub(crate) fn canonical(uri: &SpotifyUri) -> String {
     uri.to_uri().unwrap_or_else(|_| "<unprintable>".to_owned())
 }
@@ -89,6 +133,50 @@ impl<T: Send + Sync + 'static> Drop for OffRuntime<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artwork_urls_must_be_https_on_spotify_cdns() {
+        for ok in [
+            "https://i.scdn.co/image/ab67616d",
+            "https://mosaic.scdn.co/640/x",
+            "https://image-cdn-ak.spotifycdn.com/image/x?y=1",
+        ] {
+            assert!(is_artwork_url(ok), "{ok}");
+        }
+        for bad in [
+            "http://i.scdn.co/image/x",
+            "https://scdn.co.evil.com/x",
+            "https://evilscdn.co/x",
+            "https://i.scdn.co@evil.com/x",
+            "https://i.scdn.co:8443/x",
+            "https://evil.com/i.scdn.co/x",
+            "https://scdn.co/x",
+            "spotify:image:abc",
+            "",
+        ] {
+            assert!(!is_artwork_url(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn path_ids_reject_traversal_and_oversize() {
+        for ok in ["a", "A-b_c.d", &"x".repeat(128)] {
+            assert!(is_path_id(ok, 128), "{ok}");
+        }
+        for bad in [
+            "",
+            ".",
+            "..",
+            "...",
+            "a/b",
+            "a?b",
+            "a%2f",
+            "a b",
+            &"x".repeat(129),
+        ] {
+            assert!(!is_path_id(bad, 128), "{bad}");
+        }
+    }
 
     #[test]
     fn lock_recovers_a_poisoned_mutex() {

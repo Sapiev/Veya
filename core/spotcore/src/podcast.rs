@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::account::web_api_client;
+use crate::account::{MAX_BODY_BYTES, read_capped, web_api_client};
 
 const EPISODES_URL: &str = "https://api.spotify.com/v1/episodes";
 /// The Web API's per-request limit for `ids`.
@@ -36,14 +36,15 @@ pub struct EpisodeProgress {
 
 #[derive(Deserialize)]
 struct Episodes {
-    episodes: Vec<Option<Episode>>,
+    /// Parsed one by one: a malformed entry must not fail the batch.
+    episodes: Vec<serde_json::Value>,
 }
 
 /// Only the id and resume point are read.
 #[derive(Deserialize)]
 struct Episode {
     id: String,
-    resume_point: Option<ResumePoint>,
+    resume_point: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -67,10 +68,11 @@ async fn episode_progress_at(
     access_token: &str,
     uris: &[String],
 ) -> Result<Vec<EpisodeProgress>, PodcastError> {
-    let ids = uris
+    // One hostile or stale URI must not hide the progress of the others.
+    let (uris, ids): (Vec<&String>, Vec<&str>) = uris
         .iter()
-        .map(|uri| episode_id(uri).ok_or_else(|| PodcastError::InvalidUri { uri: uri.clone() }))
-        .collect::<Result<Vec<_>, _>>()?;
+        .filter_map(|uri| episode_id(uri).map(|id| (uri, id)))
+        .unzip();
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -89,19 +91,40 @@ async fn episode_progress_at(
             403 => return Err(PodcastError::MissingScope),
             status => return Err(PodcastError::Request { status }),
         }
-        let body = response.bytes().await.map_err(network)?;
+        let body = read_capped(response, MAX_BODY_BYTES, network, || {
+            PodcastError::Malformed {
+                message: "response too large".to_owned(),
+            }
+        })
+        .await?;
         let page: Episodes =
             serde_json::from_slice(&body).map_err(|e| PodcastError::Malformed {
                 message: e.to_string(),
             })?;
-        for episode in page.episodes.into_iter().flatten() {
-            // Spotify omits the resume point when the token lacks the scope.
-            let point = episode.resume_point.ok_or(PodcastError::MissingScope)?;
-            found.insert(episode.id, point);
+        let mut without_point = 0;
+        let mut listed = 0;
+        for value in page.episodes {
+            let Ok(Some(episode)) = Option::<Episode>::deserialize(value) else {
+                continue;
+            };
+            listed += 1;
+            match episode
+                .resume_point
+                .and_then(|p| ResumePoint::deserialize(p).ok())
+            {
+                Some(point) => {
+                    found.insert(episode.id, point);
+                }
+                None => without_point += 1,
+            }
+        }
+        // Spotify omits every resume point when the token lacks the scope.
+        if listed > 0 && without_point == listed {
+            return Err(PodcastError::MissingScope);
         }
     }
     Ok(uris
-        .iter()
+        .into_iter()
         .zip(ids)
         .filter_map(|(uri, id)| {
             found.get(id).map(|point| EpisodeProgress {
@@ -244,17 +267,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_non_episode_uris_before_any_request() {
+    async fn bad_uris_and_malformed_entries_skip_only_themselves() {
+        let body = format!(
+            r#"{{"episodes":[{},{{"id":"x","resume_point":{{"resume_position_ms":null}}}},{{"id":5}},{}]}}"#,
+            episode(A, 7, false),
+            r#"{"id":"4rOoJ6Egrf8K2IrywzwOMk","name":"no point"}"#,
+        );
+        let (base, _server) = fake_web_api(vec![("200 OK", body)]).await;
+        let uris = ["spotify:track:nope".to_owned(), uri(A), uri(B)];
+        let progress = episode_progress_at(&base, "at", &uris).await.unwrap();
+        assert_eq!(
+            progress,
+            [EpisodeProgress {
+                uri: uri(A),
+                resume_position_ms: 7,
+                fully_played: false
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn non_episode_uris_are_dropped_before_any_request() {
         for bad in [
             "spotify:track:512ojhOuo1ktJprKbVcKyQ",
             "spotify:episode:short",
             "spotify:episode:512ojhOuo1ktJprKbVcKy&",
             "spotify:episode:512ojhOuo1ktJprKbVcKyQ,4rOoJ6Egrf8K2IrywzwOMk",
         ] {
-            let error = episode_progress_at("http://127.0.0.1:9", "at", &[bad.to_owned()])
+            let progress = episode_progress_at("http://127.0.0.1:9", "at", &[bad.to_owned()])
                 .await
-                .unwrap_err();
-            assert!(matches!(error, PodcastError::InvalidUri { .. }), "{bad}");
+                .unwrap();
+            assert!(progress.is_empty(), "{bad}");
         }
         assert!(
             episode_progress_at("http://127.0.0.1:9", "at", &[])

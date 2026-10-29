@@ -669,6 +669,7 @@ impl Context {
                 width: image.width.max(0) as u32,
                 height: image.height.max(0) as u32,
             })
+            .filter(|a| crate::util::is_artwork_url(&a.url))
             .collect();
         artwork.sort_by_key(|a| (a.width, size_rank(a.size)));
         artwork

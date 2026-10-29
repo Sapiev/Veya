@@ -236,6 +236,7 @@ async fn connect(
     credentials: Credentials,
     cache: Option<Cache>,
 ) -> Result<Session, SessionError> {
+    register_secrets(&credentials);
     let attempt = async {
         let session = Session::new(config, cache);
         session.connect(credentials, false).await?;
@@ -248,7 +249,15 @@ async fn connect(
         })?
         .map_err(|e| map_connect_error(&e))?;
     crate::redact::add_secret(&session.username());
+    crate::redact::add_secret(session.device_id());
     Ok(session)
+}
+
+/// Before connecting, so a failed login is logged redacted too.
+fn register_secrets(credentials: &Credentials) {
+    if let Some(username) = &credentials.username {
+        crate::redact::add_secret(username);
+    }
 }
 
 impl Link for Session {
@@ -419,6 +428,16 @@ mod tests {
 
     fn login_error(code: ErrorCode) -> CoreError {
         CoreError::from(login_failed(CoreSessionError::AuthenticationError, code))
+    }
+
+    #[test]
+    fn the_username_is_a_secret_before_any_connect_attempt() {
+        let credentials = Credentials::with_password("preconnect-user-7f3", "pw");
+        register_secrets(&credentials);
+        assert_eq!(
+            crate::redact::redact("login failed for preconnect-user-7f3"),
+            "login failed for <redacted>"
+        );
     }
 
     #[test]

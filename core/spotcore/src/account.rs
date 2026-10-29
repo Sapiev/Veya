@@ -28,6 +28,33 @@ pub async fn is_premium_account(access_token: String) -> Result<bool, SessionErr
 }
 
 /// The client for bearer-authenticated Web API calls.
+/// Largest Web API body any caller expects; real ones are far smaller.
+pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+/// Reads the body in chunks and stops once it exceeds `max`, since the
+/// request timeout alone does not bound memory.
+pub(crate) async fn read_capped<E>(
+    mut response: reqwest::Response,
+    max: usize,
+    network: fn(reqwest::Error) -> E,
+    too_large: impl FnOnce() -> E,
+) -> Result<Vec<u8>, E> {
+    if response
+        .content_length()
+        .is_some_and(|len| len > max as u64)
+    {
+        return Err(too_large());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(network)? {
+        if body.len() + chunk.len() > max {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 pub(crate) fn web_api_client() -> reqwest::Result<reqwest::Client> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     shared_client(&CLIENT, || {
@@ -55,7 +82,10 @@ async fn is_premium_at(url: &str, access_token: &str) -> Result<bool, SessionErr
             reason: format!("account lookup returned HTTP {}", status.as_u16()),
         });
     }
-    let body = response.bytes().await.map_err(network)?;
+    let body = read_capped(response, MAX_BODY_BYTES, network, || {
+        internal("account response too large")
+    })
+    .await?;
     let me: Me =
         serde_json::from_slice(&body).map_err(|_| internal("malformed account response"))?;
     me.product
@@ -114,6 +144,18 @@ pub(crate) async fn fake_web_api(
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+
+    #[tokio::test]
+    async fn a_body_past_the_cap_is_refused_whatever_the_declared_length() {
+        let (base, server) = fake_web_api(vec![("200 OK", "x".repeat(100)); 2]).await;
+        let http = reqwest::Client::new();
+        let fetch = || async { http.get(&base).send().await.unwrap() };
+        let body = read_capped(fetch().await, 100, network, || internal("big")).await;
+        assert_eq!(body.unwrap().len(), 100);
+        let body = read_capped(fetch().await, 99, network, || internal("big")).await;
+        assert!(matches!(body, Err(SessionError::Internal { .. })));
+        server.await.unwrap();
+    }
 
     async fn fake_me(
         status: &'static str,
