@@ -252,7 +252,7 @@ impl LoginFlow {
             .url();
         info!(
             "sign-in started, listening on loopback port {}",
-            config.redirect_port
+            listener.local_addr().map_or(0, |addr| addr.port())
         );
         Ok(Self {
             authorize_url: url.into(),
