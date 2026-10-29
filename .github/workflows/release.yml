@@ -102,7 +102,7 @@ jobs:
           (umask 077 && printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$key_file")
           trap 'rm -f "$key_file"' EXIT
           signature="$("$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$key_file" -p "$DMG")"
-          "$RUNNER_TEMP/sparkle/bin/sign_update" --verify "$DMG" "$signature"
+          "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$key_file" --verify "$DMG" "$signature"
           echo "SIGNATURE=$signature" >> "$GITHUB_ENV"
       # Order: signed DMG on a draft, release published, appcast last. Clients only see the
       # new version once its download works, and a failed run leaves the appcast untouched.
