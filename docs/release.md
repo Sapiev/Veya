@@ -47,7 +47,7 @@ is not recommitted.
 
 ## One-time setup
 
-GitHub repository secrets:
+Secrets of the `release` environment (`gh secret set <name> --env release`; the release job reads only these):
 
 | Secret | Value |
 |---|---|
@@ -60,8 +60,8 @@ Also:
 
 - Signing certificate: run `scripts/make-signing-certificate.sh ~/veya-signing`
   once, then
-  `base64 -i ~/veya-signing/veya-signing.p12 | gh secret set SIGNING_CERT_P12_BASE64` and
-  `gh secret set SIGNING_CERT_P12_PASSWORD < ~/veya-signing/veya-signing.password`.
+  `base64 -i ~/veya-signing/veya-signing.p12 | gh secret set SIGNING_CERT_P12_BASE64 --env release` and
+  `gh secret set SIGNING_CERT_P12_PASSWORD --env release < ~/veya-signing/veya-signing.password`.
   Back the folder up somewhere safe: a new certificate is a new app identity,
   and every user would have to sign in again after the next update.
 - Sparkle key: run Sparkle's `bin/generate_keys` (from the
