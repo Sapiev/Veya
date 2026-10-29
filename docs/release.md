@@ -23,10 +23,12 @@ without which the app cannot load Sparkle.framework.
    `## [1.2.0] - 2026-10-14`. The workflow stops before building if the
    version has no entry; that text becomes the GitHub release notes and the
    in-app update notes.
-2. Tag `develop` and push: `git tag v1.2.0 && git push origin v1.2.0`. Always
-   tag commits on `develop`: the build number is the commit count, and
-   Sparkle offers an update only when that number is higher than the
-   installed one, so a tag on a shorter side branch would never be offered.
+2. Open a release PR from `develop` to `main` and merge it once CI is green.
+3. Tag the merge commit on `main` and push: `git tag v1.2.0 && git push origin v1.2.0`.
+   The workflow refuses a tag that is not on `main` or whose commit has no
+   successful CI run. The build number is the commit count, and Sparkle offers
+   an update only when that number is higher than the installed one; `main`
+   only grows, so each release gets a higher one.
 
 A version with a suffix (`v1.2.0-beta.1`) is a beta: a GitHub prerelease on the
 appcast's `beta` channel, offered only to people who turned on Settings ›
