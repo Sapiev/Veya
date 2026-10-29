@@ -378,7 +378,7 @@ mod tests {
         let mut rest = q.next_from_context().cloned().collect::<Vec<_>>();
         assert_eq!(rest.len(), 9);
         rest.push(track(2));
-        rest.sort_by_key(|t| t.to_uri().unwrap());
+        rest.sort_by_key(|t| t.to_uri());
         assert_eq!(rest, (0..10).map(track).collect::<Vec<_>>());
     }
 
