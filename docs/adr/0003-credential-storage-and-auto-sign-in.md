@@ -25,9 +25,16 @@ The Keychain offers two stores on macOS:
 - The legacy login keychain needs no entitlement. Each item has an ACL that
   trusts only the application that created the item.
 
-`Shared.xcconfig` leaves `DEVELOPMENT_TEAM` empty, and the app has no
-entitlements file. Builds are signed ad hoc, so the data-protection keychain
-returns `errSecMissingEntitlement`.
+`Shared.xcconfig` leaves `DEVELOPMENT_TEAM` empty. The app is sandboxed with
+the hardened runtime (`Config/Veya.xcconfig`, `Config/Veya.entitlements`), but
+the entitlements carry no `application-identifier` or keychain access group.
+Builds are signed ad hoc or with a self-signed certificate, so the
+data-protection keychain returns `errSecMissingEntitlement`.
+
+Re-confirmed under the sandbox (2026-10-28): a sandboxed app can still use the
+legacy login keychain for items it created, and the item ACL still trusts only
+the signing identity, so the decision below stands. The remaining cost is that
+the ACL is bound to the signature; see the self-signed note in Consequences.
 
 ## Decision
 
@@ -57,6 +64,8 @@ returns `errSecMissingEntitlement`.
   the user signs in through the browser again.
 - An ad-hoc signature changes on every rebuild. In development, macOS can
   ask whether the rebuilt app may read the item.
+- Release builds use a self-signed identity, stable across updates, so the ACL
+  keeps trusting updated builds. Changing the certificate makes macOS ask once.
 - Follow-up: when release signing has a Team ID, move the item to the
   data-protection keychain with a `keychain-access-groups` entitlement scoped
   to `$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)`, and migrate the
