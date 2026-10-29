@@ -95,7 +95,13 @@ jobs:
           echo "$SPARKLE_SHA256  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 -c
           mkdir "$RUNNER_TEMP/sparkle"
           tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
-          signature="$(echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - -p "$DMG")"
+          # A key file, not stdin: the key never reaches a pipe, and a bad secret fails here by name.
+          [[ ${#SPARKLE_ED_PRIVATE_KEY} -eq 44 ]] ||
+            { echo "error: SPARKLE_ED_PRIVATE_KEY (release environment) is not a 44 character Sparkle key" >&2; exit 1; }
+          key_file="$RUNNER_TEMP/sparkle.key"
+          (umask 077 && printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$key_file")
+          trap 'rm -f "$key_file"' EXIT
+          signature="$("$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$key_file" -p "$DMG")"
           "$RUNNER_TEMP/sparkle/bin/sign_update" --verify "$DMG" "$signature"
           echo "SIGNATURE=$signature" >> "$GITHUB_ENV"
       # Order: signed DMG on a draft, release published, appcast last. Clients only see the
@@ -114,12 +120,18 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
+          # A key file, not stdin: the key never reaches a pipe, and a bad secret fails here by name.
+          [[ ${#SPARKLE_ED_PRIVATE_KEY} -eq 44 ]] ||
+            { echo "error: SPARKLE_ED_PRIVATE_KEY (release environment) is not a 44 character Sparkle key" >&2; exit 1; }
+          key_file="$RUNNER_TEMP/sparkle.key"
+          (umask 077 && printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$key_file")
+          trap 'rm -f "$key_file"' EXIT
           ../scripts/update-appcast.py appcast.xml "$VERSION" "$(git -C .. rev-list --count HEAD)" \
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Veya-$VERSION.dmg" \
             "$SIGNATURE" "$(stat -f%z "$DMG")" "$RUNNER_TEMP/notes.md"
           # The app requires a signed feed (SURequireSignedFeed): any later edit needs re-signing.
-          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - appcast.xml
-          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file - --verify appcast.xml
+          "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$key_file" appcast.xml
+          "$RUNNER_TEMP/sparkle/bin/sign_update" --ed-key-file "$key_file" --verify appcast.xml
           git add appcast.xml
           git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
             commit -m "appcast: Veya $VERSION"
