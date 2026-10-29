@@ -17,7 +17,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Docs, the release workflow and Dependabot config cannot break the app, so they skip the UI tests.
+  # Docs, workflows and Dependabot config cannot break the app, so they skip the UI tests.
   changes:
     runs-on: xcode-27
     timeout-minutes: 5
@@ -38,7 +38,7 @@ jobs:
           elif [[ "$EVENT" == push && ! "$BEFORE" =~ ^0+$ ]]; then
             files="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA" --jq 'select(.files|length < 300)|.files[].filename')"
           fi
-          app_files="$(grep -vE '^(docs/|.*\.md$|LICENSE$|\.github/dependabot\.yml$|\.github/workflows/release\.yml$)' <<< "$files" || true)"
+          app_files="$(grep -vE '^(docs/|.*\.md$|LICENSE$|\.github/dependabot\.yml$|\.github/workflows/(ci|release)\.yml$)' <<< "$files" || true)"
           if [[ -n "$files" && -z "$app_files" ]]; then
             echo "app=false" >> "$GITHUB_OUTPUT"
           else
