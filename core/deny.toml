@@ -4,6 +4,17 @@ version = 2
 ignore = [
     # rsa via librespot: only public-key signature verification, no private-key operation is reachable.
     { id = "RUSTSEC-2023-0071", reason = "Marvin attack needs private-key operations; Veya only verifies" },
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 via hyper-proxy2: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.102.8: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.22.4: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.22.4: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38.4: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.38.4: held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile 2.2.0 (unmaintained): held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml 0.1.10 (unmaintained): held by the librespot pin (d36f9f1); fixed by the librespot bump tracked in the follow-up issue" },
 ]
 
 [bans]

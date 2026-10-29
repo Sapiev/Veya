@@ -55,7 +55,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install cargo-deny
-        run: cargo install cargo-deny --version 0.18.5 --locked
+        run: cargo install cargo-deny --version 0.20.2 --locked
       - name: cargo deny
         working-directory: core
         run: cargo deny --locked check advisories bans sources
