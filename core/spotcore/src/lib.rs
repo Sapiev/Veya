@@ -75,7 +75,7 @@ pub fn canonical_uri(uri: String) -> Result<String, SpotCoreError> {
         message: e.to_string(),
     };
     SpotifyUri::from_uri(&uri)
-        .and_then(|u| u.to_uri())
+        .map(|u| u.to_uri())
         .map_err(invalid)
 }
 

@@ -64,7 +64,7 @@ pub(crate) fn is_artwork_url(url: &str) -> bool {
 }
 
 pub(crate) fn canonical(uri: &SpotifyUri) -> String {
-    uri.to_uri().unwrap_or_else(|_| "<unprintable>".to_owned())
+    uri.to_uri()
 }
 
 /// Drops `value` on a blocking thread when this is its last reference:

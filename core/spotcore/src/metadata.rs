@@ -357,7 +357,7 @@ fn local_track(raw: &str) -> Option<TrackMetadata> {
     };
     let artist = form_decode(artist);
     Some(TrackMetadata {
-        uri: uri.to_uri().ok()?,
+        uri: uri.to_uri(),
         title: form_decode(track_title),
         artists: if artist.is_empty() {
             Vec::new()
@@ -418,7 +418,7 @@ impl Requested {
                 });
             }
         };
-        let key = uri.to_uri().map_err(invalid)?;
+        let key = uri.to_uri();
         Ok(Self { key, uri, kind })
     }
 
@@ -546,7 +546,7 @@ impl Context {
                             .iter()
                             .map(|a| item_ref(&a.id, &a.name))
                             .collect(),
-                        tracks: album.tracks().filter_map(|t| t.to_uri().ok()).collect(),
+                        tracks: album.tracks().map(|t| t.to_uri()).collect(),
                         playability: self.playability(&album.availability, &album.restrictions),
                         artwork: self.artwork(&album.covers),
                         // librespot turns a missing date into year 0.
@@ -605,11 +605,7 @@ impl Context {
                     show: ShowMetadata {
                         uri,
                         artwork: self.artwork(&show.covers),
-                        episodes: show
-                            .episodes
-                            .iter()
-                            .filter_map(|e| e.to_uri().ok())
-                            .collect(),
+                        episodes: show.episodes.iter().map(|e| e.to_uri()).collect(),
                         name: show.name,
                         publisher: show.publisher,
                         description: show.description,
@@ -686,12 +682,12 @@ fn size_rank(size: ArtworkSize) -> u8 {
 }
 
 fn uris<'a>(ids: impl Iterator<Item = &'a SpotifyUri>) -> Vec<String> {
-    ids.filter_map(|id| id.to_uri().ok()).collect()
+    ids.map(|id| id.to_uri()).collect()
 }
 
 fn item_ref(id: &SpotifyUri, name: &str) -> ItemRef {
     ItemRef {
-        uri: id.to_uri().unwrap_or_default(),
+        uri: id.to_uri(),
         name: name.to_owned(),
     }
 }

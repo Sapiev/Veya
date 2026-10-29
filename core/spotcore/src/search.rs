@@ -331,8 +331,7 @@ fn hit_of(kind: SearchKind, item: Item) -> Option<SearchHit> {
     let uri = SpotifyUri::from_uri(&item.uri)
         .ok()
         .filter(|uri| kind.accepts(uri))?
-        .to_uri()
-        .ok()?;
+        .to_uri();
     let artists: Vec<String> = item
         .artists
         .unwrap_or_default()
