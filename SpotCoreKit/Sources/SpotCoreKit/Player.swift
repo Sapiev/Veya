@@ -206,8 +206,11 @@ public final class PlayerModel {
     private func shutDownConnectDevice() {
         guard let device = connectDevice else { return }
         connectDevice = nil
-        Task { await device.shutdown() }
+        Self.lastShutdown = Task { await device.shutdown() }
     }
+
+    /// The latest unawaited device shutdown; the next player's Connect start waits on it.
+    private static var lastShutdown: Task<Void, Never>?
 
     /// Creates the session's player and applies its events until the model is released.
     /// `restoreToken` is the Web API token behind the launch restore.
@@ -236,7 +239,7 @@ public final class PlayerModel {
     }
 
     /// The speed the current item plays at.
-    var rate: Float {
+    public var rate: Float {
         settings.rate(for: nowPlaying?.uri ?? "")
     }
 
@@ -592,6 +595,7 @@ public final class PlayerModel {
         let pending = connectStart
         connectStart = Task { [weak self] in
             await pending?.value
+            await Self.lastShutdown?.value
             guard let self, !Task.isCancelled else { return }
             await connectDevice?.shutdown()
             connectDevice = nil

@@ -408,7 +408,7 @@ struct Scrubber: View {
             guard player.isPlaying, dragged == nil else { return }
             repeat {
                 now = .now
-            } while await (try? Task.sleep(for: .milliseconds(1000 - player.position(at: now) % 1000))) != nil
+            } while await (try? Task.sleep(for: .milliseconds(Double(1000 - player.position(at: now) % 1000) / Double(max(player.rate, 0.1))))) != nil
         }
     }
 
