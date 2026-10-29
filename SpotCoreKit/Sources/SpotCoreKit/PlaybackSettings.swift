@@ -95,11 +95,13 @@ public final class PlaybackSettings {
             guard let saved = defaults.dictionary(forKey: Key.lastPlayback),
                   let track = saved["track"] as? String,
                   let position = saved["positionMs"] as? Int,
-                  let savedAt = saved["savedAtMs"] as? Int64
+                  let savedAt = saved["savedAtMs"] as? Int64,
+                  Self.isPlausibleURI(track)
             else { return nil }
+            let context = saved["context"] as? String
             return SavedPlayback(
                 trackUri: track,
-                contextUri: saved["context"] as? String,
+                contextUri: context.flatMap { Self.isPlausibleURI($0) ? $0 : nil },
                 positionMs: UInt32(clamping: position),
                 savedAtMs: savedAt
             )
@@ -116,12 +118,19 @@ public final class PlaybackSettings {
         }
     }
 
+    /// Defaults are editable by anyone with the account's files; a stored URI must still look like one.
+    private static func isPlausibleURI(_ uri: String) -> Bool {
+        uri.hasPrefix("spotify:") && uri.utf8.count <= 512
+    }
+
     /// Folders scanned for `spotify:local:` files, in the order the user added them.
     public var localFolders: [URL] {
         folders.map(\.url)
     }
 
     private var folders: [LocalFolder]
+    /// Bookmarks that do not resolve now, such as a folder on an unmounted volume; kept for a later launch.
+    private var unresolvedBookmarks: [Data] = []
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let macName: String
@@ -147,14 +156,17 @@ public final class PlaybackSettings {
         let saved = defaults.array(forKey: Key.localFolders) as? [Data] ?? []
         folders = []
         for bookmark in saved {
-            guard let folder = LocalFolder(bookmark: bookmark) else { continue }
+            guard let folder = LocalFolder(bookmark: bookmark) else {
+                unresolvedBookmarks.append(bookmark)
+                continue
+            }
             if folders.contains(where: { $0.path == folder.path }) {
                 folder.stopAccessing()
             } else {
                 folders.append(folder)
             }
         }
-        if folders.map(\.bookmark) != saved {
+        if folders.map(\.bookmark) + unresolvedBookmarks != saved {
             saveLocalFolders()
         }
     }
@@ -168,7 +180,11 @@ public final class PlaybackSettings {
         for url in urls where !folders.contains(where: { $0.path == LocalFolder.path(url) }) {
             // An open panel's URL may need its scope opened before it can be bookmarked.
             let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            defer {
+                if scoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
             guard let bookmark = try? LocalFolder.bookmark(url), let folder = LocalFolder(bookmark: bookmark) else { continue }
             folders.append(folder)
         }
@@ -190,7 +206,7 @@ public final class PlaybackSettings {
     }
 
     private func saveLocalFolders() {
-        defaults.set(folders.map(\.bookmark), forKey: Key.localFolders)
+        defaults.set(folders.map(\.bookmark) + unresolvedBookmarks, forKey: Key.localFolders)
     }
 
     /// The Mac's localized name from Sharing settings.
@@ -244,7 +260,7 @@ private struct LocalFolder {
     private let accessing: Bool
 
     /// Nil when the folder is gone. Starts access, which `stopAccessing` balances once.
-    /// shortcut: an unresolvable folder (unmounted volume) is dropped, keep its bookmark if that bites.
+    /// shortcut: a folder deleted for good also stays in the saved list, hidden, as it cannot be told from an unmounted one.
     init?(bookmark: Data) {
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope, bookmarkDataIsStale: &stale)
@@ -268,7 +284,9 @@ private struct LocalFolder {
     }
 
     func stopAccessing() {
-        if accessing { url.stopAccessingSecurityScopedResource() }
+        if accessing {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 }
 

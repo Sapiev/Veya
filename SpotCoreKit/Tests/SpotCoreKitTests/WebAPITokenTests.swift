@@ -169,6 +169,17 @@ struct WebAPITokenProviderTests {
         await #expect(throws: WebAPITokenError.notAvailable) { try await provider.accessToken() }
     }
 
+    @Test func rejectionIsReportedEvenWhenTheKeychainCannotDeleteTheToken() async throws {
+        let store = FakeStore(blob: stored("rt-1"))
+        store.failDeletes(with: KeychainError(status: -25308))
+        let provider = provider(store)
+
+        let task = try await refreshing(provider)
+        refresher.resolve(0, with: .failure(AuthError.RefreshRejected))
+
+        await #expect(throws: WebAPITokenError.rejected) { try await task.value }
+    }
+
     @Test func networkFailureKeepsTokenAndNextCallRetries() async throws {
         let store = FakeStore(blob: stored("rt-1"))
         let provider = provider(store)
@@ -252,7 +263,7 @@ struct SessionRefreshTokenTests {
         let model = model(refreshTokens: refreshTokens)
         try await signIn(model)
 
-        try model.signOut()
+        try await model.signOut()
 
         #expect(refreshTokens.blob == nil)
     }
@@ -263,7 +274,7 @@ struct SessionRefreshTokenTests {
         let refreshTokens = FakeStore(blob: Data("rt".utf8))
         let model = model(store: store, refreshTokens: refreshTokens)
 
-        #expect(throws: KeychainError(status: -25308)) { try model.signOut() }
+        await #expect(throws: KeychainError(status: -25308)) { try await model.signOut() }
         #expect(refreshTokens.blob == nil)
     }
 

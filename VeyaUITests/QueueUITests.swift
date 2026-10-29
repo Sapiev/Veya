@@ -10,65 +10,25 @@ final class QueueUITests: XCTestCase {
         return app
     }
 
-    @MainActor func testQueueButtonShowsNowPlayingQueuedAndUpcomingSongs() {
+    @MainActor func testQueueShowsSongsRowsAreButtonsToggleSharesStateAndTrackListAddsToIt() {
         let app = openQueue()
 
         for text in ["Queue", "Now playing", "Test Track", "Next in queue", "Song 6", "Next up", "Song 7", "Song 8"] {
             XCTAssertTrue(app.queue.staticTexts[text].exists, text)
         }
-    }
-
-    @MainActor func testRemoveFromQueueDeletesTheRow() {
-        let app = openQueue()
-
-        app.queue.staticTexts["Song 5"].rightClick()
-        app.menuItems["Remove from Queue"].click()
-
-        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.queue.staticTexts["Song 6"].exists)
-    }
-
-    @MainActor func testClickingAnUpcomingRowPlaysItAndSkipsTheRowsBeforeIt() {
-        let app = openQueue()
-
-        app.queue.staticTexts["Song 7"].click()
-
-        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
-        XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
-        XCTAssertTrue(app.queue.staticTexts["Song 8"].exists)
-    }
-
-    @MainActor func testPlayableRowsAreButtonsAndTheNowPlayingRowIsNot() {
-        let app = openQueue()
 
         XCTAssertTrue(app.queue.buttons.containing(NSPredicate(format: "value == %@", "Song 7")).firstMatch.exists)
         XCTAssertFalse(app.queue.buttons.containing(NSPredicate(format: "value == %@", "Test Track")).firstMatch.exists)
-    }
 
-    @MainActor func testTheCloseButtonAndTheTopBarToggleShareOneState() {
-        let app = openQueue()
-
+        // The close button and the top bar toggle share one state.
         app.queue.buttons["Close Queue"].click()
         XCTAssertTrue(app.queue.waitForNonExistence(timeout: XCUIApplication.timeout))
 
         app.descendants(matching: .any)["Queue"].firstMatch.click()
         XCTAssertTrue(app.queue.waitForExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testClearQueueEmptiesNextInQueueOnly() {
-        let app = openQueue()
-
-        app.queue.buttons["Clear queue"].click()
-
-        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
-        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
-        XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
-    }
-
-    @MainActor func testAddToQueueFromTheTrackListAppearsInTheQueue() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.queue.buttons["Close Queue"].click()
+        XCTAssertTrue(app.queue.waitForNonExistence(timeout: XCUIApplication.timeout))
         app.menuItem("View", "Show Queue").click()
         XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForExistence(timeout: XCUIApplication.timeout))
         app.outlines.staticTexts["Liked Songs"].click()
@@ -82,8 +42,15 @@ final class QueueUITests: XCTestCase {
     }
 
     /// PBI-501: Liked Songs plays as its own context, so the queue names it and a restore can reload it.
-    @MainActor func testPlayingFromLikedSongsNamesItInTheQueue() {
+    @MainActor func testRemoveFromQueueDeletesTheRowThenPlayingFromLikedSongsNamesIt() {
         let app = openQueue()
+
+        app.queue.staticTexts["Song 5"].rightClick()
+        app.menuItems["Remove from Queue"].click()
+
+        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.queue.staticTexts["Song 6"].exists)
+
         app.outlines.staticTexts["Liked Songs"].click()
         let row = app.outlines["trackList"].staticTexts["Song 2"]
         XCTAssertTrue(row.waitForExistence(timeout: XCUIApplication.timeout))
@@ -93,8 +60,26 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(app.queue.staticTexts["Next from: Liked Songs"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
-    @MainActor func testPlayingAnAlbumShowsWhatFollowsFromIt() {
+    @MainActor func testClickingAnUpcomingRowPlaysItAndSkipsTheRowsBeforeIt() {
         let app = openQueue()
+
+        app.queue.staticTexts["Song 7"].click()
+
+        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 8"].exists)
+    }
+
+    @MainActor func testClearQueueEmptiesNextInQueueOnlyThenPlayingAnAlbumShowsWhatFollowsFromIt() {
+        let app = openQueue()
+
+        app.queue.buttons["Clear queue"].click()
+
+        XCTAssertTrue(app.queue.staticTexts["Song 5"].waitForNonExistence(timeout: XCUIApplication.timeout))
+        XCTAssertFalse(app.queue.staticTexts["Next in queue"].exists)
+        XCTAssertTrue(app.queue.staticTexts["Song 7"].exists)
+
         app.sidebarItem("Albums").click()
         let album = app.savedItems.buttons["Test Album"]
         XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))

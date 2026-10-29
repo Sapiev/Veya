@@ -89,9 +89,18 @@ struct ShortcutActionsTests {
         #expect(fake.recorded == ["load spotify:playlist:1 0"])
     }
 
+    @Test func reportsAnItemTheCoreCannotLoad() async throws {
+        let failing = try PlayerModel(
+            player: FakePlayer(failsLoad: true), engine: nil, metadata: FakeMetadata(),
+            settings: PlaybackSettings(defaults: #require(UserDefaults(suiteName: "ShortcutActionsTests-\(UUID().uuidString)")))
+        )
+        let actions = ShortcutActions(player: { failing }, library: { library }, playlists: { playlists })
+        await #expect(throws: ShortcutActions.Failure.notPlayable) { try await actions.play("spotify:track:1") }
+    }
+
     @Test func rejectsTextThatIsNotASpotifyURI() async {
         let actions = actions()
-        for uri in ["", "spotify:", "https://open.spotify.com/track/1", "track:1"] {
+        for uri in ["", "spotify:", "https://open.spotify.com/track/1", "track:1", "spotify:foo:bar", "spotify:track:a/b", "spotify:track:"] {
             await #expect(throws: ShortcutActions.Failure.invalidURI) { try await actions.play(uri) }
         }
         #expect(fake.recorded.isEmpty)

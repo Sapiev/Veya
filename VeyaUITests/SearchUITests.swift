@@ -36,7 +36,8 @@ final class SearchUITests: XCTestCase {
         XCTAssertEqual(app.searchField.value as? String, "abc")
     }
 
-    @MainActor func testCommandKFocusesTheToolbarFieldAndTypingShowsResults() {
+    /// Typing shows the top result and a section per kind; Escape clears the query back to recent searches.
+    @MainActor func testCommandKFocusesTheToolbarFieldAndTypingShowsResultsThenEscapeClearsThem() {
         let app = signedIn()
 
         app.typeKey("k", modifierFlags: .command)
@@ -44,6 +45,14 @@ final class SearchUITests: XCTestCase {
 
         XCTAssertEqual(app.searchField.value as? String, "test")
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
+        for text in ["Top result", "Songs", "Artists", "Albums", "Test Artist", "Test Album", "Song 3"] {
+            XCTAssertTrue(app.searchResults.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
+        }
+
+        app.typeKey(.escape, modifierFlags: [])
+
+        XCTAssertTrue(app.showsRoute("Search"))
+        XCTAssertTrue(app.searchResults.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testTypingInTheToolbarFieldFromAnotherScreenOpensSearch() {
@@ -54,27 +63,6 @@ final class SearchUITests: XCTestCase {
         app.typeText("test")
 
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testEscapeClearsTheQueryBackToRecentSearches() {
-        let app = signedIn()
-        searchFor("test", in: app)
-        XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
-
-        app.typeKey(.escape, modifierFlags: [])
-
-        XCTAssertTrue(app.showsRoute("Search"))
-        XCTAssertTrue(app.searchResults.waitForNonExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testTypingShowsTheTopResultAndASectionPerKind() {
-        let app = signedIn()
-
-        searchFor("test", in: app)
-
-        for text in ["Top result", "Songs", "Artists", "Albums", "Test Artist", "Test Album", "Song 3"] {
-            XCTAssertTrue(app.searchResults.staticTexts[text].waitForExistence(timeout: XCUIApplication.timeout), text)
-        }
     }
 
     @MainActor func testMatchingArtistIsTheTopResultAndOpensItsPage() {
@@ -89,19 +77,7 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
-    @MainActor func testDoubleClickingASongRowPlaysIt() {
-        let app = signedIn()
-        searchFor("test", in: app)
-        let song = app.searchResults.staticTexts["Song 2"]
-        XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
-
-        song.doubleClick()
-
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).count >= 2)
-    }
-
-    @MainActor func testClickingASongRowSelectsItWithoutPlaying() {
+    @MainActor func testClickingASongRowSelectsItWithoutPlayingAndDoubleClickingPlaysIt() {
         let app = signedIn()
         searchFor("test", in: app)
         let row = app.searchResults.buttons.containing(NSPredicate(format: "value == %@", "Song 2")).firstMatch
@@ -112,9 +88,16 @@ final class SearchUITests: XCTestCase {
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: row)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: XCUIApplication.timeout), .completed)
         XCTAssertFalse(app.buttons["Pause"].exists)
+
+        let song = app.searchResults.staticTexts["Song 2"]
+        song.doubleClick()
+
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).count >= 2)
     }
 
-    @MainActor func testFilterChipsShowCountsAndNarrowTheResults() {
+    /// Show More loads the next page of the filtered Songs list.
+    @MainActor func testFilterChipsShowCountsAndNarrowTheResultsAndShowMoreLoadsTheNextPage() {
         let app = signedIn()
         searchFor("test", in: app)
         let songs = app.searchResults.buttons["Songs, 4 results"]
@@ -127,6 +110,10 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.searchResults.staticTexts["Song 3"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForNonExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.searchResults.staticTexts["Test Album"].waitForNonExistence(timeout: XCUIApplication.timeout))
+
+        XCTAssertTrue(app.searchResults.buttons["Show More"].waitForExistence(timeout: XCUIApplication.timeout))
+        app.searchResults.buttons["Show More"].click()
+        XCTAssertTrue(app.searchResults.staticTexts["Song 4"].waitForExistence(timeout: XCUIApplication.timeout))
 
         app.searchResults.buttons["All"].click()
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
@@ -146,19 +133,6 @@ final class SearchUITests: XCTestCase {
         album.click()
 
         XCTAssertTrue(app.showsRoute("Test Album"))
-    }
-
-    @MainActor func testShowMoreLoadsTheNextPage() {
-        let app = signedIn()
-        searchFor("test", in: app)
-        let songs = app.searchResults.buttons["Songs, 4 results"]
-        XCTAssertTrue(songs.waitForExistence(timeout: XCUIApplication.timeout))
-        songs.click()
-        XCTAssertTrue(app.searchResults.buttons["Show More"].waitForExistence(timeout: XCUIApplication.timeout))
-
-        app.searchResults.buttons["Show More"].click()
-
-        XCTAssertTrue(app.searchResults.staticTexts["Song 4"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testArrowKeysAndReturnPlayTheSelectedTrack() {
@@ -190,30 +164,35 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
-    @MainActor func testNoResultsAndFailureEachSayWhatHappened() {
+    /// PBI-309: rate limit. Also: a no-results suggestion searches for itself.
+    @MainActor func testNoResultsFailureAndRateLimitEachSayWhatHappened() {
         let app = signedIn()
-        searchFor("nothing", in: app)
-        XCTAssertTrue(app.noResultsTitle(for: "nothing").waitForExistence(timeout: XCUIApplication.timeout))
+        searchFor("hj", in: app)
+        let suggestion = app.buttons["Radiohead"]
+        XCTAssertTrue(suggestion.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.noResultsTitle(for: "hj").waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts["Check the spelling, or try one of these:"].exists)
+
+        suggestion.click()
+
+        XCTAssertEqual(app.searchField.value as? String, "Radiohead")
+        XCTAssertTrue(app.noResultsTitle(for: "Radiohead").waitForExistence(timeout: XCUIApplication.timeout))
 
         app.searchField.typeKey("a", modifierFlags: .command)
         app.searchField.typeText("fail")
 
         XCTAssertTrue(app.staticTexts["Couldn't Search"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Try Again"].exists)
-    }
 
-    /// PBI-309
-    @MainActor func testRateLimitSaysSo() {
-        let app = signedIn()
-        searchFor("busy", in: app)
+        app.searchField.typeKey("a", modifierFlags: .command)
+        app.searchField.typeText("busy")
 
         XCTAssertTrue(app.staticTexts["Search Is Rate Limited"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.buttons["Try Again"].exists)
     }
 
     /// PBI-309
-    @MainActor func testNotConnectedAsksToConnectAndOpensAccountSettings() {
+    @MainActor func testNotConnectedAsksToConnectAndOpensAccountSettingsAndConnectingShowsResults() {
         let app = XCUIApplication.launch(.webAPINotConnected)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
         searchFor("test", in: app)
@@ -225,17 +204,9 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Client ID"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "identifier == 'webAPIStatus' AND value == %@", "Not connected"))
             .firstMatch.waitForExistence(timeout: XCUIApplication.timeout))
-    }
 
-    /// PBI-309: connecting in Settings brings the pending query's results back.
-    @MainActor func testConnectingInSettingsShowsResults() {
-        let app = XCUIApplication.launch(.webAPINotConnected)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        searchFor("test", in: app)
-        app.buttons["Open Settings"].click()
+        // PBI-309: connecting in Settings brings the pending query's results back.
         let field = app.textFields["Client ID"]
-        XCTAssertTrue(field.waitForExistence(timeout: XCUIApplication.timeout))
-
         field.click()
         field.typeText("0123456789abcdef0123456789abcdef")
         // The "Connect" tab shares the button's name.
@@ -246,7 +217,7 @@ final class SearchUITests: XCTestCase {
         XCTAssertTrue(app.searchResults.staticTexts["Top result"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
-    @MainActor func testCommittedSearchIsRememberedUntilCleared() {
+    @MainActor func testCommittedSearchIsRememberedRemovingOneKeepsTheOthersUntilCleared() {
         let app = signedIn()
         searchFor("test", in: app)
         app.typeKey(.return, modifierFlags: [])
@@ -261,36 +232,20 @@ final class SearchUITests: XCTestCase {
 
         app.searchField.typeKey("a", modifierFlags: .command)
         app.searchField.typeKey(.delete, modifierFlags: [])
-        app.buttons["Clear all"].click()
-        XCTAssertTrue(app.staticTexts["Browse all"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.recentSearches.waitForNonExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testRemovingOneRecentSearchKeepsTheOthers() {
-        let app = signedIn()
         for query in ["first", "second"] {
             searchFor(query, in: app)
             app.typeKey(.return, modifierFlags: [])
             app.buttons["Clear Search"].click()
         }
         XCTAssertTrue(app.recentSearches.buttons["second"].waitForExistence(timeout: XCUIApplication.timeout))
-
         app.recentSearches.buttons["Remove second from recent searches"].click()
-
         XCTAssertTrue(app.recentSearches.buttons["first"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(app.recentSearches.buttons["second"].waitForNonExistence(timeout: XCUIApplication.timeout))
-    }
 
-    @MainActor func testNoResultsSuggestionSearchesForIt() {
-        let app = signedIn()
-        searchFor("hj", in: app)
-        let suggestion = app.buttons["Radiohead"]
-        XCTAssertTrue(suggestion.waitForExistence(timeout: XCUIApplication.timeout))
-
-        suggestion.click()
-
-        XCTAssertEqual(app.searchField.value as? String, "Radiohead")
-        XCTAssertTrue(app.noResultsTitle(for: "Radiohead").waitForExistence(timeout: XCUIApplication.timeout))
+        app.buttons["Clear all"].click()
+        XCTAssertTrue(app.staticTexts["Browse all"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.recentSearches.waitForNonExistence(timeout: XCUIApplication.timeout))
     }
 
     @MainActor func testIdlePageBrowsesGenresAndTheClearButtonReturnsToIt() {

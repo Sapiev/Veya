@@ -19,7 +19,7 @@ extension NSApplication {
 }
 
 @objc(VeyaScriptingTrack)
-nonisolated final class ScriptingTrack: NSObject {
+final nonisolated class ScriptingTrack: NSObject {
     @objc let name: String
     @objc let artist: String
     @objc let album: String
@@ -43,7 +43,7 @@ nonisolated final class ScriptingTrack: NSObject {
 /// Runs every command in `Veya.sdef`: suspends the Apple event while the action
 /// runs, then replies or reports its failure.
 @objc(VeyaScriptCommand)
-nonisolated final class ScriptCommand: NSScriptCommand {
+final nonisolated class ScriptCommand: NSScriptCommand {
     override func performDefaultImplementation() -> Any? {
         // Cocoa scripting delivers commands on the main thread, and the task resumes there.
         nonisolated(unsafe) let command = self
@@ -75,7 +75,7 @@ nonisolated final class ScriptCommand: NSScriptCommand {
     }
 }
 
-nonisolated private extension String {
+private nonisolated extension String {
     var fourCharCode: FourCharCode {
         utf8.reduce(0) { $0 << 8 | FourCharCode($1) }
     }

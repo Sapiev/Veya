@@ -5,10 +5,13 @@ import Testing
 
 /// Answers from `items`, unknown URIs as not found; a request for `held` waits for `release`.
 final class StubMetadata: MetadataServiceProtocol {
-    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+    func lyrics(trackUri _: String) async throws -> Lyrics? {
+        nil
+    }
 
     private struct Box {
         var held: String?
+        var failures = 0
         var waiters: [CheckedContinuation<Void, Never>] = []
     }
 
@@ -17,6 +20,13 @@ final class StubMetadata: MetadataServiceProtocol {
 
     init(_ items: [MetadataItem]) {
         self.items = Dictionary(uniqueKeysWithValues: items.map { ($0.uri, $0) })
+    }
+
+    struct Offline: Error {}
+
+    /// The next `count` lookups throw.
+    func failNext(_ count: Int) {
+        box.withLock { $0.failures = count }
     }
 
     func hold(_ uri: String) {
@@ -35,6 +45,12 @@ final class StubMetadata: MetadataServiceProtocol {
     }
 
     func items(uris: [String]) async throws -> [MetadataItem] {
+        if box.withLock({ box in
+            defer { box.failures = max(0, box.failures - 1) }
+            return box.failures > 0
+        }) {
+            throw Offline()
+        }
         if box.withLock({ uris.contains($0.held ?? "") }) {
             await withCheckedContinuation { continuation in
                 box.withLock { $0.waiters.append(continuation) }

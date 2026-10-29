@@ -29,18 +29,15 @@ final class ProfileUITests: XCTestCase {
         XCTAssertFalse(app.sidebarItem("Fran's Mix").exists)
     }
 
-    @MainActor func testFollowedArtistOpensTheArtistPage() {
-        let app = openProfile()
-        XCTAssertTrue(app.showsRoute("UI Test"))
-
-        app.scrollViews.buttons["Test Artist"].firstMatch.click()
-
-        XCTAssertTrue(app.showsRoute("Test Artist"))
-    }
-
-    @MainActor func testPlaylistOwnerOpensTheirProfile() {
+    @MainActor func testFollowedPlaylistHeartThenOwnerOpensProfileThenFollowedArtistOpensArtistPage() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
+        app.sidebarItem("Daily Mix 1").click()
+
+        let heart = app.buttons["Remove from Your Library"]
+        XCTAssertTrue(heart.waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(heart.isSelected)
+
         app.sidebarItem("Road Trip").click()
         XCTAssertTrue(app.showsRoute("Road Trip"))
         // The user's own playlist edits instead of offering a heart.
@@ -49,16 +46,13 @@ final class ProfileUITests: XCTestCase {
         app.buttons["By UI Test · 3 songs"].click()
 
         XCTAssertTrue(app.showsRoute("UI Test"))
-    }
 
-    @MainActor func testFollowedPlaylistShowsAFilledHeart() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.sidebarItem("Daily Mix 1").click()
+        app.sidebarItem("Profile").click()
+        XCTAssertTrue(app.showsRoute("UI Test"))
 
-        let heart = app.buttons["Remove from Your Library"]
-        XCTAssertTrue(heart.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertEqual(heart.value as? String, "On")
+        app.scrollViews.buttons["Test Artist"].firstMatch.click()
+
+        XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
     /// Spotify's search has no people, so a pasted profile link finds them; Return opens it too.

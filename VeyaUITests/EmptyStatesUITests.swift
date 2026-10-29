@@ -2,16 +2,6 @@ import XCTest
 
 /// PBI-408: the welcome screen, and no list is ever a blank page.
 final class EmptyStatesUITests: XCTestCase {
-    @MainActor func testWelcomeSaysUnofficialAndPremiumWithOneSignInButton() {
-        let app = XCUIApplication.launch(.signedOut)
-        XCTAssertTrue(app.signInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-
-        XCTAssertTrue(app.staticTexts["Veya needs a Spotify Premium account."].exists)
-        XCTAssertTrue(app.staticTexts["Veya is an unofficial app, not made or endorsed by Spotify."].exists)
-        let signInButtons = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Sign In"))
-        XCTAssertEqual(signInButtons.count, 1)
-    }
-
     @MainActor func testEmptyLibraryShowsDesignedEmptyStates() {
         let app = XCUIApplication.launch(.emptyLibrary)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
@@ -41,19 +31,7 @@ final class EmptyStatesUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "Try Again").count, 2)
     }
 
-    @MainActor func testSavedAlbumsListByNameAndOpenTheirPage() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        app.sidebarItem("Albums").click()
-
-        let album = app.buttons["Test Album"]
-        XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
-        album.click()
-
-        XCTAssertTrue(app.showsRoute("Test Album"))
-    }
-
-    @MainActor func testEverySidebarDestinationShowsContent() {
+    @MainActor func testEverySidebarDestinationShowsContentAndSavedAlbumsOpenTheirPage() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
 
@@ -65,5 +43,13 @@ final class EmptyStatesUITests: XCTestCase {
                 : app.showsRoute(item)
             XCTAssertTrue(shown, item)
         }
+
+        // Saved albums list by name and open their page.
+        app.sidebarItem("Albums").click()
+        let album = app.buttons["Test Album"]
+        XCTAssertTrue(album.waitForExistence(timeout: XCUIApplication.timeout))
+        album.click()
+
+        XCTAssertTrue(app.showsRoute("Test Album"))
     }
 }

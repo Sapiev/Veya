@@ -78,6 +78,18 @@ public final class HomeModel {
         self.log = log
     }
 
+    static let freshFor = Duration.seconds(60)
+    @ObservationIgnored private var loadedAt: ContinuousClock.Instant?
+
+    /// `load()` unless Home loaded within the last minute, so coming back to it does not refetch everything.
+    @discardableResult
+    public func loadIfStale() -> Task<Void, Never>? {
+        if state == .loaded, let loadedAt, .now - loadedAt < Self.freshFor {
+            return nil
+        }
+        return load()
+    }
+
     /// Reloads every section; sections keep their old content until replaced.
     @discardableResult
     public func load() -> Task<Void, Never> {
@@ -91,6 +103,7 @@ public final class HomeModel {
             let (recentOK, madeOK) = await (recentLoaded, madeForYouLoaded)
             guard mine == generation else { return }
             state = recentOK || madeOK ? .loaded : .failed
+            loadedAt = state == .loaded ? .now : nil
         }
         running = task
         return task
@@ -127,7 +140,7 @@ public final class HomeModel {
 
     private func recentTracks(_ plays: Result<RecentlyPlayed, any Error>) async -> [MetadataItem] {
         guard let uris = try? plays.get().tracks, !uris.isEmpty else { return [] }
-        return (try? await metadata.items(uris: Array(uris.prefix(limit)))) ?? []
+        return await (try? metadata.items(uris: Array(uris.prefix(limit)))) ?? []
     }
 
     private func loadMadeForYou(_ mine: Int) async -> Bool {
@@ -154,7 +167,7 @@ public final class HomeModel {
         let isPlaylist = { (uri: String) in uri.hasPrefix("spotify:playlist:") }
         let others = uris.filter { !isPlaylist($0) }
         let pages = await headers(uris.filter(isPlaylist))
-        let items = (try? await metadata.items(uris: others)) ?? []
+        let items = await (try? metadata.items(uris: others)) ?? []
         var byURI = [String: HomeTile]()
         for (uri, item) in zip(others, items) where item.isAvailable {
             byURI[uri] = .item(item)
@@ -170,7 +183,7 @@ public final class HomeModel {
         await withTaskGroup(of: (Int, PlaylistPage?).self) { group in
             for (index, uri) in uris.enumerated() {
                 group.addTask { [playlists] in
-                    (index, try? await playlists.page(uri: uri, from: 0, length: 0))
+                    await (index, try? playlists.page(uri: uri, from: 0, length: 0))
                 }
             }
             var found = [PlaylistPage?](repeating: nil, count: uris.count)
@@ -207,6 +220,10 @@ public final class HomeModel {
 
 private extension MetadataItem {
     var isAvailable: Bool {
-        if case .unavailable = self { false } else { true }
+        if case .unavailable = self {
+            false
+        } else {
+            true
+        }
     }
 }

@@ -1437,6 +1437,16 @@
         }
       }
     },
+    "Couldn't remove the connection from the Keychain." : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie można usunąć połączenia z pęku kluczy."
+          }
+        }
+      }
+    },
     "Couldn't reset the metadata cache." : {
       "localizations" : {
         "pl" : {
@@ -4744,6 +4754,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Veya nie może znaleźć urządzeń w Twojej sieci. Włącz Veya w Prywatności i ochronie > Sieć lokalna."
+          }
+        }
+      }
+    },
+    "Veya couldn't play that item." : {
+      "localizations" : {
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Veya nie może odtworzyć tego elementu."
           }
         }
       }

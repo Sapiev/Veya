@@ -46,6 +46,8 @@ struct AppShell: View {
     @State private var nowPlayingTab: NowPlayingView.Tab?
     @State private var creatingPlaylist = false
     @State private var openingLink = false
+    /// An outside play link waits in the Open Link sheet for the user's confirmation.
+    @State private var linkToConfirm = ""
     @Binding private var openedLink: SpotifyLink?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -56,13 +58,33 @@ struct AppShell: View {
         _openedLink = openedLink
     }
 
-    private var metadata: any MetadataServiceProtocol { scope.metadata }
-    private var playlists: PlaylistModel { scope.playlists }
-    private var search: SearchModel { scope.search }
-    private var home: HomeModel { scope.home }
-    private var podcast: PodcastModel { scope.podcast }
-    private var library: LibraryModel { scope.library }
-    private var player: PlayerModel? { scope.player }
+    private var metadata: any MetadataServiceProtocol {
+        scope.metadata
+    }
+
+    private var playlists: PlaylistModel {
+        scope.playlists
+    }
+
+    private var search: SearchModel {
+        scope.search
+    }
+
+    private var home: HomeModel {
+        scope.home
+    }
+
+    private var podcast: PodcastModel {
+        scope.podcast
+    }
+
+    private var library: LibraryModel {
+        scope.library
+    }
+
+    private var player: PlayerModel? {
+        scope.player
+    }
 
     /// Whether the sidebar, the queue and a `minPageWidth` page don't all fit side by side.
     private var crowded: Bool {
@@ -82,7 +104,9 @@ struct AppShell: View {
             sidebarShown
         } set: { show in
             sidebarVisible = show
-            if show, crowded { queueVisible = false }
+            if show, crowded {
+                queueVisible = false
+            }
         }
     }
 
@@ -93,11 +117,11 @@ struct AppShell: View {
                     selection: selection, compact: $sidebarCompact, playlists: playlists, library: library, player: player,
                     newPlaylist: newPlaylist, newFolder: newFolder
                 )
-                    .frame(width: sidebarCompact ? Theme.compactSidebarWidth : Theme.sidebarWidth)
-                    .glassPanel(cornerRadius: Theme.panelRadius)
-                    .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
-                    .padding([.leading, .vertical], Theme.s2)
-                    .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+                .frame(width: sidebarCompact ? Theme.compactSidebarWidth : Theme.sidebarWidth)
+                .glassPanel(cornerRadius: Theme.panelRadius)
+                .shadow(color: .black.opacity(0.18), radius: 15, y: 8)
+                .padding([.leading, .vertical], Theme.s2)
+                .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
             }
             // Pages scroll under the floating top bar and player; the insets keep their ends reachable.
             // The bar is a sibling, not an overlay on `page`, so the search field survives route changes.
@@ -172,6 +196,14 @@ struct AppShell: View {
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarShown)
         .animation(reduceMotion ? nil : Theme.standard, value: sidebarCompact)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: queueVisible)
+        // The overlay covers the shell: Tab and the key monitors must not reach what lies beneath.
+        .disabled(nowPlayingTab != nil)
+        // A focused table would still take Return as its primary action.
+        .onChange(of: nowPlayingTab != nil) { _, covered in
+            if covered {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
         .overlay {
             if let nowPlayingTab, let player {
                 NowPlayingView(player: player, library: library, metadata: metadata, history: history, tab: nowPlayingTab) { self.nowPlayingTab = nil }
@@ -190,14 +222,17 @@ struct AppShell: View {
         .focusedSceneValue(\.focusSearch, action(focusSearch))
         .focusedSceneValue(\.newPlaylist, action(newPlaylist))
         .focusedSceneValue(\.newFolder, action(newFolder))
-        .focusedSceneValue(\.openLink, action { openingLink = true })
+        .focusedSceneValue(\.openLink, action {
+            linkToConfirm = ""
+            openingLink = true
+        })
         .sheet(isPresented: $openingLink) {
-            OpenLinkSheet(open: open)
+            OpenLinkSheet(initialText: linkToConfirm, open: open)
         }
         .onChange(of: openedLink, initial: true) {
             guard let openedLink else { return }
             self.openedLink = nil
-            open(openedLink)
+            openFromOutside(openedLink)
         }
         .sheet(isPresented: $creatingPlaylist) {
             PlaylistDetailsSheet(title: "New Playlist", confirm: "Create") { name, description, _ in
@@ -283,6 +318,16 @@ struct AppShell: View {
         creatingPlaylist = true
     }
 
+    /// A link from another app only opens pages; playing needs the user's confirmation.
+    private func openFromOutside(_ link: SpotifyLink) {
+        switch link {
+        case .page: open(link)
+        case let .play(uri):
+            linkToConfirm = uri
+            openingLink = true
+        }
+    }
+
     private func open(_ link: SpotifyLink) {
         switch link {
         case let .page(route): history.navigate(to: route)
@@ -295,11 +340,19 @@ struct AppShell: View {
     }
 
     private var editErrorShown: Binding<Bool> {
-        Binding(get: { playlists.editError != nil }, set: { if !$0 { playlists.editError = nil } })
+        Binding(get: { playlists.editError != nil }, set: {
+            if !$0 {
+                playlists.editError = nil
+            }
+        })
     }
 
     private var unplayableShown: Binding<Bool> {
-        Binding(get: { player?.unplayableLocalFile != nil }, set: { if !$0 { player?.unplayableLocalFile = nil } })
+        Binding(get: { player?.unplayableLocalFile != nil }, set: {
+            if !$0 {
+                player?.unplayableLocalFile = nil
+            }
+        })
     }
 
     private var unplayableTitle: Text {
@@ -308,7 +361,11 @@ struct AppShell: View {
     }
 
     private var selection: Binding<Route?> {
-        Binding(get: { history.current }, set: { if let route = $0 { history.navigate(to: route) } })
+        Binding(get: { history.current }, set: {
+            if let route = $0 {
+                history.navigate(to: route)
+            }
+        })
     }
 }
 
@@ -471,7 +528,9 @@ private struct SwipeNavigation: View {
                 }
             }
             .onDisappear {
-                if let monitor { NSEvent.removeMonitor(monitor) }
+                if let monitor {
+                    NSEvent.removeMonitor(monitor)
+                }
                 monitor = nil
             }
     }
@@ -542,7 +601,10 @@ private struct TopBar<Search: View>: View {
 struct HostingGroupLabel: NSViewRepresentable {
     let label: String
 
-    func makeNSView(context _: Context) -> NSView { Anchor(label: label) }
+    func makeNSView(context _: Context) -> NSView {
+        Anchor(label: label)
+    }
+
     func updateNSView(_: NSView, context _: Context) {}
 
     private final class Anchor: NSView {
@@ -553,9 +615,13 @@ struct HostingGroupLabel: NSViewRepresentable {
             super.init(frame: .zero)
         }
 
-        @available(*, unavailable) required init?(coder _: NSCoder) { nil }
+        @available(*, unavailable) required init?(coder _: NSCoder) {
+            nil
+        }
 
-        override func hitTest(_: NSPoint) -> NSView? { nil }
+        override func hitTest(_: NSPoint) -> NSView? {
+            nil
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -569,7 +635,10 @@ struct HostingGroupLabel: NSViewRepresentable {
 /// Moves the window buttons inside the sidebar panel, where the design draws them (`.traffic`: 20 pt in, 18 pt down).
 /// AppKit lays the titlebar out again on resize and full screen, so the position is reapplied after each.
 private struct TrafficLightInset: NSViewRepresentable {
-    func makeNSView(context _: Context) -> NSView { Anchor() }
+    func makeNSView(context _: Context) -> NSView {
+        Anchor()
+    }
+
     func updateNSView(_: NSView, context _: Context) {}
 
     private final class Anchor: NSView {
@@ -587,7 +656,7 @@ private struct TrafficLightInset: NSViewRepresentable {
             observers = names.map { observe($0, window) }
             // AppKit also re-lays out the titlebar on clicks and key/main changes; watching the frames catches every pass.
             let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap(window.standardWindowButton)
-            let views = buttons + [buttons.first?.superview?.superview].compactMap { $0 }
+            let views = buttons + [buttons.first?.superview?.superview].compactMap(\.self)
             observers += views.map { view in
                 view.postsFrameChangedNotifications = true
                 return observe(NSView.frameDidChangeNotification, view)
@@ -630,12 +699,16 @@ private struct TrafficLightInset: NSViewRepresentable {
                 width: container.frame.width, height: height
             )
             // Setting only on change keeps the frame observers from looping.
-            if container.frame != frame { container.frame = frame }
+            if container.frame != frame {
+                container.frame = frame
+            }
             for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
                 guard let button = window.standardWindowButton(kind) else { continue }
                 let y = (button.superview?.frame.height ?? height) - top - button.frame.height
                 let origin = NSPoint(x: left + CGFloat(index) * (button.frame.width + gap), y: y)
-                if button.frame.origin != origin { button.setFrameOrigin(origin) }
+                if button.frame.origin != origin {
+                    button.setFrameOrigin(origin)
+                }
             }
         }
     }
@@ -727,8 +800,13 @@ struct NavigationCommands: Commands {
 /// File › Open Link: a pasted `open.spotify.com` link or `spotify:` URI.
 private struct OpenLinkSheet: View {
     let open: (SpotifyLink) -> Void
-    @State private var text = ""
+    @State private var text: String
     @Environment(\.dismiss) private var dismiss
+
+    init(initialText: String, open: @escaping (SpotifyLink) -> Void) {
+        self.open = open
+        _text = State(initialValue: initialText)
+    }
 
     var body: some View {
         let link = SpotifyLink(text)
@@ -745,7 +823,9 @@ private struct OpenLinkSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Open") {
-                    if let link { open(link) }
+                    if let link {
+                        open(link)
+                    }
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

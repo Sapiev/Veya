@@ -5,9 +5,9 @@
 //! the end of a track advances it, and an exhausted context continues with
 //! Spotify's autoplay radio for it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use librespot_connect::{LoadRequest, LoadRequestOptions, PlayingTrack, Spirc};
@@ -237,6 +237,8 @@ pub struct SpotPlayer {
     observer: Arc<dyn PlayerObserver>,
     state: Arc<Mutex<State>>,
     owner: Owner,
+    /// Told when a local player's thread dies, to rebuild it.
+    dead: Dead,
     /// Set by `SpotConnect::start`; held weakly as the connect side owns this player.
     connect: Mutex<Weak<SpotConnect>>,
 }
@@ -281,6 +283,7 @@ impl SpotPlayer {
             session_id: link.session_id(),
         }));
         let owner = Owner::default();
+        let (dead, dead_events) = tokio::sync::mpsc::unbounded_channel();
         let shared = SharedSink {
             sink: Arc::clone(&sink),
             transitions: Arc::clone(&transitions),
@@ -295,8 +298,11 @@ impl SpotPlayer {
             link,
             shared,
             &mixer,
-            &state,
-            &observer,
+            &EventHooks {
+                state: Arc::clone(&state),
+                observer: Arc::clone(&observer),
+                dead: dead.clone(),
+            },
             tuning.clone(),
         );
         let this = Arc::new(Self {
@@ -310,9 +316,11 @@ impl SpotPlayer {
             observer,
             state,
             owner,
+            dead,
             connect: Mutex::new(Weak::new()),
         });
         tokio::spawn(restore_after_reconnects(links, Arc::downgrade(&this)));
+        tokio::spawn(rebuild_dead_players(dead_events, Arc::downgrade(&this)));
         Ok(this)
     }
 
@@ -360,7 +368,20 @@ impl SpotPlayer {
     /// Folders librespot scans for `spotify:local:` files, once per player.
     /// Rebuilds the player like `set_bitrate` only when the list changed.
     pub async fn set_local_folders(&self, paths: Vec<String>) {
-        let folders: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let folders: Vec<PathBuf> = paths
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|folder| {
+                let scannable = is_scannable(folder);
+                if !scannable {
+                    warn!(
+                        "ignoring local folder {}: symlink loop or too large",
+                        folder.display()
+                    );
+                }
+                scannable
+            })
+            .collect();
         if lock(&self.tuning).local_folders != folders {
             self.retune(|t| t.local_folders = folders);
         }
@@ -416,7 +437,13 @@ impl SpotPlayer {
         // Adopt the session only once resolve succeeds: adopting first would
         // make a pending reconnect restore skip, leaving playback dead on failure.
         let choice = lock(&self.state).claim();
-        let tracks = resolve(&self.session.current_session(), &uri).await?;
+        let tracks = match resolve(&self.session.current_session(), &uri).await {
+            Ok(tracks) => tracks,
+            Err(e) => {
+                lock(&self.state).retract(choice);
+                return Err(e);
+            }
+        };
         self.sync_session();
         self.start_context(tracks, None, Some(uri), start_ms, autoplay, Some(choice))
     }
@@ -748,6 +775,14 @@ impl State {
         self.choice
     }
 
+    /// Gives back a `claim` whose load failed, so the slower load it
+    /// superseded may still play. Does nothing once a newer choice exists.
+    fn retract(&mut self, choice: u64) {
+        if self.choice == choice {
+            self.choice -= 1;
+        }
+    }
+
     /// Sets the context and returns its first track to load, or `None` when
     /// `choice` is no longer the latest one.
     fn begin_context(
@@ -761,6 +796,11 @@ impl State {
         if !is_latest(self, choice) {
             info!("dropping a load superseded while it resolved");
             return Ok(None);
+        }
+        if tracks.is_empty() {
+            return Err(PlayerError::EmptyContext {
+                uri: context_uri.as_ref().map(canonical).unwrap_or_default(),
+            });
         }
         match start {
             Some(start) => self.queue.set_context_at(tracks, start, seed()),
@@ -839,17 +879,28 @@ impl SpotPlayer {
     /// Must run on the UniFFI tokio runtime, for `spawn_blocking`.
     fn retune(&self, change: impl FnOnce(&mut Tuning)) {
         // Held throughout so overlapping calls and queue moves serialise.
-        let mut state = lock(&self.state);
+        let state = lock(&self.state);
         let tuning = {
             let mut tuning = lock(&self.tuning);
             change(&mut tuning);
             tuning.clone()
         };
+        let resume = resume_point(&state);
+        self.rebuild(state, tuning, resume);
+    }
+
+    /// Replaces the librespot player and loads `resume` on the new one.
+    /// Consumes the state lock, which makes the swap atomic for other callers.
+    fn rebuild(
+        &self,
+        mut state: MutexGuard<'_, State>,
+        tuning: Tuning,
+        resume: Option<(SpotifyUri, bool, u32)>,
+    ) {
         // From here the old player's writes and events are dropped.
         let epoch = self.epoch.next();
         // Stops an in-flight autoplay fetch from loading into the old player.
         state.generation += 1;
-        let resume = resume_point(&state);
         let link = self.session.current_session();
         state.session_id = link.session_id();
         let shared = SharedSink {
@@ -866,8 +917,11 @@ impl SpotPlayer {
             link,
             shared,
             &self.mixer,
-            &self.state,
-            &self.observer,
+            &EventHooks {
+                state: Arc::clone(&self.state),
+                observer: Arc::clone(&self.observer),
+                dead: self.dead.clone(),
+            },
             tuning,
         );
         self.transitions.discontinuity();
@@ -878,6 +932,26 @@ impl SpotPlayer {
         drop(state);
         // `Player::drop` joins its thread; keep that off the async workers.
         tokio::task::spawn_blocking(move || drop(old));
+    }
+
+    /// The librespot player thread died (a decode panic, say), so nothing
+    /// would ever play again. Fails the track it was on, then plays on with
+    /// a fresh player. A no-op once `dead` is no longer the live player.
+    fn recover(&self, dead: &Epoch) {
+        let mut state = lock(&self.state);
+        if !dead.is_current() {
+            return;
+        }
+        let Survival { failed, next } = survive_player_death(&mut state);
+        warn!("player thread died; rebuilding");
+        let tuning = lock(&self.tuning).clone();
+        self.rebuild(state, tuning, next.clone().map(|track| (track, true, 0)));
+        if let Some(uri) = failed {
+            self.observer.on_event(PlaybackEvent::Unavailable { uri });
+        }
+        if next.is_none() {
+            self.observer.on_event(PlaybackEvent::Stopped);
+        }
     }
 
     /// Moves the player onto a reconnected session and restarts the current
@@ -1087,6 +1161,7 @@ impl SpotPlayer {
             Step::Drop => return,
             Step::Enter => {
                 info!("entering Connect mode");
+                enter_connect(&mut lock(&self.state));
                 self.player().stop();
             }
             // Spirc stopping as a transfer moves playback to the followed
@@ -1116,6 +1191,41 @@ fn remote_for(owner: Role, list: &DeviceList) -> Option<RemotePlayback> {
         Route::Remote => list.remote.clone(),
         Route::Local | Route::Connect => None,
     }
+}
+
+enum Ended {
+    NotAnEnd,
+    Stale,
+    Next(SpotifyUri),
+    ContextEnd,
+}
+
+/// Advances the queue when the local player's current request ended. An
+/// unavailable track ends like a finished one, as librespot leaves the player
+/// in Loading. Nothing advances while Connect or a remote owns playback.
+fn ended_track(state: &mut State, owner: &Owner, event: &PlayerEvent) -> Ended {
+    let (PlayerEvent::EndOfTrack {
+        play_request_id, ..
+    }
+    | PlayerEvent::Unavailable {
+        play_request_id, ..
+    }) = event
+    else {
+        return Ended::NotAnEnd;
+    };
+    if state.request_id != Some(*play_request_id) || owner.get() != Role::Local {
+        return Ended::Stale;
+    }
+    match state.queue.advance(false).cloned() {
+        Some(track) => Ended::Next(track),
+        None => Ended::ContextEnd,
+    }
+}
+
+/// Connect takes the sink: retire pending loads and radio fetches, which
+/// would otherwise decode into a closed gate at CPU speed.
+fn enter_connect(state: &mut State) {
+    state.supersede();
 }
 
 /// Marks Remote mode and retires in-flight radio fetches; true when the
@@ -1181,6 +1291,35 @@ async fn forward_connect_events(
     }
 }
 
+const SCAN_MAX_DEPTH: usize = 24;
+const SCAN_MAX_DIRS: usize = 50_000;
+
+/// librespot scans local folders at every player start, following symlinks
+/// without a depth limit, so a symlink loop aborts the app on each launch.
+/// A folder passes only if its tree has no loop and stays within a sane size.
+fn is_scannable(folder: &Path) -> bool {
+    fn walk(dir: &Path, ancestors: &mut Vec<PathBuf>, dirs: &mut usize) -> bool {
+        let Ok(real) = dir.canonicalize() else {
+            return true;
+        };
+        *dirs += 1;
+        if ancestors.contains(&real) || ancestors.len() >= SCAN_MAX_DEPTH || *dirs > SCAN_MAX_DIRS {
+            return false;
+        }
+        ancestors.push(real);
+        let ok = std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .all(|path| walk(&path, ancestors, dirs))
+        }) || !dir.is_dir();
+        ancestors.pop();
+        ok
+    }
+    walk(folder, &mut Vec::new(), &mut 0)
+}
+
 fn soft_mixer(volume: u16) -> SoftMixer {
     // `VolumeCtrl::default()` is librespot's 60 dB logarithmic curve.
     let mixer = SoftMixer::open(MixerConfig::default()).expect("SoftMixer::open never fails");
@@ -1225,8 +1364,7 @@ fn spawn_player(
     link: Session,
     sink: SharedSink,
     mixer: &SoftMixer,
-    state: &Arc<Mutex<State>>,
-    observer: &Arc<dyn PlayerObserver>,
+    hooks: &EventHooks,
     tuning: Tuning,
 ) -> Arc<Player> {
     let gate = Gate {
@@ -1246,11 +1384,56 @@ fn spawn_player(
         player.get_player_event_channel(),
         Arc::downgrade(&player),
         gate,
-        Arc::clone(state),
-        Arc::clone(observer),
+        hooks.clone(),
         transitions,
     ));
     player
+}
+
+type Dead = tokio::sync::mpsc::UnboundedSender<Epoch>;
+
+/// What a local player's event loop reports into.
+#[derive(Clone)]
+struct EventHooks {
+    state: Arc<Mutex<State>>,
+    observer: Arc<dyn PlayerObserver>,
+    dead: Dead,
+}
+
+/// The event channel closed while its player was live: librespot's player
+/// thread is gone, because a retired player is never read after its epoch
+/// moves on. Returns whether a rebuild was requested.
+fn report_death(epoch: &Epoch, dead: &Dead) -> bool {
+    epoch.is_current() && dead.send(epoch.clone()).is_ok()
+}
+
+async fn rebuild_dead_players(
+    mut dead: tokio::sync::mpsc::UnboundedReceiver<Epoch>,
+    player: Weak<SpotPlayer>,
+) {
+    while let Some(epoch) = dead.recv().await {
+        let Some(player) = player.upgrade() else {
+            return;
+        };
+        player.recover(&epoch);
+    }
+}
+
+struct Survival {
+    /// The track the dead player was on.
+    failed: Option<String>,
+    /// What to play next, if the queue has more.
+    next: Option<SpotifyUri>,
+}
+
+/// Fails the current track and moves to the next one, so a poisoned stream
+/// is not retried forever.
+fn survive_player_death(state: &mut State) -> Survival {
+    let failed = state.queue.current().map(canonical);
+    let next = state.queue.advance(false).cloned();
+    state.request_id = None;
+    state.clock.wants_play = next.is_some();
+    Survival { failed, next }
 }
 
 /// Which librespot player is live. `current` only moves while the state lock
@@ -1613,11 +1796,15 @@ async fn forward_events(
     mut events: PlayerEventChannel,
     player: Weak<Player>,
     gate: Gate,
-    state: Arc<Mutex<State>>,
-    observer: Arc<dyn PlayerObserver>,
+    hooks: EventHooks,
     transitions: Arc<Transitions>,
 ) {
     let Gate { epoch, owner, .. } = gate;
+    let EventHooks {
+        state,
+        observer,
+        dead,
+    } = hooks;
     let mut duration_ms = 0;
     while let Some(event) = events.recv().await {
         // Held across the radio fetch below, so it may be the last reference.
@@ -1657,9 +1844,6 @@ async fn forward_events(
             continue;
         }
         let mut context_ended = false;
-        if let PlayerEvent::EndOfTrack {
-            play_request_id, ..
-        } = event
         {
             // Loads under the state lock, as every other site does, so a
             // concurrent next() cannot interleave its own load.
@@ -1667,14 +1851,17 @@ async fn forward_events(
             if !epoch.is_current() {
                 return;
             }
-            if state.request_id != Some(play_request_id) {
-                continue;
-            }
-            let next = state.queue.advance(false).cloned();
-            transitions.boundary();
-            match next {
-                Some(track) => player.load(track, true, 0),
-                None => context_ended = true,
+            match ended_track(&mut state, &owner, &event) {
+                Ended::NotAnEnd => {}
+                Ended::Stale => continue,
+                Ended::Next(track) => {
+                    transitions.boundary();
+                    player.load(track, true, 0);
+                }
+                Ended::ContextEnd => {
+                    transitions.boundary();
+                    context_ended = true;
+                }
             }
         }
         if let Some(event) = map_event(event) {
@@ -1701,7 +1888,7 @@ async fn forward_events(
             }
         }
     }
-    if epoch.is_current() {
+    if report_death(&epoch, &dead) {
         warn!("player event channel closed");
     }
 }
@@ -1717,7 +1904,7 @@ async fn continue_with_radio(
 ) -> bool {
     let (mut request, generation) = {
         let state = lock(state);
-        if owner.is_remote() {
+        if owner.is_remote() || owner.get() != Role::Local {
             return false;
         }
         let Some(context) = state.context_uri.as_ref() else {
@@ -1753,7 +1940,11 @@ async fn continue_with_radio(
     };
     let mut state = lock(state);
     // Entering Remote mode bumps the generation, so this also covers it.
-    if state.generation != generation || tracks.is_empty() || owner.is_remote() {
+    if state.generation != generation
+        || tracks.is_empty()
+        || owner.is_remote()
+        || owner.get() != Role::Local
+    {
         return false;
     }
     state.queue.set_context(tracks, seed());
@@ -2103,6 +2294,156 @@ mod tests {
 
         let first = state.begin_context(vec![track(3)], Some(0), None, true, None);
         assert_eq!(first.unwrap(), Some(track(3)), "load_tracks claims nothing");
+    }
+
+    #[test]
+    fn an_empty_context_errors_and_leaves_the_queue_alone() {
+        let mut state = state_playing(track(0));
+        let generation = state.generation;
+        let choice = state.claim();
+        for start in [None, Some(0)] {
+            let result = state.begin_context(vec![], start, None, true, Some(choice));
+            assert!(matches!(result, Err(PlayerError::EmptyContext { .. })));
+        }
+        assert_eq!(state.queue.current(), Some(&track(0)));
+        assert_eq!(state.generation, generation, "radio fetches keep running");
+    }
+
+    #[test]
+    fn a_load_pending_when_connect_takes_the_sink_is_dropped() {
+        let mut state = state_playing(track(0));
+        let pending = state.claim();
+        let generation = state.generation;
+        enter_connect(&mut state);
+        assert!(state.generation > generation);
+        let first = state.begin_context(vec![track(1)], None, None, true, Some(pending));
+        assert_eq!(first.unwrap(), None);
+    }
+
+    fn ended(id: u64) -> PlayerEvent {
+        PlayerEvent::EndOfTrack {
+            play_request_id: id,
+            track_id: track(0),
+        }
+    }
+
+    #[test]
+    fn an_unavailable_track_advances_like_an_ended_one() {
+        let owner = Owner::default();
+        let mut state = state_playing(track(0));
+        state.queue.set_context(vec![track(0), track(1)], 0);
+        state.request_id = Some(7);
+        let unavailable = PlayerEvent::Unavailable {
+            play_request_id: 7,
+            track_id: track(0),
+        };
+        assert!(matches!(
+            ended_track(&mut state, &owner, &unavailable),
+            Ended::Next(_)
+        ));
+        assert!(matches!(
+            ended_track(&mut state, &owner, &ended(7)),
+            Ended::ContextEnd
+        ));
+        assert!(matches!(
+            ended_track(&mut state, &owner, &ended(6)),
+            Ended::Stale
+        ));
+        assert!(matches!(
+            ended_track(&mut state, &owner, &playing()),
+            Ended::NotAnEnd
+        ));
+    }
+
+    #[test]
+    fn nothing_advances_while_connect_owns_the_sink() {
+        let owner = Owner::default();
+        owner.set(Role::Connect);
+        let mut state = state_playing(track(0));
+        state.queue.set_context(vec![track(0), track(1)], 0);
+        state.request_id = Some(7);
+        assert!(matches!(
+            ended_track(&mut state, &owner, &ended(7)),
+            Ended::Stale
+        ));
+        assert_eq!(state.queue.current(), Some(&track(0)));
+    }
+
+    #[test]
+    fn a_failed_load_does_not_cancel_the_slower_one_before_it() {
+        let mut state = state_playing(track(0));
+        let slow = state.claim();
+        let failing = state.claim();
+        state.retract(failing);
+        let first = state.begin_context(vec![track(1)], None, None, true, Some(slow));
+        assert_eq!(first.unwrap(), Some(track(1)));
+
+        let older = state.claim();
+        let failing = state.claim();
+        let newer = state.claim();
+        state.retract(failing);
+        let first = state.begin_context(vec![track(2)], None, None, true, Some(older));
+        assert_eq!(first.unwrap(), None, "a newer choice still wins");
+        assert!(is_latest(&state, Some(newer)));
+    }
+
+    #[test]
+    fn a_dead_player_thread_fails_its_track_and_moves_on() {
+        let mut state = state_playing(track(0));
+        state.queue.set_context(vec![track(0), track(1)], 0);
+        state.request_id = Some(3);
+        let Survival { failed, next } = survive_player_death(&mut state);
+        assert_eq!(failed, Some(canonical(&track(0))));
+        assert_eq!(next, Some(track(1)));
+        assert_eq!(
+            state.request_id, None,
+            "events of the dead player are stale"
+        );
+
+        let Survival { failed, next } = survive_player_death(&mut state);
+        assert_eq!(failed, Some(canonical(&track(1))));
+        assert_eq!(next, None);
+        assert!(!state.clock.wants_play);
+    }
+
+    #[test]
+    fn only_a_live_players_closed_channel_requests_a_rebuild() {
+        let (dead, mut requests) = tokio::sync::mpsc::unbounded_channel();
+        let epoch = Epoch {
+            current: Arc::default(),
+            mine: 0,
+        };
+        let successor = epoch.next();
+        assert!(
+            !report_death(&epoch, &dead),
+            "a rebuilt player closes quietly"
+        );
+        assert!(requests.try_recv().is_err());
+        assert!(report_death(&successor, &dead));
+        assert!(requests.try_recv().unwrap().is_current());
+    }
+
+    #[test]
+    fn local_folders_with_a_symlink_loop_or_absurd_depth_are_ignored() {
+        let root = std::env::temp_dir().join(format!("spotcore-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let fine = root.join("fine/nested");
+        std::fs::create_dir_all(&fine).unwrap();
+        assert!(is_scannable(&root.join("fine")));
+
+        let looped = root.join("looped/a");
+        std::fs::create_dir_all(&looped).unwrap();
+        std::os::unix::fs::symlink(root.join("looped"), looped.join("back")).unwrap();
+        assert!(!is_scannable(&root.join("looped")));
+
+        let mut deep = root.join("deep");
+        for _ in 0..=SCAN_MAX_DEPTH {
+            deep.push("d");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        assert!(!is_scannable(&root.join("deep")));
+        assert!(is_scannable(&root.join("missing")), "librespot skips it");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

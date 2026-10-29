@@ -306,6 +306,11 @@ let tokens = OAuthTokens(
 @MainActor
 final class LogSpy {
     var entries: [(LogLevel, String)] = []
+    /// Warnings minus the slow-restore one, which fires on any machine too loaded to restore within the budget.
+    var warnings: [String] {
+        entries.filter { $0.0 == .warn && !$0.1.hasPrefix("Session restored") }.map(\.1)
+    }
+
     var log: SessionLog {
         { [self] in entries.append(($0, $1)) }
     }
@@ -321,7 +326,10 @@ func waitUntil(_ condition: () -> Bool) async throws {
 
 /// Fakes that don't model playlist writes refuse them.
 extension PlaylistServiceProtocol {
-    func addTracks(uri _: String, trackUris _: [String], revision _: String) async throws -> String { throw unsupported }
+    func addTracks(uri _: String, trackUris _: [String], revision _: String) async throws -> String {
+        throw unsupported
+    }
+
     func removeTracks(uri _: String, from _: UInt32, trackUris _: [String], revision _: String) async throws -> String {
         throw unsupported
     }
@@ -330,14 +338,37 @@ extension PlaylistServiceProtocol {
         throw unsupported
     }
 
-    func updateDetails(uri _: String, name _: String, description _: String) async throws { throw unsupported }
-    func createPlaylist(name _: String, description _: String, folder _: String?) async throws -> String { throw unsupported }
-    func createFolder(name _: String, folder _: String?) async throws -> String { throw unsupported }
-    func deletePlaylist(uri _: String) async throws { throw unsupported }
-    func followPlaylist(uri _: String) async throws { throw unsupported }
-    func userProfile(username _: String?) async throws -> UserProfile { throw unsupported }
-    func setPublic(uri _: String, public _: Bool) async throws { throw unsupported }
-    func setPicture(uri _: String, jpeg _: Data) async throws { throw unsupported }
+    func updateDetails(uri _: String, name _: String, description _: String) async throws {
+        throw unsupported
+    }
+
+    func createPlaylist(name _: String, description _: String, folder _: String?) async throws -> String {
+        throw unsupported
+    }
+
+    func createFolder(name _: String, folder _: String?) async throws -> String {
+        throw unsupported
+    }
+
+    func deletePlaylist(uri _: String) async throws {
+        throw unsupported
+    }
+
+    func followPlaylist(uri _: String) async throws {
+        throw unsupported
+    }
+
+    func userProfile(username _: String?) async throws -> UserProfile {
+        throw unsupported
+    }
+
+    func setPublic(uri _: String, public _: Bool) async throws {
+        throw unsupported
+    }
+
+    func setPicture(uri _: String, jpeg _: Data) async throws {
+        throw unsupported
+    }
 }
 
 private let unsupported = PlaylistError.Request(message: "unsupported")

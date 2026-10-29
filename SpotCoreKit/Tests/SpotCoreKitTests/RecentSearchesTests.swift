@@ -29,6 +29,16 @@ struct RecentSearchesTests {
         #expect(recent.queries == ["daft punk", "bonobo"])
     }
 
+    @Test func pastedLinksLoseTheirQueryStringAndLongTextIsCut() {
+        let recent = RecentSearches(defaults: defaults)
+        recent.add("https://open.spotify.com/track/abc?si=secret123")
+        recent.add(String(repeating: "x", count: 500))
+
+        #expect(recent.queries == [String(repeating: "x", count: RecentSearches.maxLength), "https://open.spotify.com/track/abc"])
+        defaults.set(["https://a.b/c?si=old", String(repeating: "y", count: 300)], forKey: "recentSearches")
+        #expect(RecentSearches(defaults: defaults).queries == ["https://a.b/c", String(repeating: "y", count: 100)])
+    }
+
     @Test func blankQueriesAreIgnored() {
         let recent = RecentSearches(defaults: defaults)
         recent.add("   ")

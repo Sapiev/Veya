@@ -36,7 +36,7 @@ use crate::session::{
     CONNECT_TIMEOUT, ConnectivityFollower, SessionError, SpotSession, StoredCredentials,
     map_connect_error,
 };
-use crate::util::{OffRuntime, lock};
+use crate::util::{OffRuntime, lock, unix_now};
 
 /// Fixed so the id is stable across launches and phones list one device.
 const DEVICE_ID_SUFFIX: &str = "-connect";
@@ -44,6 +44,9 @@ const FALLBACK_NAME: &str = "Veya";
 const CLUSTER_URI: &str = "hm://connect-state/v1/cluster";
 /// How long Spirc gets to go inactive and unregister before its session closes.
 const SPIRC_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+/// One hung request must not hold back every later command.
+const SEND_TIMEOUT: Duration = Duration::from_secs(15);
+const OUTBOX_CAPACITY: usize = 64;
 
 /// The Connect device id for the main session's `device_id`. Idempotent, as
 /// reconnects pass back the Connect session's own credentials.
@@ -116,6 +119,9 @@ pub struct SavedPlayback {
     pub saved_at_ms: i64,
 }
 
+/// No episode or track runs longer; a larger saved position is corrupt.
+const MAX_RESTORE_POSITION_MS: u32 = 24 * 60 * 60 * 1000;
+
 /// A restore candidate and when it was played, in Unix milliseconds.
 #[derive(Debug, PartialEq)]
 struct Played {
@@ -124,16 +130,18 @@ struct Played {
 }
 
 impl SavedPlayback {
-    fn validated(self) -> Option<Played> {
+    /// `now_ms` bounds the timestamp: a tampered file must not win the
+    /// restore by claiming the future.
+    fn validated(self, now_ms: i64) -> Option<Played> {
         let track = canonical(&self.track_uri, is_playable_item)?;
         let context = self.context_uri.and_then(|uri| restorable_context(&uri));
         Some(Played {
             resume: Resume {
                 context,
                 track,
-                position_ms: self.position_ms,
+                position_ms: self.position_ms.min(MAX_RESTORE_POSITION_MS),
             },
-            at_ms: self.saved_at_ms,
+            at_ms: self.saved_at_ms.clamp(0, now_ms),
         })
     }
 }
@@ -204,7 +212,7 @@ async fn launch_resume(
                 None
             });
             Ok(newest(
-                saved.and_then(SavedPlayback::validated),
+                saved.and_then(|saved| saved.validated(unix_now().saturating_mul(1000))),
                 recent.map(Played::from),
             ))
         }
@@ -467,7 +475,15 @@ async fn follow_cluster(
         let (devices, this_id, epoch) = (Arc::clone(&devices), this_id.clone(), epoch.clone());
         // This may hold the last reference, and dropping a player joins its thread.
         let _ = tokio::task::spawn_blocking(move || {
-            apply_cluster(&devices, &update, &this_id, &epoch, queue_changed, &*player);
+            apply_cluster(
+                &devices,
+                &update,
+                &this_id,
+                &epoch,
+                queue_changed,
+                None,
+                &*player,
+            );
         })
         .await;
     }
@@ -491,12 +507,17 @@ fn apply_cluster(
     this_id: &str,
     epoch: &Epoch,
     queue_changed: bool,
+    untouched_since: Option<u64>,
     sink: &impl ClusterSink,
 ) {
     let (listed, change, events, remote) = {
         // Checked under the list lock that link shutdown clears it under.
         let mut list = lock(devices);
         if !epoch.is_current() {
+            return;
+        }
+        // A Web API answer yields to any push that landed while it was in flight.
+        if untouched_since.is_some_and(|stamp| !list.untouched_since(stamp)) {
             return;
         }
         let listed = list.update(update, this_id).then(|| list.changed());
@@ -574,7 +595,7 @@ pub struct SpotConnect {
     devices: ClusterDevices,
     player: Arc<SpotPlayer>,
     /// Connect-state requests, sent one at a time in order.
-    outbox: mpsc::UnboundedSender<Outgoing>,
+    outbox: mpsc::Sender<Outgoing>,
     /// Dropping it stops zeroconf.
     _zeroconf: Option<watch::Sender<bool>>,
     /// Set by the first `restore_last_playback`.
@@ -672,6 +693,40 @@ impl SpotConnect {
                 warn!("cannot restore the last playback: {e}");
             }
         }
+    }
+
+    /// Shows the account's devices and any other device's playback from the
+    /// Web API, unless a cluster push already did: Spotify pushes the
+    /// cluster only when it changes. `access_token` needs
+    /// `user-read-playback-state`. Failures are logged.
+    pub async fn load_devices(&self, access_token: String) {
+        let link = self.supervisor.current_link();
+        let this_id = link.session.device_id().to_owned();
+        let stamp = lock(&self.devices).stamp();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        let update = match crate::devices::web_api_cluster(&access_token, now_ms).await {
+            Ok(update) => update,
+            Err(e) => return warn!("cannot list the Connect devices: {e}"),
+        };
+        let (devices, player, epoch) = (
+            Arc::clone(&self.devices),
+            Arc::clone(&self.player),
+            link.epoch.clone(),
+        );
+        let _ = tokio::task::spawn_blocking(move || {
+            apply_cluster(
+                &devices,
+                &update,
+                &this_id,
+                &epoch,
+                false,
+                Some(stamp),
+                &*player,
+            );
+        })
+        .await;
     }
 
     /// Hands the sink back to the local player and returns once the device
@@ -828,13 +883,16 @@ impl SpotConnect {
         endpoint: fn(&str, &str) -> String,
     ) {
         let session = self.supervisor.current_link().session.clone();
-        let _ = self.outbox.send(Outgoing {
+        let queued = self.outbox.try_send(Outgoing {
             session,
             method,
             target,
             body,
             endpoint,
         });
+        if queued.is_err() {
+            warn!("Connect command dropped: outbox full or closed");
+        }
     }
 }
 
@@ -871,8 +929,8 @@ impl Outgoing {
 /// Parallel requests could reach a remote out of order (a pause after the
 /// play that followed it), so one task sends them in turn. Ends once
 /// `SpotConnect` is dropped.
-fn start_outbox() -> mpsc::UnboundedSender<Outgoing> {
-    let (outbox, mut queued) = mpsc::unbounded_channel::<Outgoing>();
+fn start_outbox() -> mpsc::Sender<Outgoing> {
+    let (outbox, mut queued) = mpsc::channel::<Outgoing>(OUTBOX_CAPACITY);
     tokio::spawn(async move {
         while let Some(first) = queued.recv().await {
             let mut batch = vec![first];
@@ -880,11 +938,18 @@ fn start_outbox() -> mpsc::UnboundedSender<Outgoing> {
                 batch.push(next);
             }
             for request in coalesce(batch, Outgoing::volume_target) {
-                request.send().await;
+                if !within(SEND_TIMEOUT, request.send()).await {
+                    warn!("Connect command timed out");
+                }
             }
         }
     });
     outbox
+}
+
+/// False when `work` did not finish within `limit`; it is then dropped.
+async fn within(limit: Duration, work: impl Future<Output = ()>) -> bool {
+    tokio::time::timeout(limit, work).await.is_ok()
 }
 
 /// Drops each volume request a later one to the same target replaces, so a
@@ -941,6 +1006,13 @@ mod tests {
         }
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_request_is_abandoned_so_the_next_one_can_go() {
+        let hung = within(SEND_TIMEOUT, std::future::pending());
+        assert!(!hung.await);
+        assert!(within(SEND_TIMEOUT, async {}).await);
+    }
+
     #[test]
     fn a_remote_change_is_applied_after_the_device_list_is_released() {
         let mut state = PlayerState {
@@ -968,10 +1040,63 @@ mod tests {
             applied: Mutex::default(),
         };
 
-        apply_cluster(&devices, &update, "mac", &Epoch::default(), true, &checker);
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            true,
+            None,
+            &checker,
+        );
 
         assert_eq!(*checker.applied.lock().unwrap(), [Change::Enter]);
         assert!(lock(&devices).remote.is_some());
+    }
+
+    #[test]
+    fn web_api_update_is_dropped_when_a_push_landed_since_its_stamp() {
+        let update = ClusterUpdate {
+            cluster: Some(Cluster {
+                active_device_id: "phone".to_owned(),
+                ..Default::default()
+            })
+            .into(),
+            ..Default::default()
+        };
+        let devices = Mutex::new(DeviceList::default());
+        let checker = LockChecker {
+            devices: &devices,
+            applied: Mutex::default(),
+        };
+        let stamp = lock(&devices).stamp();
+        // A push lands while the Web API request is in flight.
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            false,
+            None,
+            &checker,
+        );
+        let after_push = lock(&devices).stamp();
+
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            false,
+            Some(stamp),
+            &checker,
+        );
+
+        assert_eq!(
+            lock(&devices).stamp(),
+            after_push,
+            "stale update must not apply"
+        );
     }
 
     #[tokio::test]
@@ -1197,6 +1322,7 @@ mod tests {
         }
     }
 
+    const NOW_MS: i64 = 1_000_000;
     const OTHER_TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQB";
 
     fn saved(track: &str, context: Option<&str>, at_ms: i64) -> SavedPlayback {
@@ -1217,7 +1343,7 @@ mod tests {
 
     #[test]
     fn newest_prefers_the_later_of_saved_and_recently_played() {
-        let mine = || saved(LAST_TRACK, Some(LAST_PLAYLIST), 2_000).validated();
+        let mine = || saved(LAST_TRACK, Some(LAST_PLAYLIST), 2_000).validated(NOW_MS);
         let saved_resume = Some(resume(LAST_TRACK, Some(LAST_PLAYLIST), 30_000));
         assert_eq!(newest(mine(), recent(1_000)), saved_resume, "saved newer");
         assert_eq!(
@@ -1236,6 +1362,26 @@ mod tests {
     }
 
     #[test]
+    fn a_tampered_saved_playback_is_clamped() {
+        let mut hostile = saved(LAST_TRACK, None, i64::MAX);
+        hostile.position_ms = u32::MAX;
+        let played = hostile.validated(NOW_MS).unwrap();
+        assert_eq!(played.at_ms, NOW_MS, "never newer than now");
+        assert_eq!(played.resume.position_ms, MAX_RESTORE_POSITION_MS);
+        assert_eq!(
+            saved(LAST_TRACK, None, i64::MIN)
+                .validated(NOW_MS)
+                .unwrap()
+                .at_ms,
+            0
+        );
+        // A forged future stamp therefore cannot beat a real recent play.
+        let real = recent(NOW_MS - 1);
+        let resume = newest(saved(LAST_TRACK, None, i64::MAX).validated(NOW_MS), real);
+        assert_eq!(resume.unwrap().track, LAST_TRACK);
+    }
+
+    #[test]
     fn saved_playback_from_disk_is_validated() {
         for bad in [
             "",
@@ -1243,9 +1389,9 @@ mod tests {
             LAST_PLAYLIST,
             "spotify:local:a:b:c:1",
         ] {
-            assert_eq!(saved(bad, None, 0).validated(), None, "{bad}");
+            assert_eq!(saved(bad, None, 0).validated(NOW_MS), None, "{bad}");
         }
-        let odd_context = saved(LAST_TRACK, Some(LAST_TRACK), 5).validated();
+        let odd_context = saved(LAST_TRACK, Some(LAST_TRACK), 5).validated(NOW_MS);
         assert_eq!(
             odd_context,
             Some(Played {
@@ -1253,13 +1399,13 @@ mod tests {
                 at_ms: 5
             })
         );
-        let liked = saved(LAST_TRACK, Some("spotify:user:me:collection"), 5).validated();
+        let liked = saved(LAST_TRACK, Some("spotify:user:me:collection"), 5).validated(NOW_MS);
         assert_eq!(
             liked.map(|played| played.resume.context),
             Some(Some(crate::player::LIKED_SONGS.to_owned()))
         );
         let episode = "spotify:episode:4rOoJ6Egrf8K2IrywzwOMk";
-        assert!(saved(episode, None, 0).validated().is_some());
+        assert!(saved(episode, None, 0).validated(NOW_MS).is_some());
     }
 
     #[test]

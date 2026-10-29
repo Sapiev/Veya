@@ -27,10 +27,9 @@ pub enum ConnectionState {
     CredentialsRejected,
 }
 
-/// Implemented in Swift. Called on arbitrary Rust threads, in order; must
-/// not block. Calls hold a non-reentrant lock, so the callback must not
-/// synchronously call `set_observer`, `network_changed` or `shutdown`
-/// (nor drop the last `SpotSession` reference, which runs `shutdown`).
+/// Implemented in Swift. Called on arbitrary Rust threads, without a lock
+/// held, so the callback may call back into the session; must not block.
+/// A call already under way may still finish after `shutdown` returns.
 #[uniffi::export(with_foreign)]
 pub trait ConnectionObserver: Send + Sync {
     fn on_state_changed(&self, state: ConnectionState);
@@ -82,8 +81,8 @@ struct Core<L> {
     retry_now: bool,
 }
 
-/// Observer calls happen under this lock so they stay ordered and none
-/// starts after `shutdown` returns.
+/// Guards state and observer only; the observer is called after the lock is
+/// released so a callback can call `shutdown` or `set_observer`.
 struct Reporter {
     state: ConnectionState,
     observer: Option<Arc<dyn ConnectionObserver>>,
@@ -101,22 +100,25 @@ struct Shared<L> {
 
 impl<L: Link> Shared<L> {
     fn emit(&self, state: ConnectionState) {
-        let mut reporter = lock(&self.reporter);
-        if reporter.closed {
-            return;
-        }
-        match &state {
-            ConnectionState::Connected => info!("session reconnected"),
-            ConnectionState::Reconnecting {
-                attempt,
-                retry_in_secs,
-            } => info!("reconnecting: attempt {attempt}, retry in {retry_in_secs} s"),
-            ConnectionState::CredentialsRejected => {
-                warn!("reconnect stopped: stored credentials rejected")
+        let observer = {
+            let mut reporter = lock(&self.reporter);
+            if reporter.closed {
+                return;
             }
-        }
-        reporter.state = state.clone();
-        if let Some(observer) = &reporter.observer {
+            match &state {
+                ConnectionState::Connected => info!("session reconnected"),
+                ConnectionState::Reconnecting {
+                    attempt,
+                    retry_in_secs,
+                } => info!("reconnecting: attempt {attempt}, retry in {retry_in_secs} s"),
+                ConnectionState::CredentialsRejected => {
+                    warn!("reconnect stopped: stored credentials rejected")
+                }
+            }
+            reporter.state = state.clone();
+            reporter.observer.clone()
+        };
+        if let Some(observer) = observer {
             observer.on_state_changed(state);
         }
     }
@@ -324,12 +326,15 @@ impl<L: Link> Supervisor<L> {
     }
 
     pub(crate) fn set_observer(&self, observer: Arc<dyn ConnectionObserver>) {
-        let mut reporter = lock(&self.shared.reporter);
-        if reporter.closed {
-            return;
-        }
-        observer.on_state_changed(reporter.state.clone());
-        reporter.observer = Some(observer);
+        let state = {
+            let mut reporter = lock(&self.shared.reporter);
+            if reporter.closed {
+                return;
+            }
+            reporter.observer = Some(Arc::clone(&observer));
+            reporter.state.clone()
+        };
+        observer.on_state_changed(state);
     }
 
     /// Ignored while only the initial credentials exist: a healthy session
@@ -882,6 +887,40 @@ mod tests {
             &*h.supervisor.current_link(),
             &h.script.link(1)
         ));
+    }
+
+    /// Records whether any call came while the reporter lock was held.
+    struct Reentrant {
+        shared: Arc<Shared<Arc<FakeLink>>>,
+        calls: AtomicU32,
+        locked: AtomicBool,
+    }
+
+    impl ConnectionObserver for Reentrant {
+        fn on_state_changed(&self, _: ConnectionState) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.shared.reporter.try_lock().is_err() {
+                self.locked.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_observer_is_called_without_the_reporter_lock() {
+        let h = start();
+        let observer = Arc::new(Reentrant {
+            shared: Arc::clone(&h.supervisor.shared),
+            calls: AtomicU32::new(0),
+            locked: AtomicBool::new(false),
+        });
+        h.supervisor.set_observer(observer.clone());
+        h.script.push(Step::Succeed);
+        h.first.kill();
+        wait_until(|| observer.calls.load(Ordering::SeqCst) >= 3).await;
+        assert!(
+            !observer.locked.load(Ordering::SeqCst),
+            "told under the lock"
+        );
     }
 
     #[tokio::test(start_paused = true)]

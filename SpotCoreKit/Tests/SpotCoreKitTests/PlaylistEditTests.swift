@@ -245,6 +245,17 @@ struct PlaylistEditTests {
         #expect(model.isEditable("spotify:playlist:New"))
     }
 
+    @Test func rootListEditsRunOneAfterAnotherAndBothShow() async {
+        let model = PlaylistModel(playlists: PushedPlaylists(), log: { _, _ in })
+
+        async let first = model.createPlaylist(named: "A")
+        async let second = model.createPlaylist(named: "B")
+        let created = await [first, second]
+
+        #expect(created.compactMap(\.self).count == 2)
+        #expect(model.rootlist.count == 2)
+    }
+
     @Test func aNewPictureIsReencodedThenShownOnThePageAndInTheSidebar() async {
         let (service, model) = await loaded([0])
         let png = noiseImage(width: 1200, height: 900)

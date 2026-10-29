@@ -18,7 +18,7 @@ final class HomeUITests: XCTestCase {
         page.scroll(byDeltaX: 0, deltaY: -2000)
     }
 
-    @MainActor func testShowsEverySectionWithItsItems() {
+    @MainActor func testShowsEverySectionWithItsItemsGreetsAndJumpBackInOpensItsPage() {
         let app = home()
 
         XCTAssertTrue(app.buttons["Song 2, Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
@@ -29,20 +29,19 @@ final class HomeUITests: XCTestCase {
             XCTAssertTrue(app.buttons[card].exists, card)
         }
         XCTAssertFalse(app.staticTexts[Self.connectWebAPI].exists)
-    }
 
-    @MainActor func testGreetsByTimeOfDay() {
-        let app = home()
         let greetings = ["Good morning", "Good afternoon", "Good evening", "Good night"]
-
         let greeting = app.staticTexts["greeting"]
         XCTAssertTrue(greeting.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertTrue(greetings.contains(greeting.value as? String ?? ""))
-    }
 
-    /// The design's untitled quick grid sits directly under the greeting.
-    @MainActor func testJumpBackInIsUntitledQuickTilesThatOpenTheirPage() {
-        let app = home()
+        // spclient's recent contexts span more than the Web API's last 50 tracks.
+        let quickTiles = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Jump back in'")).firstMatch
+        XCTAssertTrue(quickTiles.waitForExistence(timeout: XCUIApplication.timeout))
+        // The scenario's Web API plays name 3 contexts, spclient 5.
+        XCTAssertGreaterThan(quickTiles.buttons.count, 3)
+
+        // The design's untitled quick grid sits directly under the greeting.
         let tile = app.buttons["Road Trip, Songs for the road"]
         XCTAssertTrue(tile.waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(app.staticTexts["Jump Back In"].exists)
@@ -74,17 +73,6 @@ final class HomeUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Song 2, Test Artist"].exists)
         // Jump Back In comes from spclient, which needs no Web API scope.
         XCTAssertTrue(app.buttons["Road Trip, Songs for the road"].exists)
-    }
-
-    /// spclient's recent contexts span more than the Web API's last 50 tracks.
-    @MainActor func testJumpBackInShowsEveryRecentContext() {
-        let app = home()
-        let quickTiles = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Jump back in'")).firstMatch
-
-        XCTAssertTrue(quickTiles.waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.buttons["Road Trip, Songs for the road"].waitForExistence(timeout: XCUIApplication.timeout))
-        // The scenario's Web API plays name 3 contexts, spclient 5.
-        XCTAssertGreaterThan(quickTiles.buttons.count, 3)
     }
 
     @MainActor func testNothingToShowIsADesignedEmptyState() {
@@ -134,38 +122,21 @@ final class HomeUITests: XCTestCase {
         XCTAssertTrue(app.showsRoute("Test Artist"))
     }
 
-    @MainActor func testClickingARecentTrackPlaysIt() {
-        let app = home()
-        let song = app.buttons["Song 2, Test Artist"]
-        XCTAssertTrue(song.waitForExistence(timeout: XCUIApplication.timeout))
-        scrollToRecentlyPlayed(app)
-
-        song.click()
-
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).firstMatch.exists)
-    }
-
-    @MainActor func testRegionLockedRecentTrackRefusesToPlay() {
-        let app = home()
-        let locked = app.buttons["Song 3, Test Artist"]
-        XCTAssertTrue(locked.waitForExistence(timeout: XCUIApplication.timeout))
-        scrollToRecentlyPlayed(app)
-
-        locked.click()
-
-        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
-    }
-
-    @MainActor func testPlayingRecentTracksLeavesTheRegionLockedOneOut() {
+    /// PBI-105: the region locked track refuses to play and stays out of the queue; a playable recent track plays.
+    @MainActor func testRegionLockedRecentTrackRefusesToPlayAndPlayingRecentTracksLeavesItOut() {
         let app = home()
         XCTAssertTrue(app.buttons["Song 2, Test Artist"].waitForExistence(timeout: XCUIApplication.timeout))
         app.menuItem("View", "Show Queue").click()
         let queue = app.descendants(matching: .any)["queue"].firstMatch
         scrollToRecentlyPlayed(app)
 
+        app.buttons["Song 3, Test Artist"].click()
+        XCTAssertFalse(app.buttons["Pause"].waitForExistence(timeout: 2))
+
         app.buttons["Song 2, Test Artist"].click()
 
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: XCUIApplication.timeout))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "value == %@", "Song 2")).firstMatch.exists)
         XCTAssertTrue(queue.staticTexts["Song 1"].waitForExistence(timeout: XCUIApplication.timeout))
         XCTAssertFalse(queue.staticTexts["Song 3"].exists)
     }

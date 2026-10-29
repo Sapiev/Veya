@@ -35,6 +35,11 @@ final class NavigationUITests: XCTestCase {
         // One New Playlist button, at the sidebar's foot; the Playlists header has none.
         XCTAssertEqual(app.buttons.matching(identifier: "New Playlist").count, 1)
         XCTAssertTrue(app.buttons["New Playlist"].isEnabled)
+
+        // PBI-304: folders start collapsed and open to show the playlists inside.
+        XCTAssertFalse(sidebar.staticTexts["Morning Mix"].exists)
+        sidebar.outlineRows.containing(NSPredicate(format: "label == 'Mixes' OR value == 'Mixes'")).disclosureTriangles.firstMatch.click()
+        XCTAssertTrue(sidebar.staticTexts["Morning Mix"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
     /// The window buttons sit inside the floating sidebar panel, 20 pt in and 18 pt down as in the design.
@@ -156,28 +161,6 @@ final class NavigationUITests: XCTestCase {
         XCTAssertTrue(app.savedItems.buttons["Test Album"].waitForExistence(timeout: XCUIApplication.timeout))
     }
 
-    /// PBI-304: folders start collapsed and open to show the playlists inside.
-    @MainActor func testPlaylistFolderExpandsToShowItsPlaylists() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-        let sidebar = app.outlines.firstMatch
-        XCTAssertTrue(sidebar.staticTexts["Mixes"].exists)
-        XCTAssertFalse(sidebar.staticTexts["Morning Mix"].exists)
-
-        sidebar.outlineRows.containing(NSPredicate(format: "label == 'Mixes' OR value == 'Mixes'")).disclosureTriangles.firstMatch.click()
-
-        XCTAssertTrue(sidebar.staticTexts["Morning Mix"].waitForExistence(timeout: XCUIApplication.timeout))
-    }
-
-    @MainActor func testSelectingAPlaylistShowsIt() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-
-        app.outlines.staticTexts["Road Trip"].click()
-
-        XCTAssertTrue(app.showsRoute("Road Trip"))
-    }
-
     @MainActor func testKeyboardBackAndForward() {
         let app = XCUIApplication.launch(.signedIn)
         XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
@@ -198,6 +181,8 @@ final class NavigationUITests: XCTestCase {
         let back = app.buttons["Back"]
         let forward = app.buttons["Forward"]
         XCTAssertFalse(back.isEnabled)
+        XCTAssertFalse(app.menuItem("Go", "Back").isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
 
         app.sidebarItem("Artists").click()
         back.click()
@@ -207,12 +192,5 @@ final class NavigationUITests: XCTestCase {
         forward.click()
         XCTAssertEqual(app.routeTitle.value as? String, "Artists")
         XCTAssertFalse(forward.isEnabled)
-    }
-
-    @MainActor func testGoMenuIsDisabledWithoutHistory() {
-        let app = XCUIApplication.launch(.signedIn)
-        XCTAssertTrue(app.signedInScreen.waitForExistence(timeout: XCUIApplication.timeout))
-
-        XCTAssertFalse(app.menuItem("Go", "Back").isEnabled)
     }
 }

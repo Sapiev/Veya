@@ -6,7 +6,9 @@ import os
 extension Artwork {
     /// Spotify's CDN widths per size class, used when the metadata omits `width`.
     var pixelWidth: Int {
-        if width > 0 { return Int(width) }
+        if width > 0 {
+            return Int(width)
+        }
         switch size {
         case .small: return 64
         case .default: return 300
@@ -16,9 +18,9 @@ extension Artwork {
     }
 }
 
-extension [Artwork] {
+public extension [Artwork] {
     /// The smallest artwork at least `pixels` wide, or the largest when none is.
-    public func best(forPixels pixels: Int) -> Artwork? {
+    func best(forPixels pixels: Int) -> Artwork? {
         let bySize = sorted { $0.pixelWidth < $1.pixelWidth }
         return bySize.first { $0.pixelWidth >= pixels } ?? bySize.last
     }
@@ -48,14 +50,20 @@ public actor ArtworkLoader {
             return nil
         }
         let key = "\(pixels)|\(chosen.url)" as NSString
-        if let cached = memory.object(forKey: key) { return cached }
-        if let running = inFlight[key as String] { return await running.value }
+        if let cached = memory.object(forKey: key) {
+            return cached
+        }
+        if let running = inFlight[key as String] {
+            return await running.value
+        }
 
         let task = Task { await load(url, pixels: pixels) }
         inFlight[key as String] = task
         let image = await task.value
         inFlight[key as String] = nil
-        if let image { memory.setObject(image, forKey: key, cost: image.bytesPerRow * image.height) }
+        if let image {
+            memory.setObject(image, forKey: key, cost: image.bytesPerRow * image.height)
+        }
         return image
     }
 
@@ -94,10 +102,24 @@ public actor ArtworkLoader {
         return URLSession(configuration: configuration)
     }()
 
+    static let maxDownloadBytes = 5 * 1024 * 1024
+
+    /// Cover art comes from Spotify's CDN over https; metadata is server data, so nothing else is fetched.
+    static func isAllowed(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", url.user == nil, url.port == nil,
+              let host = url.host?.lowercased() else { return false }
+        return ["scdn.co", "spotifycdn.com", "spotify.com"].contains { host == $0 || host.hasSuffix(".\($0)") }
+    }
+
     private static func download(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+        guard isAllowed(url) else { throw URLError(.unsupportedURL) }
+        let (bytes, response) = try await session.bytes(from: url)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode),
+              response.expectedContentLength <= Int64(maxDownloadBytes) else { throw URLError(.badServerResponse) }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < maxDownloadBytes else { throw URLError(.dataLengthExceedsMaximum) }
+            data.append(byte)
         }
         return data
     }
@@ -136,7 +158,9 @@ actor ArtworkDiskCache {
         // twice in the running total; the next scan corrects it.
         guard let known = totalBytes else { return trim() }
         totalBytes = known + data.count
-        if known + data.count > limitBytes { trim() }
+        if known + data.count > limitBytes {
+            trim()
+        }
     }
 
     /// Evicts down to 90% of the limit so a full cache does not rescan on every store.

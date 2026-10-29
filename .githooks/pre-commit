@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Formats staged Swift and Rust files with the pinned tools and restages them,
+# then lints what is staged, so CI's lint job cannot fail on a commit.
+# A partly staged file is only checked, never rewritten: restaging it would
+# stage the rest of its changes. Enabled by scripts/install-linters.sh.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+[[ -x .tools/bin/swiftlint && -x .tools/bin/swiftformat ]] || scripts/install-linters.sh
+PATH="$PWD/.tools/bin:$PATH"
+
+staged() {
+    git diff --cached --name-only --diff-filter=ACM -z -- "$1"
+}
+
+# Prints the staged files matching $1 that have no unstaged changes.
+whole_files() {
+    local f
+    while IFS= read -r -d '' f; do
+        git diff --quiet -- "$f" && printf '%s\0' "$f"
+    done < <(staged "$1")
+}
+
+swift=()
+while IFS= read -r -d '' f; do swift+=("$f"); done < <(staged '*.swift')
+if [[ ${#swift[@]} -gt 0 ]]; then
+    whole=()
+    while IFS= read -r -d '' f; do whole+=("$f"); done < <(whole_files '*.swift')
+    if [[ ${#whole[@]} -gt 0 ]]; then
+        swiftformat --quiet "${whole[@]}"
+        swiftlint --fix --quiet "${whole[@]}"
+        git add -- "${whole[@]}"
+    fi
+    swiftformat --lint --quiet "${swift[@]}"
+    swiftlint lint --quiet "${swift[@]}"
+fi
+
+rust=()
+while IFS= read -r -d '' f; do rust+=("$f"); done < <(staged '*.rs')
+if [[ ${#rust[@]} -gt 0 ]]; then
+    # The stable toolchain, as CI's rustfmt step uses.
+    export RUSTUP_TOOLCHAIN=stable
+    whole=()
+    while IFS= read -r -d '' f; do whole+=("$f"); done < <(whole_files '*.rs')
+    (cd core && cargo fmt --all)
+    if [[ ${#whole[@]} -gt 0 ]]; then
+        git add -- "${whole[@]}"
+    fi
+    (cd core && cargo fmt --all --check)
+fi

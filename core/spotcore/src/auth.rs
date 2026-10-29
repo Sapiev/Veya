@@ -252,7 +252,7 @@ impl LoginFlow {
             .url();
         info!(
             "sign-in started, listening on loopback port {}",
-            config.redirect_port
+            listener.local_addr().map_or(0, |addr| addr.port())
         );
         Ok(Self {
             authorize_url: url.into(),
@@ -299,14 +299,41 @@ fn oauth_client(
     Ok((client, http))
 }
 
+/// The last successful refresh, so a second caller holding the same (now
+/// rotated away) refresh token gets its result instead of `invalid_grant`.
+type RecentRefresh = tokio::sync::Mutex<Option<(String, std::time::Instant, OAuthTokens)>>;
+
+/// How long a finished refresh answers callers that held the old token.
+const REFRESH_SHARE_WINDOW: Duration = Duration::from_secs(30);
+
 /// Trades a refresh token for a fresh access token. When Spotify does not
-/// rotate the refresh token, the result carries the one passed in.
+/// rotate the refresh token, the result carries the one passed in. Calls
+/// are serialized, and ones with the same token share one exchange.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn refresh_tokens(
     config: OAuthConfig,
     refresh_token: String,
 ) -> Result<OAuthTokens, AuthError> {
-    refresh_with(&config, &FlowSettings::spotify(), refresh_token).await
+    static RECENT: RecentRefresh = tokio::sync::Mutex::const_new(None);
+    refresh_shared(&RECENT, &config, &FlowSettings::spotify(), refresh_token).await
+}
+
+async fn refresh_shared(
+    recent: &RecentRefresh,
+    config: &OAuthConfig,
+    settings: &FlowSettings,
+    refresh_token: String,
+) -> Result<OAuthTokens, AuthError> {
+    let mut recent = recent.lock().await;
+    if let Some((used, at, tokens)) = recent.as_ref()
+        && *used == refresh_token
+        && at.elapsed() < REFRESH_SHARE_WINDOW
+    {
+        return Ok(tokens.clone());
+    }
+    let tokens = refresh_with(config, settings, refresh_token.clone()).await?;
+    *recent = Some((refresh_token, std::time::Instant::now(), tokens.clone()));
+    Ok(tokens)
 }
 
 async fn refresh_with(
@@ -942,6 +969,45 @@ mod tests {
         assert!(matches!(err, AuthError::Denied { .. }), "{err:?}");
     }
 
+    #[test]
+    fn only_the_first_state_parameter_counts_and_only_on_the_callback_path() {
+        let head = |target: &str| format!("GET {target} HTTP/1.1\r\n\r\n").into_bytes();
+        assert!(matches!(
+            classify(&head("/login?state=forged&state=real&code=c"), "real"),
+            Request::BadState
+        ));
+        assert!(matches!(
+            classify(&head("/login?state=real&state=forged&code=c"), "real"),
+            Request::Code(code) if code == "c"
+        ));
+        assert!(matches!(
+            classify(&head("/other?state=real&code=c"), "real"),
+            Request::NotFound
+        ));
+        assert!(matches!(
+            classify(&head("//evil.example/login?state=real&code=c"), "real"),
+            Request::NotFound | Request::Malformed
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_callback_replayed_after_success_reaches_nothing() {
+        let (token_url, server) = fake_token_endpoint("200 OK", TOKEN_JSON).await;
+        let (flow, port) = flow(&token_url, CONNECTION_TIMEOUT).await;
+        let task = spawn_finish(&flow);
+        let target = format!("/login?code={CODE}&state={}", state_of(&flow));
+        get(port, &target).await;
+        task.await.unwrap().unwrap();
+        server.await.unwrap();
+
+        let replay = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).await;
+        assert!(replay.is_err(), "the one-shot listener is closed");
+        assert!(matches!(
+            flow.finish().await,
+            Err(AuthError::AlreadyFinished)
+        ));
+    }
+
     #[tokio::test]
     async fn other_paths_get_404_and_flow_keeps_waiting() {
         let (flow, port) = waiting_flow().await;
@@ -999,7 +1065,8 @@ mod tests {
     async fn cancel_while_waiting_returns_cancelled_and_frees_port() {
         let (flow, port) = waiting_flow().await;
         let task = spawn_finish(&flow);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The test runtime is single-threaded: one yield lets `finish` start waiting.
+        tokio::task::yield_now().await;
         flow.cancel();
         let result = task.await.unwrap();
         assert!(matches!(result, Err(AuthError::Cancelled)), "{result:?}");
@@ -1017,7 +1084,8 @@ mod tests {
     async fn finish_is_one_shot() {
         let (flow, port) = waiting_flow().await;
         let task = spawn_finish(&flow);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The test runtime is single-threaded: one yield lets `finish` start waiting.
+        tokio::task::yield_now().await;
         assert!(matches!(
             flow.finish().await,
             Err(AuthError::AlreadyFinished)
@@ -1205,6 +1273,30 @@ mod tests {
         assert!(form.contains("grant_type=refresh_token"), "{form}");
         assert!(form.contains("refresh_token=rt-old"), "{form}");
         assert!(form.contains(&format!("client_id={CLIENT_ID}")), "{form}");
+    }
+
+    #[tokio::test]
+    async fn concurrent_refreshes_with_one_token_share_a_single_exchange() {
+        let (token_url, server) = fake_token_endpoint(
+            "200 OK",
+            r#"{"access_token":"at-new","token_type":"Bearer","refresh_token":"rt-new"}"#,
+        )
+        .await;
+        let config = OAuthConfig {
+            client_id: CLIENT_ID.to_owned(),
+            redirect_port: DEFAULT_REDIRECT_PORT,
+        };
+        let settings = FlowSettings {
+            authorize_url: AUTHORIZE_URL.to_owned(),
+            token_url,
+            connection_timeout: CONNECTION_TIMEOUT,
+        };
+        let recent = RecentRefresh::const_new(None);
+        let call = || refresh_shared(&recent, &config, &settings, "rt-old".to_owned());
+        let (a, b) = tokio::join!(call(), call());
+        // The endpoint answers one request only; a second exchange would fail.
+        assert_eq!(a.unwrap(), b.unwrap());
+        server.await.unwrap();
     }
 
     #[tokio::test]

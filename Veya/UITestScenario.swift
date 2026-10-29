@@ -23,8 +23,6 @@
         case reconnecting
         /// No saved sign-in; signing in finds a Free account.
         case notPremium
-        /// Signed in with 10,000 liked songs.
-        case largeLibrary
         /// Signed in with nothing saved and no playlists.
         case emptyLibrary
         /// Signed in; the library and playlists can't be fetched and nothing is cached.
@@ -72,7 +70,6 @@
 
         private var library: LibraryFill {
             switch self {
-            case .largeLibrary: .liked(10000)
             case .emptyLibrary: .empty
             case .libraryFails: .failing
             default: .liked(5, playlistConflict: self == .playlistConflict, localFiles: self == .localFiles)
@@ -110,7 +107,9 @@
                 localNetworkAccess: { [allowed = self != .localNetworkDenied] in AsyncStream { $0.yield(allowed) } },
                 crashReportsDirectory: FileManager.default.temporaryDirectory.appending(path: "ui-test-crashes"),
                 crashDiagnostics: { [crashed = self == .crashedLastTime] received in
-                    if crashed { received([#"{"diagnosticMetaData":{"signal":11}}"#]) }
+                    if crashed {
+                        received([#"{"diagnosticMetaData":{"signal":11}}"#])
+                    }
                 }
             )
         }
@@ -297,7 +296,7 @@
                 }
             }
             guard connectDevices else {
-                let restoredAtMs: UInt32 = UITestScenario.current() == .restoredPlayback ? 95_000 : 0
+                let restoredAtMs: UInt32 = UITestScenario.current() == .restoredPlayback ? 95000 : 0
                 return PlayerConnection(player: ScenarioPlayer(observer: observer, restoredAtMs: restoredAtMs), engine: nil)
             }
             return PlayerConnection(player: ScenarioPlayer(observer: observer), engine: nil) { _, _ in
@@ -420,7 +419,8 @@
 
         func shutdown() async {}
 
-        func restoreLastPlayback(accessToken: String, saved: SavedPlayback?) async {}
+        func restoreLastPlayback(accessToken _: String, saved _: SavedPlayback?) async {}
+        func loadDevices(accessToken _: String) async {}
 
         func transfer(deviceId: String) async throws {
             if deviceId == "tv" {
@@ -462,8 +462,14 @@
             observer.onEvent(event: .remoteChanged(deviceName: "Pixel", volume: 6554))
         }
 
-        func play() { observer.onEvent(event: .playing(uri: current, positionMs: 0)) }
-        func pause() { observer.onEvent(event: .paused(uri: current, positionMs: 0)) }
+        func play() {
+            observer.onEvent(event: .playing(uri: current, positionMs: 0))
+        }
+
+        func pause() {
+            observer.onEvent(event: .paused(uri: current, positionMs: 0))
+        }
+
         func next() {
             let uri = song.withLock {
                 $0 += 1
@@ -489,6 +495,7 @@
         func queue() -> QueueSnapshot {
             QueueSnapshot(current: current, upNext: [], nextFromContext: [], shuffle: false, repeat: .off, autoplay: true)
         }
+
         func removeFromQueue(index _: UInt32) throws {}
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
@@ -517,10 +524,22 @@
             observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: restoredAtMs))
         }
 
-        func play() { observer.onEvent(event: .playing(uri: scenarioTrackURI, positionMs: 0)) }
-        func pause() { observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0)) }
-        func addToQueue(uri: String) throws { snapshot.withLock { $0.upNext.append(uri) } }
-        func clearQueue() { snapshot.withLock { $0.upNext.removeAll() } }
+        func play() {
+            observer.onEvent(event: .playing(uri: scenarioTrackURI, positionMs: 0))
+        }
+
+        func pause() {
+            observer.onEvent(event: .paused(uri: scenarioTrackURI, positionMs: 0))
+        }
+
+        func addToQueue(uri: String) throws {
+            snapshot.withLock { $0.upNext.append(uri) }
+        }
+
+        func clearQueue() {
+            snapshot.withLock { $0.upNext.removeAll() }
+        }
+
         func load(uri: String, startMs: UInt32, autoplay _: Bool) async throws {
             snapshot.withLock {
                 $0.current = uri
@@ -530,6 +549,7 @@
             observer.onEvent(event: .trackChanged(uri: uri, name: episode?.title ?? "", durationMs: episode?.durationMs ?? 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: startMs))
         }
+
         func loadTracks(uris: [String], startIndex: UInt32, contextUri _: String?, inContextOrder _: Bool, autoplay _: Bool) throws {
             let uri = uris[Int(startIndex)]
             if uri == scenarioLocalTracks[1].uri {
@@ -542,12 +562,19 @@
             observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: 0))
         }
+
         func moveInQueue(from: UInt32, to: UInt32) throws {
             snapshot.withLock { $0.upNext.insert($0.upNext.remove(at: Int(from)), at: Int(to)) }
         }
 
-        func next() { skip(count: 1) }
-        func playNext(uri: String) throws { snapshot.withLock { $0.upNext.insert(uri, at: 0) } }
+        func next() {
+            skip(count: 1)
+        }
+
+        func playNext(uri: String) throws {
+            snapshot.withLock { $0.upNext.insert(uri, at: 0) }
+        }
+
         func previous() {}
         func skip(count: UInt32) {
             let uri: String? = snapshot.withLock {
@@ -563,8 +590,15 @@
             observer.onEvent(event: .trackChanged(uri: uri, name: scenarioTrack(uri)?.title ?? "", durationMs: 180_000))
             observer.onEvent(event: .playing(uri: uri, positionMs: 0))
         }
-        func queue() -> QueueSnapshot { snapshot.withLock { $0 } }
-        func removeFromQueue(index: UInt32) throws { _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) } }
+
+        func queue() -> QueueSnapshot {
+            snapshot.withLock { $0 }
+        }
+
+        func removeFromQueue(index: UInt32) throws {
+            _ = snapshot.withLock { $0.upNext.remove(at: Int(index)) }
+        }
+
         func seek(positionMs _: UInt32) {}
         func setAutoplay(on _: Bool) {}
         func setBitrate(bitrate _: Bitrate) async {}
@@ -605,7 +639,9 @@
         }
 
         func refresh(kind: LibraryKind) async throws -> [LibraryItem] {
-            if case .failing = fill { throw LibraryError.Request(message: "ui-test") }
+            if case .failing = fill {
+                throw LibraryError.Request(message: "ui-test")
+            }
             return cached(kind: kind)
         }
 
@@ -653,7 +689,8 @@
                     .playlist(uri: scenarioPlaylistURI, name: "Road Trip", owner: "ui-test", trackCount: 3, parent: nil, editable: true, public: false),
                     .playlist(uri: scenarioMixURI, name: "Daily Mix 1", owner: "spotify", trackCount: 2, parent: nil, editable: false, public: false),
                     .folder(uri: folder, name: "Mixes", parent: nil),
-                    .playlist(uri: "spotify:playlist:uitestnested", name: "Morning Mix", owner: "ui-test", trackCount: 0, parent: folder, editable: false, public: false),
+                    .playlist(uri: "spotify:playlist:uitestnested", name: "Morning Mix", owner: "ui-test", trackCount: 0,
+                              parent: folder, editable: false, public: false),
                 ]
                 state.playlists = [
                     scenarioPlaylistURI: Playlist(name: "Road Trip", description: "Songs for the road", owner: "ui-test", songs: [1, 2, 5]),
@@ -679,7 +716,9 @@
         }
 
         func rootlist() async throws -> [RootlistEntry] {
-            if case .failing = fill { throw PlaylistError.Request(message: "ui-test") }
+            if case .failing = fill {
+                throw PlaylistError.Request(message: "ui-test")
+            }
             return cachedRootlist()
         }
 
@@ -690,16 +729,27 @@
         /// Each playlist on one page.
         func page(uri: String, from: UInt32, length _: UInt32) async throws -> PlaylistPage {
             let (playlist, entry) = state.withLock { state in
-                (state.playlists[uri], state.rootlist.first { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } })
+                (state.playlists[uri], state.rootlist.first {
+                    if case .playlist(uri, _, _, _, _, _, _) = $0 {
+                        true
+                    } else {
+                        false
+                    }
+                })
             }
             guard let playlist else { throw PlaylistError.Request(message: "ui-test") }
-            let editable = if case .playlist(_, _, _, _, _, true, _) = entry { true } else { false }
+            let editable = if case .playlist(_, _, _, _, _, true, _) = entry {
+                true
+            } else {
+                false
+            }
             let tracks = from > 0 ? [] : playlist.songs.map {
                 PlaylistTrack(uri: likedSongURI($0), addedBy: "ui-test", addedAt: 1_760_000_000 - Int64($0) * 86400)
             } + playlist.local.map { PlaylistTrack(uri: $0, addedBy: "ui-test", addedAt: 1_760_000_000) }
             return PlaylistPage(
                 uri: uri, revision: "\(playlist.revision)", name: playlist.name, description: playlist.description,
-                owner: playlist.owner, ownerName: playlist.owner == "fran" ? "Fran" : "UI Test", collaborative: false, editable: editable, likedSongs: playlist.likedSongs,
+                owner: playlist.owner, ownerName: playlist.owner == "fran" ? "Fran" : "UI Test", collaborative: false,
+                editable: editable, likedSongs: playlist.likedSongs,
                 artwork: playlist.hasPicture ? [Artwork(url: "https://i.scdn.co/image/ui-test-picture", size: .large, width: 640, height: 640)] : [],
                 total: UInt32(playlist.songs.count + playlist.local.count), offset: from, tracks: tracks
             )
@@ -760,10 +810,17 @@
 
         func followPlaylist(uri: String) async throws {
             state.withLock { state in
-                guard let playlist = state.playlists[uri], !state.rootlist.contains(where: { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } })
+                guard let playlist = state.playlists[uri], !state.rootlist.contains(where: {
+                    if case .playlist(uri, _, _, _, _, _, _) = $0 {
+                        true
+                    } else {
+                        false
+                    }
+                })
                 else { return }
                 state.rootlist.insert(
-                    .playlist(uri: uri, name: playlist.name, owner: playlist.owner, trackCount: UInt32(playlist.songs.count), parent: nil, editable: false, public: true),
+                    .playlist(uri: uri, name: playlist.name, owner: playlist.owner, trackCount: UInt32(playlist.songs.count),
+                              parent: nil, editable: false, public: true),
                     at: 0
                 )
             }
@@ -771,7 +828,9 @@
 
         /// The signed-in "ui-test" follows Fran and Test Artist; Fran shares one playlist and no follows.
         func userProfile(username: String?) async throws -> UserProfile {
-            if case .failing = fill { throw PlaylistError.Request(message: "ui-test") }
+            if case .failing = fill {
+                throw PlaylistError.Request(message: "ui-test")
+            }
             if username == "fran" {
                 return UserProfile(
                     username: "fran", name: "Fran", artwork: [], followers: 3,
@@ -790,7 +849,13 @@
 
         func deletePlaylist(uri: String) async throws {
             state.withLock { state in
-                state.rootlist.removeAll { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } }
+                state.rootlist.removeAll {
+                    if case .playlist(uri, _, _, _, _, _, _) = $0 {
+                        true
+                    } else {
+                        false
+                    }
+                }
             }
         }
 
@@ -896,8 +961,12 @@
         func search(query: String, limit _: UInt32) async throws -> [SearchGroup] {
             _ = try await accessToken()
             let query = query.lowercased()
-            if query.contains("busy") { throw SearchError.RateLimited }
-            if query.contains("fail") { throw SearchError.Request(message: "ui-test") }
+            if query.contains("busy") {
+                throw SearchError.RateLimited
+            }
+            if query.contains("fail") {
+                throw SearchError.Request(message: "ui-test")
+            }
             guard query.contains("test") else { return [] }
             return [
                 SearchGroup(kind: .track, total: 4, offset: 0, hits: (1 ... 3).map(Self.track)),
@@ -936,12 +1005,24 @@
 
         func items(uris: [String]) async throws -> [MetadataItem] {
             uris.map { uri -> MetadataItem in
-                if uri == scenarioAlbum.uri { return .album(album: scenarioAlbum) }
-                if uri == scenarioArtist.uri { return .artist(artist: scenarioArtist) }
-                if uri == scenarioRelated.uri { return .artist(artist: scenarioRelated) }
-                if uri == scenarioSingle.uri { return .album(album: scenarioSingle) }
-                if uri == scenarioShow.uri { return .show(show: scenarioShow) }
-                if let episode = scenarioEpisodes.first(where: { $0.uri == uri }) { return .episode(episode: episode) }
+                if uri == scenarioAlbum.uri {
+                    return .album(album: scenarioAlbum)
+                }
+                if uri == scenarioArtist.uri {
+                    return .artist(artist: scenarioArtist)
+                }
+                if uri == scenarioRelated.uri {
+                    return .artist(artist: scenarioRelated)
+                }
+                if uri == scenarioSingle.uri {
+                    return .album(album: scenarioSingle)
+                }
+                if uri == scenarioShow.uri {
+                    return .show(show: scenarioShow)
+                }
+                if let episode = scenarioEpisodes.first(where: { $0.uri == uri }) {
+                    return .episode(episode: episode)
+                }
                 return scenarioTrack(uri).map { .track(track: $0) } ?? .unavailable(uri: uri, error: .notFound)
             }
         }

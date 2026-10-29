@@ -35,7 +35,7 @@ pub use cache::{AudioCache, CacheError};
 pub use connect::SpotConnect;
 pub use devices::{ConnectDevice, ConnectError, DeviceKind};
 pub use home::{HomeError, HomeService, RecentlyPlayed, recently_played};
-pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryObserver, LibraryService};
+pub use library::{LibraryError, LibraryItem, LibraryKind, LibraryService};
 pub use logging::{LogLevel, LogRecord, LogSink, LoggingConfig};
 pub use lyrics::{Lyrics, LyricsLine};
 pub use metadata::{

@@ -34,9 +34,9 @@ public struct RootlistNode: Identifiable, Hashable, Sendable {
             (rows[parent] ?? []).map { entry in
                 switch entry {
                 case let .folder(uri, name, _):
-                    return RootlistNode(id: uri, name: name, children: nodes(under: uri))
+                    RootlistNode(id: uri, name: name, children: nodes(under: uri))
                 case let .playlist(uri, name, _, _, _, _, _):
-                    return RootlistNode(id: uri, name: name, children: nil)
+                    RootlistNode(id: uri, name: name, children: nil)
                 }
             }
         }
@@ -73,6 +73,11 @@ public final class PlaylistModel {
 
     /// Tracks fetched per request while a playlist's contents load.
     static let pageLength: UInt32 = 200
+    static let artworkRetryDelay: TimeInterval = 30
+    private var artworkFailedAt: [String: Date] = [:]
+    /// Counts rootlist fetches; only the newest one may apply its answer.
+    private var rootlistFetches = 0
+    private var rootlistTail: Task<Void, Never>?
 
     @ObservationIgnored private let playlists: any PlaylistServiceProtocol
     @ObservationIgnored private let log: PlaylistLog
@@ -119,7 +124,9 @@ public final class PlaylistModel {
             let change = await playlists.waitForChange()
             guard !Task.isCancelled else { return }
             if case let .playlist(uri) = change {
-                if pageState[uri] != nil { await refreshPage(uri) }
+                if pageState[uri] != nil {
+                    await refreshPage(uri)
+                }
                 continue
             }
             await refresh()
@@ -142,11 +149,14 @@ public final class PlaylistModel {
         }
     }
 
-    /// Fetches the picture of each playlist not requested before, cache first; a failed
-    /// fetch stays empty for the session so repeated calls never re-request it.
+    /// Fetches the picture of each playlist not requested before, cache first. A failed or
+    /// cancelled fetch is tried again by a later call, but not before `artworkRetryDelay`.
     public func loadArtwork(_ uris: [String]) async {
         var fetch: [String] = []
         for uri in uris where artwork[uri] == nil {
+            if let failed = artworkFailedAt[uri], Date.now.timeIntervalSince(failed) < Self.artworkRetryDelay {
+                continue
+            }
             if let cached = playlists.cachedPage(uri: uri, from: 0, length: 0) {
                 artwork[uri] = cached.artwork
             } else {
@@ -157,11 +167,18 @@ public final class PlaylistModel {
         await withTaskGroup(of: (String, [Artwork]?).self) { group in
             for uri in fetch {
                 group.addTask { [playlists] in
-                    (uri, try? await playlists.page(uri: uri, from: 0, length: 0).artwork)
+                    await (uri, try? playlists.page(uri: uri, from: 0, length: 0).artwork)
                 }
             }
             for await (uri, found) in group {
-                if let found, artwork[uri]?.isEmpty == true { artwork[uri] = found }
+                if let found {
+                    if artwork[uri]?.isEmpty == true {
+                        artwork[uri] = found
+                    }
+                } else if artwork[uri]?.isEmpty == true {
+                    artwork[uri] = nil
+                    artworkFailedAt[uri] = .now
+                }
             }
         }
     }
@@ -169,13 +186,17 @@ public final class PlaylistModel {
     /// Fetches `username`'s profile, or the signed-in user's when nil; a failure keeps the last one shown.
     public func loadProfile(_ username: String?) async {
         let key = username ?? ""
-        if profiles[key] == nil { profileState[key] = .loading }
+        if profiles[key] == nil {
+            profileState[key] = .loading
+        }
         do {
             profiles[key] = try await playlists.userProfile(username: username)
             profileState[key] = .loaded
         } catch {
             log(.warn, "Couldn't load a profile: \(String(describing: type(of: error)))")
-            if profiles[key] == nil { profileState[key] = .failed }
+            if profiles[key] == nil {
+                profileState[key] = .failed
+            }
         }
     }
 
@@ -200,28 +221,41 @@ public final class PlaylistModel {
                 // Keep a longer cached list on screen until the fetch catches up with it.
                 if done || tracks.count >= pages[uri]?.tracks.count ?? 0 {
                     // Another client changed it, so undo's indices no longer hold.
-                    if page.revision != pages[uri]?.revision { dropUndo(uri) }
+                    if page.revision != pages[uri]?.revision {
+                        dropUndo(uri)
+                    }
                     page.offset = 0
                     page.tracks = tracks
                     pages[uri] = page
                 }
                 pageState[uri] = .loaded
-                if done { break }
+                if done {
+                    break
+                }
             } while !Task.isCancelled
         } catch {
             log(.warn, "Couldn't load a playlist: \(String(describing: type(of: error)))")
-            if pageState[uri] == .loading { pageState[uri] = .failed }
+            if pageState[uri] == .loading {
+                pageState[uri] = .failed
+            }
         }
     }
 
     private func refresh() async {
+        rootlistFetches += 1
+        let mine = rootlistFetches
         do {
-            rootlist = try await playlists.rootlist()
+            let fetched = try await playlists.rootlist()
+            // A newer fetch started meanwhile; this answer may predate an edit it saw.
+            guard mine == rootlistFetches else { return }
+            rootlist = fetched
             state = .loaded
         } catch {
             // Type name only: messages may carry server text.
             log(.warn, "Couldn't sync playlists: \(String(describing: type(of: error)))")
-            if state == .loading { state = .failed }
+            if state == .loading {
+                state = .failed
+            }
         }
     }
 
@@ -236,36 +270,56 @@ public final class PlaylistModel {
     }
 
     public func isEditable(_ uri: String) -> Bool {
-        rootlist.contains { if case .playlist(uri, _, _, _, _, true, _) = $0 { true } else { false } }
+        rootlist.contains {
+            if case .playlist(uri, _, _, _, _, true, _) = $0 {
+                true
+            } else {
+                false
+            }
+        }
     }
 
     /// In the user's root list, whoever owns it.
     public func isFollowed(_ uri: String) -> Bool {
-        rootlist.contains { if case .playlist(uri, _, _, _, _, _, _) = $0 { true } else { false } }
+        rootlist.contains {
+            if case .playlist(uri, _, _, _, _, _, _) = $0 {
+                true
+            } else {
+                false
+            }
+        }
     }
 
     public func setFollowed(_ uri: String, _ followed: Bool) async {
-        await rootlistEdit { try await followed ? playlists.followPlaylist(uri: uri) : playlists.deletePlaylist(uri: uri) }
+        await rootlistEdit { [self] in try await followed ? playlists.followPlaylist(uri: uri) : playlists.deletePlaylist(uri: uri) }
     }
 
     public func isPublic(_ uri: String) -> Bool {
-        rootlist.contains { if case .playlist(uri, _, _, _, _, _, true) = $0 { true } else { false } }
+        rootlist.contains {
+            if case .playlist(uri, _, _, _, _, _, true) = $0 {
+                true
+            } else {
+                false
+            }
+        }
     }
 
     /// Creates a playlist and returns its URI once the root list shows it.
     @discardableResult
     public func createPlaylist(named name: String, description: String = "", in folder: String? = nil) async -> String? {
-        await rootlistEdit { try await playlists.createPlaylist(name: name, description: description, folder: folder) }
+        await rootlistEdit { [self] in try await playlists.createPlaylist(name: name, description: description, folder: folder) }
     }
 
     @discardableResult
     public func createFolder(named name: String, in folder: String? = nil) async -> String? {
-        await rootlistEdit { try await playlists.createFolder(name: name, folder: folder) }
+        await rootlistEdit { [self] in try await playlists.createFolder(name: name, folder: folder) }
     }
 
     public func updateDetails(of uri: String, name: String, description: String) async {
-        await rootlistEdit { try await playlists.updateDetails(uri: uri, name: name, description: description) }
-        if pageState[uri] != nil { await refreshPage(uri) }
+        await rootlistEdit { [self] in try await playlists.updateDetails(uri: uri, name: name, description: description) }
+        if pageState[uri] != nil {
+            await refreshPage(uri)
+        }
     }
 
     /// Renames keeping the description, which is fetched when the page isn't open.
@@ -274,7 +328,7 @@ public final class PlaylistModel {
         if let page = pages[uri] {
             description = page.description
         } else {
-            guard let page = await rootlistEdit({ try await playlists.page(uri: uri, from: 0, length: 0) }) else { return }
+            guard let page = await rootlistEdit({ [self] in try await playlists.page(uri: uri, from: 0, length: 0) }) else { return }
             description = page.description
         }
         await updateDetails(of: uri, name: name, description: description)
@@ -287,7 +341,9 @@ public final class PlaylistModel {
             let jpeg = try PlaylistPicture.jpeg(from: imageData)
             try await playlists.setPicture(uri: uri, jpeg: jpeg)
             artwork[uri] = try await playlists.page(uri: uri, from: 0, length: 0).artwork
-            if pageState[uri] != nil { await refreshPage(uri) }
+            if pageState[uri] != nil {
+                await refreshPage(uri)
+            }
         } catch {
             log(.warn, "Couldn't set a playlist's picture: \(String(describing: type(of: error)))")
             editError = Self.editError(error)
@@ -295,11 +351,11 @@ public final class PlaylistModel {
     }
 
     public func delete(_ uri: String) async {
-        await rootlistEdit { try await playlists.deletePlaylist(uri: uri) }
+        await rootlistEdit { [self] in try await playlists.deletePlaylist(uri: uri) }
     }
 
     public func setPublic(_ uri: String, _ isPublic: Bool) async {
-        await rootlistEdit { try await playlists.setPublic(uri: uri, public: isPublic) }
+        await rootlistEdit { [self] in try await playlists.setPublic(uri: uri, public: isPublic) }
     }
 
     /// Appends tracks; not undoable.
@@ -337,16 +393,21 @@ public final class PlaylistModel {
                 edit = .insert(tracks, at: at, end: edited.map { Int($0.total) } ?? at)
             }
             if edited != nil {
-                guard edit.apply(to: &edited!) else { return Task {} }
+                guard edit.apply(to: &edited!) else { return failed() }
             } else if case .append = edit {} else {
-                return Task {}
+                // Nothing loaded to apply it to, as for an undo after the page was left.
+                return failed()
             }
             resolved.append(edit)
         }
-        if let edited { pages[uri] = edited }
+        if let edited {
+            pages[uri] = edited
+        }
         let inverses = resolved.reversed().compactMap(\.inverse)
         if let undoManager, inverses.count == resolved.count {
-            if undoTargets[uri]?.manager !== undoManager { undoTargets[uri] = (undoManager, UndoTarget()) }
+            if undoTargets[uri]?.manager !== undoManager {
+                undoTargets[uri] = (undoManager, UndoTarget())
+            }
             undoManager.registerUndo(withTarget: undoTargets[uri]!.target) { [weak self] _ in
                 MainActor.assumeIsolated { _ = self?.perform(inverses, on: uri, undoManager: undoManager) }
             }
@@ -365,7 +426,8 @@ public final class PlaylistModel {
                     pages[uri]?.revision = revision
                 }
             } catch {
-                if snapshot != nil { pages[uri] = snapshot }
+                // The snapshot may predate newer server data, so a page nobody shows is refetched on open.
+                pages[uri] = pageState[uri] != nil ? snapshot : nil
                 failedEdits[uri, default: 0] += 1
                 staleAfterEdits.insert(uri)
                 editError = Self.editError(error)
@@ -373,6 +435,11 @@ public final class PlaylistModel {
                 log(.warn, "Couldn't edit a playlist: \(String(describing: type(of: error)))")
             }
         }
+    }
+
+    private func failed() -> Task<Void, Never> {
+        editError = .failed
+        return Task {}
     }
 
     private func enqueueEdit(on uri: String, _ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
@@ -385,7 +452,9 @@ public final class PlaylistModel {
             guard pendingEdits[uri] == 0 else { return }
             pendingEdits[uri] = nil
             editQueue[uri] = nil
-            if staleAfterEdits.remove(uri) != nil, pageState[uri] != nil { await refreshPage(uri) }
+            if staleAfterEdits.remove(uri) != nil, pageState[uri] != nil {
+                await refreshPage(uri)
+            }
         }
         editQueue[uri] = task
         return task
@@ -416,20 +485,31 @@ public final class PlaylistModel {
         }
     }
 
-    private func rootlistEdit<T>(_ edit: () async throws -> T) async -> T? {
-        do {
-            let result = try await edit()
+    /// Runs after the earlier rootlist edits, one at a time. The list is refetched either way:
+    /// a failed edit may have been applied in part.
+    private func rootlistEdit<T: Sendable>(_ edit: @escaping () async throws -> T) async -> T? {
+        let previous = rootlistTail
+        let task = Task { [self] () -> T? in
+            await previous?.value
+            let result: T?
+            do {
+                result = try await edit()
+            } catch {
+                log(.warn, "Couldn't edit playlists: \(String(describing: type(of: error)))")
+                editError = Self.editError(error)
+                result = nil
+            }
             await refresh()
             return result
-        } catch {
-            log(.warn, "Couldn't edit playlists: \(String(describing: type(of: error)))")
-            editError = Self.editError(error)
-            return nil
         }
+        rootlistTail = Task { _ = await task.value }
+        return await task.value
     }
 
     private static func editError(_ error: Error) -> PlaylistEditError {
-        if error is PlaylistPicture.Failure { return .invalidImage }
+        if error is PlaylistPicture.Failure {
+            return .invalidImage
+        }
         return switch error as? PlaylistError {
         case .Conflict?, .InvalidRevision?: .conflict
         case .InvalidImage?: .invalidImage
@@ -464,7 +544,11 @@ enum TrackEdit: Equatable {
         case let .insert(tracks, at, _): .remove(tracks, at: at)
         case let .remove(tracks, at): .insert(tracks, at: at, end: 0)
         case let .move(from, length, to):
-            to > from ? .move(from: to - length, length: length, to: from) : .move(from: to, length: length, to: from + length)
+            if to > from {
+                .move(from: to - length, length: length, to: from)
+            } else {
+                .move(from: to, length: length, to: from + length)
+            }
         }
     }
 
@@ -520,12 +604,16 @@ enum TrackEdit: Equatable {
         var edits: [TrackEdit] = []
         var to = target
         for run in below.reversed() {
-            if run.upperBound != to { edits.append(.move(from: run.lowerBound, length: run.count, to: to)) }
+            if run.upperBound != to {
+                edits.append(.move(from: run.lowerBound, length: run.count, to: to))
+            }
             to -= run.count
         }
         to = target
         for run in above {
-            if run.lowerBound != to { edits.append(.move(from: run.lowerBound, length: run.count, to: to)) }
+            if run.lowerBound != to {
+                edits.append(.move(from: run.lowerBound, length: run.count, to: to))
+            }
             to += run.count
         }
         return edits

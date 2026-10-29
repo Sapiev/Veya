@@ -94,15 +94,12 @@ struct SessionReconnectTests {
         let session = FakeSession()
         let store = FakeStore(blob: storedBlob, saveError: KeychainError(status: -25308))
         let model = try await ready(session, store: store)
-        var warnings: [String] {
-            logs.entries.filter { $0.0 == .warn }.map(\.1)
-        }
 
         session.push(.connected)
-        try await waitUntil { warnings.count == 2 }
+        try await waitUntil { logs.warnings.count == 2 }
 
         #expect(model.connection == .online)
-        #expect(warnings.allSatisfy { $0.contains("-25308") && !$0.contains("SECRET") })
+        #expect(logs.warnings.allSatisfy { $0.contains("-25308") && !$0.contains("SECRET") })
     }
 
     @Test func credentialsRejectedDeletesUnchangedBlobAndSignsOut() async throws {
@@ -211,7 +208,7 @@ struct SessionReconnectTests {
         try await settle()
 
         #expect(store.deletes == 0)
-        #expect(!logs.entries.contains { $0.0 == .warn })
+        #expect(logs.warnings.isEmpty)
     }
 
     @Test func rejectionDoesNotDeleteBlobLoadedByEarlierAttempt() async throws {

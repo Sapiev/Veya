@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 extension LibraryModel {
     /// One item's lookup as a load state: failed only when nothing was found.
     func lookupState(_ uri: String) -> LibraryLoadState {
-        if metadata[uri] != nil { return .loaded }
+        if metadata[uri] != nil {
+            return .loaded
+        }
         return unresolved.contains(uri) ? .failed : .loading
     }
 }
@@ -20,7 +22,11 @@ struct AlbumPage: View {
     let history: NavigationHistory
 
     var body: some View {
-        let album: AlbumMetadata? = if case let .album(album) = library.metadata[uri] { album } else { nil }
+        let album: AlbumMetadata? = if case let .album(album) = library.metadata[uri] {
+            album
+        } else {
+            nil
+        }
         LoadStateView(
             state: library.lookupState(uri),
             isEmpty: album == nil,
@@ -79,10 +85,16 @@ struct AlbumPage: View {
     /// "2024 · 12 songs, 48 min"; the length appears once every track is known.
     private func summary(_ album: AlbumMetadata) -> String {
         var parts: [String] = []
-        if let year = album.year { parts.append(String(year)) }
+        if let year = album.year {
+            parts.append(String(year))
+        }
         var count = String(localized: "\(album.tracks.count) songs")
         let durations = album.tracks.compactMap { uri -> UInt32? in
-            if case let .track(track) = library.metadata[uri] { track.durationMs } else { nil }
+            if case let .track(track) = library.metadata[uri] {
+                track.durationMs
+            } else {
+                nil
+            }
         }
         if !album.tracks.isEmpty, durations.count == album.tracks.count {
             let total = Duration.milliseconds(durations.reduce(0) { $0 + Int($1) })
@@ -101,7 +113,11 @@ struct ArtistPage: View {
     let history: NavigationHistory
 
     var body: some View {
-        let artist: ArtistMetadata? = if case let .artist(artist) = library.metadata[uri] { artist } else { nil }
+        let artist: ArtistMetadata? = if case let .artist(artist) = library.metadata[uri] {
+            artist
+        } else {
+            nil
+        }
         LoadStateView(
             state: library.lookupState(uri),
             isEmpty: artist == nil,
@@ -133,33 +149,33 @@ struct ArtistPage: View {
                     let following = library.isSaved(artist.uri)
                     Button(following ? "Following" : "Follow") { library.setSaved(artist.uri, !following) }
                         .buttonStyle(PillStyle(isOn: following))
-                        .accessibilityValue(following ? Text("On") : Text("Off"))
+                        .accessibilityAddTraits(following ? .isSelected : [])
                 }
                 VStack(alignment: .leading, spacing: 28) {
-                if !artist.topTracks.isEmpty {
-                    PageSection(title: "Popular") {
-                        TopTracks(uris: artist.topTracks, context: artist.uri, library: library, player: player)
+                    if !artist.topTracks.isEmpty {
+                        PageSection(title: "Popular") {
+                            TopTracks(uris: artist.topTracks, context: artist.uri, library: library, player: player)
+                        }
                     }
-                }
-                AlbumGrid(title: "Albums", uris: artist.albums, library: library, history: history)
-                AlbumGrid(title: "Singles and EPs", uris: artist.singles, library: library, history: history)
-                AlbumGrid(title: "Compilations", uris: artist.compilations, library: library, history: history)
-                if !artist.related.isEmpty {
-                    PageSection(title: "Fans Also Like") {
-                        ScrollView(.horizontal) {
-                            HStack(alignment: .top, spacing: 16) {
-                                ForEach(artist.related, id: \.uri) { related in
-                                    Card(
-                                        title: related.name,
-                                        artwork: artwork(related.uri),
-                                        round: true
-                                    ) { history.navigate(to: .artist(uri: related.uri)) }
+                    AlbumGrid(title: "Albums", uris: artist.albums, library: library, history: history)
+                    AlbumGrid(title: "Singles and EPs", uris: artist.singles, library: library, history: history)
+                    AlbumGrid(title: "Compilations", uris: artist.compilations, library: library, history: history)
+                    if !artist.related.isEmpty {
+                        PageSection(title: "Fans Also Like") {
+                            ScrollView(.horizontal) {
+                                HStack(alignment: .top, spacing: 16) {
+                                    ForEach(artist.related, id: \.uri) { related in
+                                        Card(
+                                            title: related.name,
+                                            artwork: artwork(related.uri),
+                                            round: true
+                                        ) { history.navigate(to: .artist(uri: related.uri)) }
+                                    }
                                 }
                             }
+                            .scrollIndicators(.never)
                         }
-                        .scrollIndicators(.never)
                     }
-                }
                 }
                 .padding(.horizontal, Theme.s8)
                 .padding(.bottom, Theme.s8)
@@ -173,7 +189,11 @@ struct ArtistPage: View {
     }
 
     private func artwork(_ uri: String) -> [Artwork] {
-        if case let .artist(artist) = library.metadata[uri] { artist.artwork } else { [] }
+        if case let .artist(artist) = library.metadata[uri] {
+            artist.artwork
+        } else {
+            []
+        }
     }
 }
 
@@ -222,7 +242,9 @@ struct PlaylistPageView: View {
                 ) { name, description, photo in
                     Task {
                         await playlists.updateDetails(of: page.uri, name: name, description: description)
-                        if let photo { await playlists.setPicture(of: page.uri, imageData: photo) }
+                        if let photo {
+                            await playlists.setPicture(of: page.uri, imageData: photo)
+                        }
                     }
                 }
             }
@@ -230,7 +252,9 @@ struct PlaylistPageView: View {
         .task(id: uri) { playlists.loadPage(uri) }
         .onChange(of: filter) {
             // Filtering matches titles, artists and albums, so every row needs its metadata.
-            if !filter.isEmpty { library.resolve(page?.tracks.map(\.uri) ?? []) }
+            if !filter.isEmpty {
+                library.resolve(page?.tracks.map(\.uri) ?? [])
+            }
         }
     }
 
@@ -317,6 +341,8 @@ struct PlaylistDetailsSheet: View {
     @State private var draftName = ""
     @State private var draftDescription = ""
     @State private var photo: Data?
+    /// Decoded once per choice; the body runs on every keystroke in the fields.
+    @State private var photoPreview: NSImage?
     @Environment(\.choosePhoto) private var choosePhoto
     @Environment(\.dismiss) private var dismiss
 
@@ -328,8 +354,8 @@ struct PlaylistDetailsSheet: View {
             if let artwork {
                 HStack(spacing: Theme.s4) {
                     Group {
-                        if let image = photo.flatMap(NSImage.init(data:)) {
-                            Image(nsImage: image).resizable().scaledToFill()
+                        if let photoPreview {
+                            Image(nsImage: photoPreview).resizable().scaledToFill()
                         } else {
                             ArtworkView(artwork: artwork, side: 64)
                         }
@@ -340,8 +366,9 @@ struct PlaylistDetailsSheet: View {
                     Button("Choose Photo…") {
                         Task {
                             guard let url = await choosePhoto() else { return }
-                            // An unreadable file goes on as empty data, which the model reports as not an image.
-                            photo = (try? Data(contentsOf: url)) ?? Data()
+                            let data = await Task.detached { Self.readPhoto(at: url) }.value
+                            photo = data
+                            photoPreview = NSImage(data: data)
                         }
                     }
                 }
@@ -349,7 +376,11 @@ struct PlaylistDetailsSheet: View {
             Form {
                 TextField("Name", text: $draftName)
                     // A form field keeps Return to itself, so it confirms here as the default button would.
-                    .onSubmit { if !trimmed.isEmpty { confirmSheet(trimmed) } }
+                    .onSubmit {
+                        if !trimmed.isEmpty {
+                            confirmSheet(trimmed)
+                        }
+                    }
                 TextField("Description", text: $draftDescription, axis: .vertical)
                     .lineLimit(3 ... 6)
             }
@@ -358,8 +389,8 @@ struct PlaylistDetailsSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(confirm) { confirmSheet(trimmed) }
-                .keyboardShortcut(.defaultAction)
-                .disabled(trimmed.isEmpty)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty)
             }
         }
         .padding(Theme.s5)
@@ -368,6 +399,16 @@ struct PlaylistDetailsSheet: View {
             draftName = name
             draftDescription = description
         }
+    }
+
+    /// Larger than this is no playlist photo; the model re-encodes what is left to its upload limit.
+    private static let maxPhotoBytes = 25 * 1024 * 1024
+
+    /// An unreadable or oversized file goes on as empty data, which the model reports as not an image.
+    private nonisolated static func readPhoto(at url: URL) -> Data {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+        guard size <= maxPhotoBytes else { return Data() }
+        return (try? Data(contentsOf: url)) ?? Data()
     }
 
     private func confirmSheet(_ name: String) {
@@ -567,14 +608,16 @@ private struct PageActions<Extra: View>: View {
     let player: PlayerModel?
     @ViewBuilder let extra: () -> Extra
 
-    private var pagePlaying: Bool { player?.isPlaying == true && player?.context == context }
+    private var pagePlaying: Bool {
+        player?.isPlaying == true && player?.context == context
+    }
 
     var body: some View {
         let disabled = uris.isEmpty || player == nil
         HStack(spacing: Theme.s4) {
             Group {
                 PlayFab(label: pagePlaying ? "Pause" : "Play", large: true, systemImage: pagePlaying ? "pause.fill" : "play.fill") {
-                    if pagePlaying || player?.context == context {
+                    if pagePlaying || player?.isLoaded(context: context) == true {
                         player?.togglePlayPause()
                     } else {
                         player?.play(uris, from: 0, context: context, inContextOrder: true)
@@ -617,7 +660,8 @@ private struct IconButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(isOn == true ? AnyShapeStyle(Color(palette.tintText)) : hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
         .accessibilityLabel(Text(label))
-        .accessibilityValue(isOn.map { $0 ? Text("On") : Text("Off") } ?? Text(verbatim: ""))
+        // The label already names the state ("Save to Library", "Remove from Library"); a value would repeat it.
+        .accessibilityAddTraits(isOn == true ? .isSelected : [])
         .help(Text(label))
         .onHover { hovering = $0 }
         .animation(Theme.fast, value: hovering)
@@ -652,7 +696,11 @@ private struct TopTracks: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(uris.prefix(10).enumerated()), id: \.offset) { index, uri in
-                let track: TrackMetadata? = if case let .track(track) = library.metadata[uri] { track } else { nil }
+                let track: TrackMetadata? = if case let .track(track) = library.metadata[uri] {
+                    track
+                } else {
+                    nil
+                }
                 TopTrackRow(
                     number: index + 1,
                     track: track,
@@ -667,7 +715,11 @@ private struct TopTracks: View {
     /// Like `TrackList`, refuses an unplayable track and leaves known ones out.
     private func play(from index: Int) {
         let playable = uris.filter { uri in
-            if case let .track(track) = library.metadata[uri] { track.playability == .playable } else { true }
+            if case let .track(track) = library.metadata[uri] {
+                track.playability == .playable
+            } else {
+                true
+            }
         }
         if let start = playable.firstIndex(of: uris[index]) {
             player?.play(playable, from: start, context: context, inContextOrder: true)
@@ -719,6 +771,7 @@ private struct TopTrackRow: View {
         }
         .buttonStyle(.plain)
         .opacity(playability == .playable ? 1 : 0.45)
+        .unavailableValue(playability != .playable)
         .help(playability.unavailableHelp ?? "")
         .onHover { hovering = $0 }
     }
@@ -736,7 +789,11 @@ private struct AlbumGrid: View {
             PageSection(title: title) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), alignment: .top)], alignment: .leading, spacing: 16) {
                     ForEach(uris, id: \.self) { uri in
-                        let album: AlbumMetadata? = if case let .album(album) = library.metadata[uri] { album } else { nil }
+                        let album: AlbumMetadata? = if case let .album(album) = library.metadata[uri] {
+                            album
+                        } else {
+                            nil
+                        }
                         Card(
                             title: album?.title ?? String(localized: "Loading…"),
                             subtitle: album?.year.map(String.init),

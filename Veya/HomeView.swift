@@ -43,7 +43,7 @@ struct HomeView: View {
                         Shelf(title: "Made for you", tiles: madeForYou, subtitleLines: 2) { _, tile in open(tile) }
                         Shelf(title: "Artists you follow", tiles: artists) { _, tile in open(tile) }
                         Shelf(title: "Recently Played", tiles: recent) { index, _ in
-                            let queue = recent.enumerated().filter { $0.element.playable }
+                            let queue = recent.enumerated().filter(\.element.playable)
                             if let start = queue.firstIndex(where: { $0.offset == index }) {
                                 player?.play(queue.map(\.element.uri), from: start)
                             }
@@ -56,7 +56,7 @@ struct HomeView: View {
             }
         }
         .navigationTitle("Home")
-        .task { home.load() }
+        .task { home.loadIfStale() }
         .task(id: library.items[.artists]) { library.resolve((library.items[.artists] ?? []).map(\.uri)) }
     }
 
@@ -95,11 +95,12 @@ private struct Shelf: View {
                 ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
                     MediaCard(
                         title: tile.title, subtitle: tile.subtitle, subtitleLines: subtitleLines, artwork: tile.artwork,
-                        round: tile.round, playable: tile.route == nil && tile.playable
+                        playable: tile.route == nil && tile.playable
                     ) {
                         activate(index, tile)
                     }
                     .opacity(tile.playable ? 1 : 0.45)
+                    .unavailableValue(!tile.playable)
                 }
             }
         }
@@ -135,7 +136,6 @@ private struct QuickTile: View {
         Button(action: open) {
             HStack(spacing: Theme.s3) {
                 ArtworkView(artwork: tile.artwork, side: 56)
-                    .clipShape(tile.round ? AnyShape(Circle()) : AnyShape(Rectangle()))
                 Text(tile.title)
                     .modifier(Theme.cardTitle)
                     .lineLimit(1)
@@ -154,6 +154,7 @@ private struct QuickTile: View {
             }
         }
         .opacity(tile.playable ? 1 : 0.45)
+        .unavailableValue(!tile.playable)
         .onHover { hovering = $0 }
         .animation(Theme.fast, value: hovering)
     }
@@ -165,7 +166,6 @@ private struct Tile {
     let title: String
     var subtitle: String?
     let artwork: [Artwork]
-    var round = false
     var route: Route?
     var playable = true
 }
@@ -187,7 +187,7 @@ private extension Tile {
         case let .artist(artist):
             self.init(
                 uri: artist.uri, title: artist.name, subtitle: String(localized: "Artist"), artwork: artist.artwork,
-                round: true, route: .artist(uri: artist.uri)
+                route: .artist(uri: artist.uri)
             )
         case let .show(show):
             self.init(

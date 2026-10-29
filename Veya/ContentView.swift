@@ -20,16 +20,23 @@ struct ContentView: View {
             .modifier(ScalesText())
             .modifier(ConcreteInk())
             .onOpenURL { url in
-                if let link = SpotifyLink(url.absoluteString) { openedLink = link }
+                if let link = SpotifyLink(url.absoluteString) {
+                    openedLink = link
+                }
             }
             .onChange(of: signIn.state) { _, state in
                 if state == .signedIn, let credentials = signIn.takeCredentials() {
                     session.connect(tokens: credentials.tokens)
                 }
             }
-            .onChange(of: session.state) { _, state in
-                // Another account may sign in next; its searches are its own.
-                if state == .signedOut { recentSearches.clear() }
+            .onChange(of: session.state) { old, state in
+                // Another account may sign in next; its searches and any link held for the old one are not its own.
+                if state == .signedOut {
+                    recentSearches.clear()
+                    if old != .restoring {
+                        openedLink = nil
+                    }
+                }
             }
     }
 

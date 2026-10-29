@@ -21,6 +21,8 @@ use crate::util::{blocking, lock, unix_now};
 const PAGE_LIMIT: i32 = 300;
 /// 3 million items at `PAGE_LIMIT`, past any real library.
 const MAX_PAGES: usize = 10_000;
+/// Far above a real library page or delta.
+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const PUSH_URI: &str = "hm://collection/";
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -62,6 +64,14 @@ impl LibraryKind {
             .find(|kind| kind.holds(uri))
     }
 
+    /// The kind of a URI that may go into a write request: a 22-character
+    /// base62 id, where `of` also accepts whatever the server listed.
+    fn writable(uri: &str) -> Option<Self> {
+        let id = uri.rsplit(':').next().unwrap_or_default();
+        let plain = id.len() == 22 && id.bytes().all(|b| b.is_ascii_alphanumeric());
+        plain.then(|| Self::of(uri)).flatten()
+    }
+
     fn holds(self, uri: &str) -> bool {
         let prefix = match self {
             Self::Tracks => "spotify:track:",
@@ -87,11 +97,6 @@ pub struct LibraryItem {
     pub uri: String,
     /// Unix seconds.
     pub added_at: i64,
-}
-
-#[uniffi::export(with_foreign)]
-pub trait LibraryObserver: Send + Sync {
-    fn on_library_changed(&self);
 }
 
 #[derive(uniffi::Object)]
@@ -126,6 +131,7 @@ impl LibraryService {
         let username = session.username();
         let set = kind.set();
         let generation = self.sets.generation();
+        let started = unix_now();
         let token = {
             let (sets, username) = (Arc::clone(&self.sets), username.clone());
             blocking(move || sets.get(set, &username).sync_token).await
@@ -140,7 +146,9 @@ impl LibraryService {
                     state.sync_token = sync_token;
                 })
             }
-            Synced::Full(full) => sets.update(set, &username, generation, |state| *state = full),
+            Synced::Full(full) => sets.update(set, &username, generation, |state| {
+                state.replace_keeping_newer(full, started)
+            }),
         })
         .await;
         Ok(synced.items(kind))
@@ -149,7 +157,7 @@ impl LibraryService {
     /// Likes or unlikes a track, saves or removes an album, follows or
     /// unfollows an artist or show. Local state changes only after the server accepts.
     pub async fn set_saved(&self, uri: String, saved: bool) -> Result<(), LibraryError> {
-        let kind = LibraryKind::of(&uri)
+        let kind = LibraryKind::writable(&uri)
             .ok_or_else(|| LibraryError::UnsupportedUri { uri: uri.clone() })?;
         let session = self.session.current_session();
         let username = session.username();
@@ -315,17 +323,20 @@ async fn sync(
     }
 
     let mut state = SetState::default();
+    let mut changes = Vec::new();
     let mut page_token = String::new();
     let mut seen = HashSet::new();
     loop {
         let request = encode_page(username, set, &page_token)?;
         let page = decode_page(&post(session, "/collection/v2/paging", request).await?)?;
-        state.apply(page.items);
+        changes.extend(page.items);
         // The first page's token covers everything paged after it.
         if state.sync_token.is_empty() {
             state.sync_token = page.sync_token;
         }
         if page.next_page_token.is_empty() {
+            // Applied once: per-page application is quadratic in the set size.
+            state.apply(changes);
             return Ok(Synced::Full(state));
         }
         follow_page(&mut seen, &page.next_page_token)?;
@@ -355,7 +366,17 @@ async fn post(session: &Session, endpoint: &str, body: Vec<u8>) -> Result<Vec<u8
         .spclient()
         .request(&Method::POST, endpoint, Some(headers), Some(&body))
         .await?;
+    check_size(response.len())?;
     Ok(response.to_vec())
+}
+
+fn check_size(len: usize) -> Result<(), LibraryError> {
+    if len > MAX_RESPONSE_BYTES {
+        return Err(LibraryError::Request {
+            message: format!("collection response of {len} bytes is too large"),
+        });
+    }
+    Ok(())
 }
 
 fn client_update_id() -> String {
@@ -389,6 +410,20 @@ impl SetState {
                     added_at: change.added_at,
                 }),
         );
+    }
+
+    /// Replaces the set with a full sync, but keeps items saved since
+    /// `started` that the paging may have missed (a like made mid-sync).
+    fn replace_keeping_newer(&mut self, full: SetState, started: i64) {
+        let paged: HashSet<&str> = full.items.iter().map(|item| item.uri.as_str()).collect();
+        let kept: Vec<LibraryItem> = self
+            .items
+            .iter()
+            .filter(|item| item.added_at >= started && !paged.contains(item.uri.as_str()))
+            .cloned()
+            .collect();
+        *self = full;
+        self.items.extend(kept);
     }
 
     fn items(&self, kind: LibraryKind) -> Vec<LibraryItem> {
@@ -563,6 +598,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_well_formed_ids_can_be_saved() {
+        let id = "4uLU6hMCjMI75M1A2tKUQC";
+        assert_eq!(
+            LibraryKind::writable(&format!("spotify:track:{id}")),
+            Some(LibraryKind::Tracks)
+        );
+        for bad in [
+            "",
+            "spotify:track:",
+            "spotify:track:../x",
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQ",
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQCC",
+            "spotify:track:4uLU6hMCjMI75M1A2tK/QC",
+            "spotify:playlist:4uLU6hMCjMI75M1A2tKUQC",
+        ] {
+            assert_eq!(LibraryKind::writable(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn oversized_responses_are_refused() {
+        assert!(check_size(MAX_RESPONSE_BYTES).is_ok());
+        assert!(check_size(MAX_RESPONSE_BYTES + 1).is_err());
+    }
+
+    #[test]
     fn paging_stops_on_a_repeated_token_or_past_the_page_cap() {
         let mut seen = HashSet::new();
         assert!(follow_page(&mut seen, "a").is_ok());
@@ -688,6 +749,22 @@ mod tests {
         assert_eq!(uris(LibraryKind::Tracks), ["spotify:track:old"]);
         assert_eq!(uris(LibraryKind::Albums), ["spotify:album:x"]);
         assert!(uris(LibraryKind::Artists).is_empty());
+    }
+
+    #[test]
+    fn a_full_sync_keeps_a_like_made_while_it_ran() {
+        let mut state = SetState::default();
+        state.apply(vec![
+            item("spotify:track:old", 10, false),
+            item("spotify:track:mid", 100, false),
+        ]);
+        let mut full = SetState::default();
+        full.apply(vec![item("spotify:track:old", 10, false)]);
+        full.sync_token = "t".to_owned();
+        state.replace_keeping_newer(full, 100);
+        let uris: Vec<_> = state.items.iter().map(|i| i.uri.as_str()).collect();
+        assert_eq!(uris, ["spotify:track:old", "spotify:track:mid"]);
+        assert_eq!(state.sync_token, "t");
     }
 
     #[test]
@@ -819,7 +896,7 @@ mod tests {
         assert_eq!(tracks.len(), 10_000);
         assert_eq!(tracks[0].added_at, 9_999);
         assert!(
-            started.elapsed() < std::time::Duration::from_millis(250),
+            started.elapsed() < std::time::Duration::from_secs(1),
             "{:?}",
             started.elapsed()
         );

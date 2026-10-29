@@ -7,6 +7,7 @@ struct TrackNotificationsTests {
     private final class Posted {
         var all: [(info: MediaControls.Info, image: CGImage?)] = []
         var enabled = true
+        var clears = 0
     }
 
     private let posted = Posted()
@@ -14,9 +15,10 @@ struct TrackNotificationsTests {
 
     init() {
         let posted = posted
-        notifications = TrackNotifications(settle: .milliseconds(20), isEnabled: { posted.enabled }) {
-            posted.all.append(($0, $1))
-        }
+        notifications = TrackNotifications(
+            settle: .milliseconds(20), isEnabled: { posted.enabled },
+            post: { posted.all.append(($0, $1)) }, clear: { posted.clears += 1 }
+        )
     }
 
     private static func info(_ title: String, playing: Bool = true, elapsedMs: UInt32 = 0) -> MediaControls.Info {
@@ -42,7 +44,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.first?.image != nil)
     }
 
-    @Test func rapidSkipsPostOnlyTheTrackThatStays() async throws {
+    @Test func rapidSkipsPostOnlyTheTrackThatStays() async {
         notifications.update(Self.info("One"), nil)
         notifications.update(Self.info("Two"), nil)
         notifications.update(Self.info("Three"), nil)
@@ -51,7 +53,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.map(\.info.title) == ["Three"])
     }
 
-    @Test func pausedOrDisabledPostsNothing() async throws {
+    @Test func pausedOrDisabledPostsNothing() async {
         notifications.update(Self.info("One", playing: false), nil)
         await settle()
         posted.enabled = false
@@ -61,7 +63,7 @@ struct TrackNotificationsTests {
         #expect(posted.all.isEmpty)
     }
 
-    @Test func theSameTrackPostsAgainAfterPlaybackStops() async throws {
+    @Test func theSameTrackPostsAgainAfterPlaybackStops() async {
         notifications.update(Self.info("One"), nil)
         await settle()
         notifications.update(nil, nil)
@@ -69,6 +71,14 @@ struct TrackNotificationsTests {
         await settle()
 
         #expect(posted.all.map(\.info.title) == ["One", "One"])
+    }
+
+    @Test func nothingPlayingTakesTheLastBannerOffTheNotificationCenter() async {
+        notifications.update(Self.info("One"), nil)
+        await settle()
+        notifications.update(nil, nil)
+
+        #expect(posted.clears == 1)
     }
 
     private static func image() -> CGImage? {

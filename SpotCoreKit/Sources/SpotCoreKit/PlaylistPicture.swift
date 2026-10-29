@@ -30,7 +30,9 @@ public enum PlaylistPicture {
             else { throw Failure.undecodable }
             CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
             guard CGImageDestinationFinalize(destination) else { throw Failure.undecodable }
-            if jpeg.length <= maxBytes { return jpeg as Data }
+            if jpeg.length <= maxBytes {
+                return jpeg as Data
+            }
         }
         throw Failure.tooLarge
     }

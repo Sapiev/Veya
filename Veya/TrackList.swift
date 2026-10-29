@@ -137,13 +137,13 @@ struct TrackList: View {
         } primaryAction: { ids in
             play(ids, in: rows)
         }
-        .background(KeyMonitor(keyCodes: KeyMonitor.returnKeys) {
+        .background(KeyMonitor(keyCodes: KeyMonitor.returnKeys, enabled: isEnabled) {
             guard !selection.isEmpty else { return false }
             play(selection, in: sortedRows)
             return true
         })
         .background(ClickFocusesTable())
-        .background(KeyMonitor(keyCodes: KeyMonitor.deleteKeys) {
+        .background(KeyMonitor(keyCodes: KeyMonitor.deleteKeys, enabled: isEnabled) {
             guard let editablePlaylist, !selection.isEmpty else { return false }
             remove(selection, from: editablePlaylist)
             return true
@@ -157,6 +157,8 @@ struct TrackList: View {
     }
 
     @Environment(\.colorSchemeContrast) private var contrast
+    /// False while the full Now Playing view covers this page; its keys then belong to the view on top.
+    @Environment(\.isEnabled) private var isEnabled
 
     @ViewBuilder private func menu(for rows: [Row]) -> some View {
         let uris = rows.map(\.uri)
@@ -213,7 +215,9 @@ struct TrackList: View {
         return isUnsorted ? rows : rows.sorted(using: sortOrder)
     }
 
-    private var isUnsorted: Bool { sortOrder == [KeyPathComparator(\Row.number)] }
+    private var isUnsorted: Bool {
+        sortOrder == [KeyPathComparator(\Row.number)]
+    }
 
     /// Plays the list in its shown order from the first playable of `ids`,
     /// leaving out rows known to be unplayable; refuses when `ids` has none.
@@ -241,9 +245,17 @@ struct TrackList: View {
         let unavailableHelp: String?
         let artwork: [Artwork]
 
-        var id: Int { number }
-        var albumName: String { album?.name ?? "" }
-        var addedSort: Date { addedAt ?? .distantPast }
+        var id: Int {
+            number
+        }
+
+        var albumName: String {
+            album?.name ?? ""
+        }
+
+        var addedSort: Date {
+            addedAt ?? .distantPast
+        }
 
         init(number: Int, entry: TrackEntry, item: MetadataItem?) {
             self.number = number
@@ -288,14 +300,15 @@ struct TrackList: View {
 }
 
 extension TrackList {
-    fileprivate func resolve(from index: Int) {
+    private func resolve(from index: Int) {
         let end = min(index + Self.resolveAhead, entries.count)
         guard index >= 0, index < end else { return }
         library.resolve(entries[index ..< end].map(\.uri))
     }
 
-    fileprivate func copyLinks(_ uris: [String]) {
+    private func copyLinks(_ uris: [String]) {
         let links = uris.compactMap(Self.webLink)
+        guard !links.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
     }
@@ -329,7 +342,7 @@ private extension TrackList {
             row.title.isEmpty ? String(localized: "Loading…") : row.title,
             row.artists.map(\.name).formatted(.list(type: .and)),
             row.durationMs == 0 ? "" : Scrubber.spoken(Double(row.durationMs)),
-            state ?? ""
+            state ?? "",
         ]
         return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
@@ -359,6 +372,8 @@ private struct KeyMonitor: NSViewRepresentable {
     static let deleteKeys: Set<UInt16> = [51, 117]
 
     let keyCodes: Set<UInt16>
+    /// False while the page is disabled, as under the full Now Playing view; read in `body` so a change re-renders.
+    let enabled: Bool
     /// Returns whether it handled the key.
     let action: () -> Bool
 
@@ -368,21 +383,25 @@ private struct KeyMonitor: NSViewRepresentable {
 
     func updateNSView(_ view: MonitorView, context _: Context) {
         view.keyCodes = keyCodes
+        view.enabled = enabled
         view.action = action
     }
 
     final class MonitorView: NSView {
         var keyCodes: Set<UInt16> = []
+        var enabled = true
         var action: () -> Bool = { false }
         private var monitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === window, isPlain(event),
+                guard let self, enabled, event.window === window, isPlain(event),
                       !Self.takesKeys(event.window?.firstResponder), action() else { return event }
                 return nil
             }
@@ -455,7 +474,9 @@ private struct ClickFocusesTable: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in

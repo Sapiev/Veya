@@ -8,8 +8,18 @@ struct SessionSignOutTests {
     private let connector = FakeConnector()
     private let logs = LogSpy()
 
+    private let forgotten = Counter()
+
+    private final class Counter {
+        var count = 0
+    }
+
     private func ready(_ session: FakeSession, store: FakeStore) async throws -> SessionModel {
-        let model = SessionModel(store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
+        let forgotten = forgotten
+        let model = SessionModel(
+            store: store, refreshTokenStore: FakeStore(), connector: connector, log: logs.log,
+            forgetPlayback: { forgotten.count += 1 }
+        )
         let task = model.restore()
         try await waitUntil { connector.pending == 1 }
         connector.resolve(0, with: .success(session))
@@ -23,11 +33,31 @@ struct SessionSignOutTests {
         let session = FakeSession()
         let model = try await ready(session, store: store)
 
-        try model.signOut()
+        try await model.signOut()
 
         #expect(model.state == .signedOut)
         #expect(session.shutdownCount == 1)
         #expect(store.blob == nil)
+    }
+
+    @Test func quittingKeepsSavedPlayback() async throws {
+        let model = try await ready(FakeSession(), store: FakeStore(blob: storedBlob))
+        model.shutdown()
+        #expect(forgotten.count == 0)
+    }
+
+    @Test func rejectedCredentialsForgetSavedPlayback() async throws {
+        let session = FakeSession()
+        let model = try await ready(session, store: FakeStore(blob: storedBlob))
+        session.push(.credentialsRejected)
+        try await waitUntil { model.state == .signedOut }
+        #expect(forgotten.count == 1)
+    }
+
+    @Test func signOutForgetsSavedPlayback() async throws {
+        let model = try await ready(FakeSession(), store: FakeStore(blob: storedBlob))
+        try await model.signOut()
+        #expect(forgotten.count == 1)
     }
 
     @Test func signOutTwiceIsSafe() async throws {
@@ -35,8 +65,8 @@ struct SessionSignOutTests {
         let session = FakeSession()
         let model = try await ready(session, store: store)
 
-        try model.signOut()
-        try model.signOut()
+        try await model.signOut()
+        try await model.signOut()
 
         #expect(model.state == .signedOut)
         #expect(session.shutdownCount == 1)
@@ -51,7 +81,7 @@ struct SessionSignOutTests {
         let saves = store.saves
 
         session.push(.connected)
-        try model.signOut()
+        try await model.signOut()
         try await Task.sleep(for: .milliseconds(50))
 
         #expect(store.saves == saves)
@@ -65,7 +95,7 @@ struct SessionSignOutTests {
 
         let task = model.restore()
         try await waitUntil { connector.pending == 1 }
-        try model.signOut()
+        try await model.signOut()
         connector.resolve(0, with: .success(late))
         await task.value
 
@@ -80,21 +110,21 @@ struct SessionSignOutTests {
         let model = try await ready(session, store: store)
         store.failDeletes(with: KeychainError(status: -25308))
 
-        #expect(throws: KeychainError(status: -25308)) { try model.signOut() }
+        await #expect(throws: KeychainError(status: -25308)) { try await model.signOut() }
         #expect(model.state == .signedOut)
         #expect(session.shutdownCount == 1)
         #expect(store.blob == refreshedBlob)
         #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("-25308") })
 
         store.failDeletes(with: nil)
-        try model.signOut()
+        try await model.signOut()
         #expect(store.blob == nil)
     }
 
     @Test func signOutClearsMetadataCache() async throws {
         let model = try await ready(FakeSession(), store: FakeStore(blob: storedBlob))
 
-        try model.signOut()
+        try await model.signOut()
 
         #expect(connector.metadataClears == 1)
     }
@@ -110,7 +140,7 @@ struct SessionSignOutTests {
         await task.value
         connector.failMetadataClear(with: DiskFull())
 
-        #expect(throws: DiskFull()) { try model.signOut() }
+        await #expect(throws: DiskFull()) { try await model.signOut() }
         #expect(model.state == .signedOut)
         #expect(session.shutdownCount == 1)
         #expect(store.blob == nil)
@@ -130,8 +160,8 @@ struct SessionSignOutTests {
         let player = try await startPlayer(on: session)
         #expect(model.attach(player, startedOn: session))
 
-        try model.signOut()
-        try model.signOut()
+        try await model.signOut()
+        try await model.signOut()
 
         withExtendedLifetime(player) {
             #expect(session.player.recorded.filter { $0 == "stopLocal" }.count == 1)
@@ -145,7 +175,7 @@ struct SessionSignOutTests {
         let session = FakeSession()
         let model = try await ready(session, store: FakeStore(blob: storedBlob))
         let player = try await startPlayer(on: session)
-        try model.signOut()
+        try await model.signOut()
 
         #expect(!model.attach(player, startedOn: session))
         withExtendedLifetime(player) {
@@ -160,7 +190,7 @@ struct SessionSignOutTests {
         let model = try await ready(session, store: store)
         connector.failAudioClear(with: DiskFull())
 
-        #expect(throws: DiskFull()) { try model.signOut() }
+        await #expect(throws: DiskFull()) { try await model.signOut() }
         #expect(model.state == .signedOut)
         #expect(session.shutdownCount == 1)
         #expect(store.blob == nil)
@@ -168,7 +198,7 @@ struct SessionSignOutTests {
         #expect(logs.entries.contains { $0.0 == .warn && $0.1.contains("audio cache") })
 
         connector.failAudioClear(with: nil)
-        try model.signOut()
+        try await model.signOut()
         #expect(connector.audioClears == 2)
     }
 
@@ -190,12 +220,12 @@ struct SessionSignOutTests {
         #expect(connector.cacheWorkOnMain == [false])
     }
 
-    @Test func signOutClearsCachesOnTheMainThreadBeforeReturning() throws {
+    @Test func signOutClearsCachesOffTheMainThreadBeforeReturning() async throws {
         let model = SessionModel(store: FakeStore(), refreshTokenStore: FakeStore(), connector: connector, log: logs.log)
 
-        try model.signOut()
+        try await model.signOut()
 
-        #expect(connector.cacheWorkOnMain == [true, true])
+        #expect(connector.cacheWorkOnMain == [false, false])
     }
 }
 

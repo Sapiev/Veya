@@ -27,6 +27,10 @@
 	<string>https://sapiev.github.io/Veya/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 </dict>

@@ -20,6 +20,9 @@ const CHANNELS: usize = NUM_CHANNELS as usize;
 /// 200 ms of audio. Every push and pop moves whole frames and the capacity is
 /// a whole number of frames, so a frame never straddles the wrap point.
 const RING_SAMPLES: usize = SAMPLE_RATE as usize / 5 * CHANNELS;
+/// Audio kept while the render side holds a pause; a stalled engine cannot
+/// grow it past this.
+const PENDING_MAX_SAMPLES: usize = RING_SAMPLES * 2;
 const WRITE_RETRY: Duration = Duration::from_millis(5);
 /// A full ring nobody renders for this long means the engine stopped; the
 /// write fails so librespot pauses instead of blocking its thread forever.
@@ -509,6 +512,10 @@ impl CoreAudioSink {
             if rest.len() == samples.len() {
                 if self.stats.render_holding.load(Acquire) {
                     std::thread::sleep(WRITE_RETRY);
+                    if self.pending.len() + samples.len() > PENDING_MAX_SAMPLES {
+                        // librespot pauses on a write error.
+                        return Err(SinkError::OnWrite("held audio exceeds its cap".into()));
+                    }
                     self.pending.extend_from_slice(samples);
                     return Ok(());
                 }
@@ -548,6 +555,7 @@ impl Sink for CoreAudioSink {
         self.stats.active.store(true, Relaxed);
         self.stats.held.store(false, Relaxed);
         self.stats.pausing.store(false, Relaxed);
+        self.stats.render_holding.store(false, Release);
         self.stats.starts.fetch_add(1, Release);
         // A play-out whose stop never came must not skip the next pause hold.
         self.transitions.take_play_out();
@@ -1339,6 +1347,24 @@ mod tests {
             let gain = (k as f32 / FADE_FRAMES as f32).min(1.0);
             assert_eq!((*l, *r), (gain, gain), "frame {k}");
         }
+    }
+
+    #[test]
+    fn held_audio_is_capped_when_the_engine_stops_while_paused() {
+        let (_output, mut sink, _handle) = setup();
+        sink.stats.render_holding.store(true, Release);
+        let chunk = vec![0.0; RING_SAMPLES / 2];
+        let mut failed = false;
+        for _ in 0..16 {
+            failed |= sink
+                .write(packet(&chunk), &mut Converter::new(None))
+                .is_err();
+        }
+        assert!(failed, "writes fail once the held audio hits its cap");
+        assert!(sink.pending.len() <= PENDING_MAX_SAMPLES);
+
+        sink.start().unwrap();
+        assert!(!sink.stats.render_holding.load(Acquire));
     }
 
     #[test]

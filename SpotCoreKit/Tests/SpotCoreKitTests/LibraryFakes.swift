@@ -88,13 +88,17 @@ final class FakeLibrary: LibraryServiceProtocol {
         await withCheckedContinuation { continuation in
             let (hold, result) = box.withLock { box in
                 box.refreshes.append(kind)
-                if box.holdRefreshes { box.heldRefreshes.append(continuation) }
+                if box.holdRefreshes {
+                    box.heldRefreshes.append(continuation)
+                }
                 let result: Result<[LibraryItem], any Error> =
                     box.refreshError.map { .failure($0) } ?? .success(box.server[kind] ?? [])
                 return (box.holdRefreshes, result)
             }
             answer = result
-            if !hold { continuation.resume() }
+            if !hold {
+                continuation.resume()
+            }
         }
         return try answer.get()
     }
@@ -116,7 +120,9 @@ final class FakeLibrary: LibraryServiceProtocol {
 }
 
 final class FakeMetadata: MetadataServiceProtocol {
-    func lyrics(trackUri _: String) async throws -> Lyrics? { nil }
+    func lyrics(trackUri _: String) async throws -> Lyrics? {
+        nil
+    }
 
     private let requests = OSAllocatedUnfairLock<[[String]]>(initialState: [])
     private let held = OSAllocatedUnfairLock<[CheckedContinuation<Void, Never>]>(initialState: [])
@@ -149,7 +155,9 @@ final class FakeMetadata: MetadataServiceProtocol {
             requests.withLock { $0.append(uris) }
             held.withLock { $0.append(continuation) }
         }
-        if fails { throw MetadataError.Request(message: "down") }
+        if fails {
+            throw MetadataError.Request(message: "down")
+        }
         return uris.map { .unavailable(uri: $0, error: .notFound) }
     }
 }

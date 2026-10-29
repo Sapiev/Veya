@@ -11,10 +11,18 @@ private final class InstantFlow: SignInFlow {
         self.result = result
     }
 
-    func authorizeURL() -> String { "https://accounts.spotify.com/authorize" }
-    func finish() async throws -> OAuthTokens { try result.get() }
+    func authorizeURL() -> String {
+        "https://accounts.spotify.com/authorize"
+    }
+
+    func finish() async throws -> OAuthTokens {
+        try result.get()
+    }
+
     func cancel() {}
-    func callbackReceived() -> Bool { true }
+    func callbackReceived() -> Bool {
+        true
+    }
 }
 
 /// Stays open until the presenting task is cancelled.
@@ -36,6 +44,7 @@ struct WebAPIConnectionTests {
         let suite = "WebAPIConnectionTests-\(UUID().uuidString)"
         return UserDefaults(suiteName: suite)!
     }()
+
     private let refresher = FakeRefresher()
     private let configs = OSAllocatedUnfairLock(initialState: [OAuthConfig]())
 
@@ -104,6 +113,23 @@ struct WebAPIConnectionTests {
 
         #expect(store.blob == Data("rt-old".utf8))
         #expect(connection.isConnected)
+    }
+
+    @Test func aFailedDeleteIsReportedAndKeepsTheConnection() async throws {
+        let connection = connection()
+        try await #require(connection.connect(clientID: "0123456789abcdef0123456789abcdef")).value
+        #expect(connection.isConnected)
+        store.failDeletes(with: KeychainError(status: -25308))
+
+        #expect(throws: KeychainError(status: -25308)) { try connection.disconnect() }
+        #expect(connection.disconnectFailed)
+        #expect(connection.isConnected)
+        #expect(connection.connect(clientID: otherClientID) == nil, "a changed client ID needs the old token gone")
+
+        store.failDeletes(with: nil)
+        try connection.disconnect()
+        #expect(!connection.disconnectFailed)
+        #expect(!connection.isConnected)
     }
 
     @Test func disconnectIsIdempotent() async throws {

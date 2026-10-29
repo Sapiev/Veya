@@ -43,7 +43,13 @@ enum Diagnostics {
 
     static let crashReportsDirectory = URL.libraryDirectory.appending(path: "Logs/Veya/Crashes", directoryHint: .isDirectory)
 
-    static func export(crashReports: URL) async {
+    /// A second Export Diagnostics while the first runs would stack save panels and archives.
+    @MainActor private static var isExporting = false
+
+    @MainActor static func export(crashReports: URL) async {
+        guard !isExporting else { return }
+        isExporting = true
+        defer { isExporting = false }
         let localDay = Date.ISO8601FormatStyle(timeZone: .current).year().month().day()
         let name = "Veya Diagnostics \(Date.now.formatted(localDay))"
         let panel = NSSavePanel()
@@ -105,7 +111,7 @@ final class MetricKitCrashes: NSObject, MXMetricManagerSubscriber {
 
     nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
         let reports = payloads.flatMap { $0.crashDiagnostics ?? [] }
-            .map { String(decoding: $0.jsonRepresentation(), as: UTF8.self) }
+            .compactMap { String(bytes: $0.jsonRepresentation(), encoding: .utf8) }
         Task { @MainActor in received(reports) }
     }
 }

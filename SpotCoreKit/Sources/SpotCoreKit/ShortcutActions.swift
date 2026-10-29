@@ -9,6 +9,8 @@ public final class ShortcutActions {
         case notReady
         case nothingPlaying
         case invalidURI
+        /// The core could not load the URI, such as an unavailable or removed item.
+        case notPlayable
     }
 
     private let player: () -> PlayerModel?
@@ -46,7 +48,9 @@ public final class ShortcutActions {
         let player = try await ready(player)
         guard let uri = player.nowPlaying?.uri else { throw .nothingPlaying }
         let library = try await ready(library)
-        if !library.isSaved(uri) { library.setSaved(uri, true) }
+        if !library.isSaved(uri) {
+            library.setSaved(uri, true)
+        }
     }
 
     public func currentTrack() async throws(Failure) -> MediaControls.Info {
@@ -60,7 +64,9 @@ public final class ShortcutActions {
     /// The user's playlists, folders left out, whose name contains `query`; nil lists them all.
     public func playlists(matching query: String? = nil) async throws(Failure) -> [RootlistNode] {
         let model = try await ready(playlists)
-        if model.rootlist.isEmpty { await model.load().value }
+        if model.rootlist.isEmpty {
+            await model.load().value
+        }
         return model.rootlist.compactMap { entry in
             guard case let .playlist(uri, name, _, _, _, _, _) = entry,
                   query.map(name.localizedStandardContains) ?? true else { return nil }
@@ -79,15 +85,18 @@ public final class ShortcutActions {
     /// Plays a track, playlist, album or other `spotify:` URI as the context.
     public func play(_ uri: String) async throws(Failure) {
         // AppleScript passes any text; only Spotify URIs reach the core.
-        guard uri.hasPrefix("spotify:"), uri.count > "spotify:".count else { throw .invalidURI }
-        try await ready(player).play(uri, startingAt: 0).value
+        guard uri.hasPrefix("spotify:"), SpotifyLink(uri) != nil else { throw .invalidURI }
+        let task = try await ready(player).play(uri, startingAt: 0)
+        do { try await task.value } catch { throw .notPlayable }
     }
 
     // shortcut: polls every 100 ms; observe ActiveSession instead if this ever shows up in a profile.
     private func ready<Value>(_ value: () -> Value?) async throws(Failure) -> Value {
         let deadline = ContinuousClock.now + timeout
         while true {
-            if let value = value() { return value }
+            if let value = value() {
+                return value
+            }
             guard ContinuousClock.now < deadline, !Task.isCancelled else { throw .notReady }
             try? await Task.sleep(for: .milliseconds(100))
         }

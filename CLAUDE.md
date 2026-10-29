@@ -114,6 +114,7 @@ PBIs are issues `PBI-xxx · Title` in `Sapiev/Veya`, tracked in project https://
 ## Other conventions
 
 - Never commit unless explicitly asked; leave changes uncommitted for review.
+- Run `scripts/install-linters.sh` once per clone: it enables the `.githooks` pre-commit that formats and lints staged Swift and Rust, as CI's lint job does.
 - Build caches and old build output may be deleted without asking: `cargo clean` in `core/`, `~/Library/Developer/Xcode/DerivedData/Veya-*`, and `.xcresult` bundles and screenshots in your scratchpad. `core/target` grows to tens of GB. Required once your job is done (after the last test run), and on ENOSPC before rebuilding. Never delete anything else. After deleting DerivedData, run `xcodebuild -resolvePackageDependencies -project Veya.xcodeproj -scheme Veya` so Xcode has Sparkle again; retry once if it fails while Xcode is open.
 - Never use em dash "—"; use hyphen "-".
 - Always verify via proper tests before claiming done.

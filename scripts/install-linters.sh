@@ -3,6 +3,9 @@
 # .tools/bin (or $1). CI and local runs use the same versions, so a new
 # upstream rule cannot fail strict lint on unchanged code.
 #
+# It also points git at .githooks, whose pre-commit hook formats and lints
+# staged files with them.
+#
 # Usage: scripts/install-linters.sh [bin-dir]
 # Bump a version by updating its URL and sha256 together.
 set -euo pipefail
@@ -18,6 +21,9 @@ SWIFTFORMAT_VERSION=0.63.1
 SWIFTFORMAT_URL="https://github.com/nicklockwood/SwiftFormat/releases/download/$SWIFTFORMAT_VERSION/swiftformat.zip"
 SWIFTFORMAT_SHA256=385ef1a263ba28685157b98c5536b9c9105e124518f28b7ef8a2bee4b167eaeb
 
+TMP_DIRS=()
+trap 'rm -rf ${TMP_DIRS[@]+"${TMP_DIRS[@]}"}' EXIT
+
 # Downloads to a temp dir and moves the binary in last, so a crashed run
 # never leaves a partial or unverified binary in $BIN.
 install_tool() {
@@ -27,7 +33,7 @@ install_tool() {
     fi
     local tmp
     tmp="$(mktemp -d)"
-    trap 'rm -rf "$tmp"' RETURN
+    TMP_DIRS+=("$tmp")
     curl -sSfL --retry 3 -o "$tmp/$name.zip" "$url"
     echo "$sha256  $tmp/$name.zip" | shasum -a 256 -c - >/dev/null
     unzip -q "$tmp/$name.zip" "$name" -d "$tmp"
@@ -38,3 +44,5 @@ install_tool() {
 
 install_tool swiftlint "$SWIFTLINT_VERSION" "$SWIFTLINT_URL" "$SWIFTLINT_SHA256"
 install_tool swiftformat "$SWIFTFORMAT_VERSION" "$SWIFTFORMAT_URL" "$SWIFTFORMAT_SHA256"
+
+git -C "$ROOT" config core.hooksPath .githooks 2>/dev/null || true

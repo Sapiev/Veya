@@ -9,22 +9,34 @@ public enum DiagnosticsArchive {
     /// Writes the archive into a fresh temporary directory and returns its URL.
     /// The caller moves it into place and deletes the parent directory.
     public static func make(named name: String, appVersion: String, crashReports: URL? = nil) throws -> URL {
+        // `name` becomes a path component under the temp directory and is what the error path deletes around.
+        guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { throw CocoaError(.fileWriteInvalidFileName) }
         let fileManager = FileManager.default
         let parent = fileManager.temporaryDirectory
             .appending(path: "VeyaDiagnostics-\(UUID().uuidString)", directoryHint: .isDirectory)
         let folder = parent.appending(path: name, directoryHint: .isDirectory)
         do {
             try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-            let logs = try recentLogs(windowSeconds: logWindowSeconds)
+            let logs = try redact(text: recentLogs(windowSeconds: logWindowSeconds))
             try Data(logs.utf8).write(to: folder.appending(path: "logs.txt"))
             try Data(systemInfo(appVersion: appVersion).utf8).write(to: folder.appending(path: "system.txt"))
             if let crashReports, fileManager.fileExists(atPath: crashReports.path(percentEncoded: false)) {
-                try fileManager.copyItem(at: crashReports, to: folder.appending(path: "Crashes"))
+                try copyRedacted(crashReports, to: folder.appending(path: "Crashes"))
             }
             return try zip(folder, into: parent)
         } catch {
             try? fileManager.removeItem(at: parent)
             throw error
+        }
+    }
+
+    /// Reports are redacted again on the way out: the registered secrets may have changed since they were saved.
+    private static func copyRedacted(_ source: URL, to destination: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        for file in try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            try Data(redact(text: text).utf8).write(to: destination.appending(path: file.lastPathComponent))
         }
     }
 

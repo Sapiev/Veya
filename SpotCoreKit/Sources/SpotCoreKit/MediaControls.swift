@@ -1,6 +1,7 @@
 import AppKit
 import MediaPlayer
 import Observation
+import os
 
 /// Mirrors the player into Control Center and takes the media keys, AirPods
 /// taps and Control Center buttons; these reach it with the window closed.
@@ -35,6 +36,9 @@ public final class MediaControls {
     /// Keyed by the artwork list, which arrives with the track's metadata after it starts.
     private var artwork: (source: [Artwork], image: CGImage?)?
     private var artworkLoad: Task<Void, Never>?
+    private var registered: [MPRemoteCommand] = []
+    /// Read by the handlers on MediaPlayer's thread.
+    private let hasPlayer = OSAllocatedUnfairLock(initialState: false)
 
     public init(
         artworkLoader: ArtworkLoader?,
@@ -44,7 +48,9 @@ public final class MediaControls {
         self.artworkLoader = artworkLoader
         self.commands = commands
         self.publish = publish
-        if let commands { register(commands) }
+        if let commands {
+            register(commands)
+        }
     }
 
     /// Follows `player` until the next call; nil clears Control Center.
@@ -52,6 +58,9 @@ public final class MediaControls {
         guard player !== self.player || library !== self.library else { return }
         self.player = player
         self.library = library
+        hasPlayer.withLock { $0 = player != nil }
+        // Nothing to control without a player; the system then leaves the keys to other apps.
+        registered.forEach { $0.isEnabled = player != nil }
         binding += 1
         follow(binding)
     }
@@ -69,8 +78,12 @@ public final class MediaControls {
 
     static func perform(_ command: Command, player: PlayerModel, library: LibraryModel?) -> Bool {
         switch command {
-        case .play: if !player.isPlaying { player.togglePlayPause() }
-        case .pause: if player.isPlaying { player.togglePlayPause() }
+        case .play: if !player.isPlaying {
+                player.togglePlayPause()
+            }
+        case .pause: if player.isPlaying {
+                player.togglePlayPause()
+            }
         case .togglePlayPause: player.togglePlayPause()
         case .next: player.next()
         case .previous: player.previous()
@@ -114,7 +127,9 @@ public final class MediaControls {
             publish(nil, nil)
             return
         }
-        if artwork?.source != now.artwork { loadArtwork(now.artwork) }
+        if artwork?.source != now.artwork {
+            loadArtwork(now.artwork)
+        }
         publish(info, artwork?.image)
     }
 
@@ -145,8 +160,12 @@ public final class MediaControls {
             }),
         ]
         for (command, route) in routes {
-            command.isEnabled = true
-            command.addTarget(handler: Self.handler(route) { [weak self] in self?.perform($0) })
+            command.isEnabled = false
+            registered.append(command)
+            let hasPlayer = hasPlayer
+            command.addTarget(handler: Self.handler(route, isAvailable: { hasPlayer.withLock { $0 } }) { [weak self] in
+                self?.perform($0)
+            })
         }
     }
 
@@ -154,9 +173,11 @@ public final class MediaControls {
     /// formed on the main actor would trap there; the command hops back instead.
     nonisolated static func handler<Event>(
         _ route: @escaping @Sendable (Event) -> Command?,
+        isAvailable: @escaping @Sendable () -> Bool = { true },
         perform: @escaping @MainActor (Command) -> Void
     ) -> (Event) -> MPRemoteCommandHandlerStatus {
         { event in
+            guard isAvailable() else { return .noActionableNowPlayingItem }
             guard let command = route(event) else { return .commandFailed }
             Task { @MainActor in perform(command) }
             return .success
@@ -178,8 +199,12 @@ public final class MediaControls {
             MPNowPlayingInfoPropertyPlaybackRate: Double(info.rate),
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
-        if let album = info.album { fields[MPMediaItemPropertyAlbumTitle] = album }
-        if let image { fields[MPMediaItemPropertyArtwork] = artwork(image) }
+        if let album = info.album {
+            fields[MPMediaItemPropertyAlbumTitle] = album
+        }
+        if let image {
+            fields[MPMediaItemPropertyArtwork] = artwork(image)
+        }
         center.nowPlayingInfo = fields
         center.playbackState = info.isPlaying ? .playing : .paused
     }

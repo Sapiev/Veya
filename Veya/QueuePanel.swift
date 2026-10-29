@@ -44,7 +44,8 @@ struct QueuePanel: View {
         .accessibilityLabel("Queue Panel")
         .accessibilityIdentifier("queue")
         // Track list rows drag their URIs.
-        .dropDestination(for: String.self) { uris, _ in
+        .dropDestination(for: String.self) { dropped, _ in
+            let uris = dropped.compactMap(SpotifyLink.queueableURI)
             guard let player, !uris.isEmpty else { return false }
             player.addToQueue(uris)
             return true
@@ -102,7 +103,9 @@ struct QueuePanel: View {
         // A new track starts the list over from the top.
         .id(player.nowPlaying?.uri)
         .task(id: player.context) {
-            if let context = player.context, context != likedSongsContext { library.resolve([context]) }
+            if let context = player.context, context != likedSongsContext {
+                library.resolve([context])
+            }
         }
     }
 
@@ -133,7 +136,9 @@ struct QueuePanel: View {
     }
 
     private func contextName(_ uri: String) -> String? {
-        if uri == likedSongsContext { return String(localized: "Liked Songs") }
+        if uri == likedSongsContext {
+            return String(localized: "Liked Songs")
+        }
         for case let .playlist(playlistURI, name, _, _, _, _, _) in playlists.rootlist where playlistURI == uri {
             return name
         }
@@ -204,14 +209,26 @@ struct QueueRow: View {
         .contentShape(.rect)
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: hovering)
-        .onTapGesture { if row.playable { play?() } }
+        .onTapGesture {
+            if row.playable {
+                play?()
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(row.title.isEmpty ? Text("Loading…") : Text("\(row.title), \(artistNames(row))"))
         .accessibilityValue(current ? Text("Now playing") : Text(row.unavailableHelp ?? ""))
         .accessibilityHint(play == nil || !row.playable ? Text("") : Text("Plays this song"))
         .accessibilityAddTraits(play == nil ? [] : .isButton)
-        .accessibilityAction { if row.playable { play?() } }
-        .accessibilityAction(named: "Play") { if row.playable { play?() } }
+        .accessibilityAction {
+            if row.playable {
+                play?()
+            }
+        }
+        .accessibilityAction(named: "Play") {
+            if row.playable {
+                play?()
+            }
+        }
         .opacity(row.playable ? 1 : contrast.opacity(0.7))
     }
 
@@ -220,8 +237,15 @@ struct QueueRow: View {
     }
 
     private var titleColor: Color {
-        if onArtwork { .white } else if current { Color(palette.tintText) } else { .primary }
+        if onArtwork {
+            .white
+        } else if current {
+            Color(palette.tintText)
+        } else {
+            .primary
+        }
     }
+
     private static func artwork(_ item: MetadataItem?) -> [Artwork] {
         switch item {
         case let .track(track): track.artwork

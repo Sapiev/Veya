@@ -61,7 +61,9 @@ struct NowPlayingView: View {
             .background { backdrop(proxy.size) }
         }
         .onContinuousHover { phase in
-            if case .active = phase { revealControls() }
+            if case .active = phase {
+                revealControls()
+            }
         }
         .onAppear(perform: revealControls)
         .overlay(alignment: .topTrailing) {
@@ -93,12 +95,18 @@ struct NowPlayingView: View {
             }
         }
         .onDisappear {
-            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            if let keyMonitor {
+                NSEvent.removeMonitor(keyMonitor)
+            }
             keyMonitor = nil
         }
         .background(WindowButtonsFade(visible: controlsVisible, animated: !reduceMotion))
         // Asking for lyrics brings the panes back even when they were hidden last time.
-        .onAppear { if tab == .lyrics { showsPanes = true } }
+        .onAppear {
+            if tab == .lyrics {
+                showsPanes = true
+            }
+        }
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
     }
@@ -134,7 +142,7 @@ struct NowPlayingView: View {
                         value: player.isPlaying
                     )
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(nowPlaying.title)
+                    Text(trackTitle: nowPlaying.title)
                         .scaledFont(size: 22, weight: .bold)
                     ArtistLinks(artists: nowPlaying.artists) { uri in
                         close()
@@ -185,7 +193,9 @@ struct NowPlayingView: View {
     }
 
     private func revealControls() {
-        if !controlsShown { controlsShown = true }
+        if !controlsShown {
+            controlsShown = true
+        }
         controlsIdle.restart { controlsShown = false }
     }
 
@@ -238,7 +248,9 @@ struct NowPlayingView: View {
         task?.cancel()
         task = Task {
             try? await Task.sleep(for: delay)
-            if !Task.isCancelled { fire() }
+            if !Task.isCancelled {
+                fire()
+            }
         }
     }
 }
@@ -256,7 +268,9 @@ private struct WindowButtonsFade: NSViewRepresentable {
     let visible: Bool
     let animated: Bool
 
-    func makeNSView(context _: Context) -> NSView { Anchor() }
+    func makeNSView(context _: Context) -> NSView {
+        Anchor()
+    }
 
     func updateNSView(_ view: NSView, context _: Context) {
         let alpha: CGFloat = visible ? 1 : 0
@@ -271,7 +285,9 @@ private struct WindowButtonsFade: NSViewRepresentable {
     /// Restores while the window is still reachable; by dismantle time it may be gone.
     private final class Anchor: NSView {
         override func viewWillMove(toWindow newWindow: NSWindow?) {
-            if newWindow == nil { WindowButtonsFade.buttons(of: window).forEach { $0.alphaValue = 1 } }
+            if newWindow == nil {
+                WindowButtonsFade.buttons(of: window).forEach { $0.alphaValue = 1 }
+            }
             super.viewWillMove(toWindow: newWindow)
         }
     }
