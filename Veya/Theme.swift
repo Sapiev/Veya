@@ -179,6 +179,7 @@ struct AdaptiveColors: ViewModifier {
     @Environment(\.artworkLoader) private var loader
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var colors: (accent: RGB, dominant: RGB)?
     /// How far the cycle has turned the accent's hue, in turns of the wheel.
     @State private var turns = 0.0
@@ -203,8 +204,9 @@ struct AdaptiveColors: ViewModifier {
             }
             // Cycle steps blend into each other, so the hue never stops moving.
             .animation(reduceMotion ? nil : cycling ? .linear(duration: 1) : Theme.themeChange, value: palette)
-            .task(id: cycling ? cycleSeconds : nil) {
-                guard cycling, cycleSeconds > 0 else { return }
+            // Paused while the app is in the background, so a hidden window does not relayout every second.
+            .task(id: cycling && scenePhase == .active ? cycleSeconds : nil) {
+                guard cycling, scenePhase == .active, cycleSeconds > 0 else { return }
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
                     turns = (turns + 1 / cycleSeconds).truncatingRemainder(dividingBy: 1)
