@@ -475,7 +475,15 @@ async fn follow_cluster(
         let (devices, this_id, epoch) = (Arc::clone(&devices), this_id.clone(), epoch.clone());
         // This may hold the last reference, and dropping a player joins its thread.
         let _ = tokio::task::spawn_blocking(move || {
-            apply_cluster(&devices, &update, &this_id, &epoch, queue_changed, &*player);
+            apply_cluster(
+                &devices,
+                &update,
+                &this_id,
+                &epoch,
+                queue_changed,
+                None,
+                &*player,
+            );
         })
         .await;
     }
@@ -499,12 +507,17 @@ fn apply_cluster(
     this_id: &str,
     epoch: &Epoch,
     queue_changed: bool,
+    untouched_since: Option<u64>,
     sink: &impl ClusterSink,
 ) {
     let (listed, change, events, remote) = {
         // Checked under the list lock that link shutdown clears it under.
         let mut list = lock(devices);
         if !epoch.is_current() {
+            return;
+        }
+        // A Web API answer yields to any push that landed while it was in flight.
+        if untouched_since.is_some_and(|stamp| !list.untouched_since(stamp)) {
             return;
         }
         let listed = list.update(update, this_id).then(|| list.changed());
@@ -697,18 +710,21 @@ impl SpotConnect {
             Ok(update) => update,
             Err(e) => return warn!("cannot list the Connect devices: {e}"),
         };
-        // shortcut: a push landing between this check and the apply is overwritten
-        // until the next push; take the list lock across both if that is noticed.
-        if !lock(&self.devices).untouched_since(stamp) {
-            return;
-        }
         let (devices, player, epoch) = (
             Arc::clone(&self.devices),
             Arc::clone(&self.player),
             link.epoch.clone(),
         );
         let _ = tokio::task::spawn_blocking(move || {
-            apply_cluster(&devices, &update, &this_id, &epoch, false, &*player);
+            apply_cluster(
+                &devices,
+                &update,
+                &this_id,
+                &epoch,
+                false,
+                Some(stamp),
+                &*player,
+            );
         })
         .await;
     }
@@ -1024,10 +1040,63 @@ mod tests {
             applied: Mutex::default(),
         };
 
-        apply_cluster(&devices, &update, "mac", &Epoch::default(), true, &checker);
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            true,
+            None,
+            &checker,
+        );
 
         assert_eq!(*checker.applied.lock().unwrap(), [Change::Enter]);
         assert!(lock(&devices).remote.is_some());
+    }
+
+    #[test]
+    fn web_api_update_is_dropped_when_a_push_landed_since_its_stamp() {
+        let update = ClusterUpdate {
+            cluster: Some(Cluster {
+                active_device_id: "phone".to_owned(),
+                ..Default::default()
+            })
+            .into(),
+            ..Default::default()
+        };
+        let devices = Mutex::new(DeviceList::default());
+        let checker = LockChecker {
+            devices: &devices,
+            applied: Mutex::default(),
+        };
+        let stamp = lock(&devices).stamp();
+        // A push lands while the Web API request is in flight.
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            false,
+            None,
+            &checker,
+        );
+        let after_push = lock(&devices).stamp();
+
+        apply_cluster(
+            &devices,
+            &update,
+            "mac",
+            &Epoch::default(),
+            false,
+            Some(stamp),
+            &checker,
+        );
+
+        assert_eq!(
+            lock(&devices).stamp(),
+            after_push,
+            "stale update must not apply"
+        );
     }
 
     #[tokio::test]

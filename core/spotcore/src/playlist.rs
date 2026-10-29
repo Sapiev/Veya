@@ -4,9 +4,10 @@
 //! fetched pages persist in the metadata store.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderValue, Method, Request, StatusCode};
@@ -192,6 +193,8 @@ pub struct PlaylistService {
     push: PushWatch,
     /// Display names by username; they rarely change, so one lookup per run.
     owner_names: Mutex<HashMap<String, String>>,
+    /// When each owner's profile lookup last failed, so a page load does not retry at once.
+    owner_failures: Mutex<HashMap<String, Instant>>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -203,6 +206,7 @@ impl PlaylistService {
             store,
             push: PushWatch::new(PUSH_URI),
             owner_names: Mutex::default(),
+            owner_failures: Mutex::default(),
         })
     }
 
@@ -369,13 +373,15 @@ impl PlaylistService {
         let uri = CreateListReply::parse_from_bytes(&reply)?.uri().to_owned();
         playlist_id(&uri)?;
         let added = std::slice::from_ref(&uri);
-        let op = insert_op(&raw.items, folder, added)?;
         // The playlist exists now; one retry on a fresh root list keeps it from orphaning.
-        if let Err(PlaylistError::Conflict) = send_rootlist(&session, raw.revision, op).await {
-            let raw = raw_rootlist(&session).await?;
-            let op = insert_op(&raw.items, folder, added)?;
-            send_rootlist(&session, raw.revision, op).await?;
-        }
+        insert_once(
+            raw,
+            folder,
+            added,
+            |revision, op| send_rootlist(&session, revision, op),
+            || raw_rootlist(&session),
+        )
+        .await?;
         Ok(uri)
     }
 
@@ -389,8 +395,16 @@ impl PlaylistService {
         let session = self.session.current_session();
         let raw = raw_rootlist(&session).await?;
         let id = random_folder_id();
-        let op = insert_op(&raw.items, folder.as_deref(), &folder_markers(&id, name))?;
-        send_rootlist(&session, raw.revision, op).await?;
+        let markers = folder_markers(&id, name);
+        // Retried under the same id, so a request that landed before its conflict is not doubled.
+        insert_once(
+            raw,
+            folder.as_deref(),
+            &markers,
+            |revision, op| send_rootlist(&session, revision, op),
+            || raw_rootlist(&session),
+        )
+        .await?;
         Ok(format!("spotify:user:{}:folder:{id}", session.username()))
     }
 
@@ -459,13 +473,24 @@ impl PlaylistService {
     }
 }
 
+const OWNER_RETRY: Duration = Duration::from_secs(60);
+
+fn failed_recently(failures: &HashMap<String, Instant>, owner: &str) -> bool {
+    failures
+        .get(owner)
+        .is_some_and(|at| at.elapsed() < OWNER_RETRY)
+}
+
 impl PlaylistService {
-    /// Falls back to the username when the profile can't be read; a failure isn't remembered.
+    /// Falls back to the username when the profile can't be read; a failure is not retried for `OWNER_RETRY`.
     async fn owner_name(&self, session: &Session, owner: &str) -> String {
         if let Some(name) = lock(&self.owner_names).get(owner) {
             return name.clone();
         }
         if !is_username(owner) {
+            return owner.to_owned();
+        }
+        if failed_recently(&lock(&self.owner_failures), owner) {
             return owner.to_owned();
         }
         let name = match session
@@ -484,7 +509,10 @@ impl PlaylistService {
                 lock(&self.owner_names).insert(owner.to_owned(), name.clone());
                 name
             }
-            None => owner.to_owned(),
+            None => {
+                lock(&self.owner_failures).insert(owner.to_owned(), Instant::now());
+                owner.to_owned()
+            }
         }
     }
 
@@ -595,6 +623,36 @@ async fn send_rootlist(session: &Session, revision: Vec<u8>, op: Op) -> Result<(
     let endpoint = rootlist_changes_path(&session.username());
     spclient_post(session, &endpoint, changes(revision, op).write_to_bytes()?).await?;
     Ok(())
+}
+
+/// Inserts `uris` into the root list. After a conflict it re-reads the list once and resends
+/// unless the first uri already landed (the first attempt may succeed before its conflict is
+/// reported). Any other error is returned without a retry.
+async fn insert_once<S, SF, R, RF>(
+    raw: RawRootlist,
+    folder: Option<&str>,
+    uris: &[String],
+    send: S,
+    reread: R,
+) -> Result<(), PlaylistError>
+where
+    S: Fn(Vec<u8>, Op) -> SF,
+    SF: Future<Output = Result<(), PlaylistError>>,
+    R: Fn() -> RF,
+    RF: Future<Output = Result<RawRootlist, PlaylistError>>,
+{
+    let op = insert_op(&raw.items, folder, uris)?;
+    match send(raw.revision, op).await {
+        Err(PlaylistError::Conflict) => {
+            let raw = reread().await?;
+            if !holds(&raw.items, &uris[0]) {
+                let op = insert_op(&raw.items, folder, uris)?;
+                send(raw.revision, op).await?;
+            }
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 async fn spclient_post(
@@ -918,6 +976,10 @@ fn insert_index(items: &[Item], folder: Option<&str>) -> Result<usize, PlaylistE
 
 fn insert_op(items: &[Item], folder: Option<&str>, uris: &[String]) -> Result<Op, PlaylistError> {
     add_op(Some(insert_index(items, folder)?), uris)
+}
+
+fn holds(items: &[Item], uri: &str) -> bool {
+    items.iter().any(|item| item.uri() == uri)
 }
 
 fn folder_markers(id: &str, name: &str) -> [String; 2] {
@@ -1897,6 +1959,139 @@ mod tests {
             insert_index(&items, Some("spotify:playlist:p0")),
             Err(PlaylistError::NotInRootlist { .. })
         ));
+    }
+
+    #[test]
+    fn owner_lookup_failure_is_not_retried_until_the_window_passes() {
+        let long_ago = Instant::now()
+            .checked_sub(OWNER_RETRY * 2)
+            .unwrap_or_else(Instant::now);
+        let failures = HashMap::from([
+            ("fresh".to_owned(), Instant::now()),
+            ("stale".to_owned(), long_ago),
+        ]);
+        assert!(failed_recently(&failures, "fresh"));
+        assert!(!failed_recently(&failures, "stale"));
+        assert!(!failed_recently(&failures, "unknown"));
+    }
+
+    #[test]
+    fn holds_finds_a_landed_playlist_or_folder_marker() {
+        let [start, end] = folder_markers("aa", "F");
+        let items = [item("spotify:playlist:p"), item(&start), item(&end)];
+        assert!(holds(&items, "spotify:playlist:p"));
+        assert!(holds(&items, &start));
+        assert!(!holds(&items, "spotify:playlist:other"));
+    }
+
+    /// A root list that applies each accepted insert, answering `replies` in order
+    /// (`landed` replies apply the insert and still report the conflict).
+    struct FakeRootlist {
+        items: Mutex<Vec<Item>>,
+        replies: Mutex<Vec<(Result<(), PlaylistError>, bool)>>,
+        sends: Mutex<usize>,
+        reads: Mutex<usize>,
+    }
+
+    impl FakeRootlist {
+        fn new(replies: Vec<(Result<(), PlaylistError>, bool)>) -> Self {
+            Self {
+                items: Mutex::new(Vec::new()),
+                replies: Mutex::new(replies.into_iter().rev().collect()),
+                sends: Mutex::new(0),
+                reads: Mutex::new(0),
+            }
+        }
+
+        fn raw(&self) -> RawRootlist {
+            RawRootlist {
+                revision: Vec::new(),
+                items: self.items.lock().unwrap().clone(),
+                metas: Vec::new(),
+            }
+        }
+
+        async fn insert(&self, uris: &[String]) -> Result<(), PlaylistError> {
+            insert_once(
+                self.raw(),
+                None,
+                uris,
+                |_, _| async {
+                    *self.sends.lock().unwrap() += 1;
+                    let (result, applied) =
+                        self.replies.lock().unwrap().pop().unwrap_or((Ok(()), true));
+                    if applied {
+                        self.items
+                            .lock()
+                            .unwrap()
+                            .extend(uris.iter().map(|uri| item(uri)));
+                    }
+                    result
+                },
+                || async {
+                    *self.reads.lock().unwrap() += 1;
+                    Ok(self.raw())
+                },
+            )
+            .await
+        }
+
+        fn held(&self) -> Vec<String> {
+            uris(&self.items.lock().unwrap())
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        }
+    }
+
+    fn both_kinds() -> [Vec<String>; 2] {
+        [
+            vec!["spotify:playlist:new".to_owned()],
+            folder_markers("aa", "F").to_vec(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn conflict_after_the_insert_landed_is_not_sent_twice() {
+        for added in both_kinds() {
+            let server = FakeRootlist::new(vec![(Err(PlaylistError::Conflict), true)]);
+            server.insert(&added).await.unwrap();
+            assert_eq!(server.held(), added);
+            assert_eq!(*server.sends.lock().unwrap(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn conflict_before_the_insert_landed_retries_once() {
+        for added in both_kinds() {
+            let server = FakeRootlist::new(vec![(Err(PlaylistError::Conflict), false)]);
+            server.insert(&added).await.unwrap();
+            assert_eq!(server.held(), added);
+            assert_eq!(*server.sends.lock().unwrap(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn other_failure_is_returned_unretried_and_a_caller_retry_inserts_once() {
+        for added in both_kinds() {
+            let failure = PlaylistError::Request {
+                message: "boom".to_owned(),
+            };
+            let server = FakeRootlist::new(vec![(Err(failure), false)]);
+            let result = server.insert(&added).await;
+            assert!(
+                matches!(result, Err(PlaylistError::Request { .. })),
+                "{result:?}"
+            );
+            assert_eq!(
+                (*server.sends.lock().unwrap(), *server.reads.lock().unwrap()),
+                (1, 0)
+            );
+            assert!(server.held().is_empty());
+
+            server.insert(&added).await.unwrap();
+            assert_eq!(server.held(), added);
+        }
     }
 
     #[test]
