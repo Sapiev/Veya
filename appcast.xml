@@ -1,7 +1,39 @@
-<?xml version='1.0' encoding='utf-8'?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <title>Veya</title>
+    <item>
+      <title>1.1.1</title>
+      <pubDate>Thu, 29 Oct 2026 22:52:16 GMT</pubDate>
+      <sparkle:version>508</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description sparkle:format="markdown">Security and reliability fixes from an audit of the app, the Rust core and the release pipeline.
+
+### Fixed
+
+- Sparkle update feeds must now be signed, and releases are gated and the supply chain hardened.
+- Links, sign-out, caches and playback restore are hardened against untrusted input.
+- Playback ownership, validation, log redaction and size caps are stricter in the core.
+- Newer Spotify Connect pushes are no longer overwritten, root-list inserts retry safely, and failed owner lookups are remembered.
+- A broken metadata cache is reopened and stale entries are pruned.
+- Unanswered crash reports survive quitting the app.
+- Restarting Connect waits for the previous shutdown, and the scrubber follows the playback rate.
+- Selection-tint swizzling is narrower, and a missing selector is caught in debug builds.
+- The sign-in log shows the port the listener actually bound.
+- Devices are listed from the Web API until the first Connect cluster push.
+- Title and artist lines in Now Playing no longer collapse or blank.
+- The volume pop-up stays open longer while the pointer crosses to it, so slow pointer movement no longer closes it.
+
+### Changed
+
+- The theme cycle pauses while the app is inactive.
+- Podcast episode progress pages load concurrently.
+- Dependencies updated: rustls, time and other Cargo crates, and librespot to its latest upstream.
+</description>
+      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.1.1/Veya-1.1.1.dmg" length="21163124" type="application/octet-stream" sparkle:edSignature="pipahS5Squ70/v3ftYf7H7oHcExaPy05cAV5MEBOT/C9j9p771gQwaK87h8MZD574txjmt1lnaaohqdG05O3BA=="></enclosure>
+    </item>
     <item>
       <title>1.1.0</title>
       <pubDate>Mon, 26 Oct 2026 10:49:55 GMT</pubDate>
@@ -24,7 +56,7 @@
 
 - The menu bar mini-player opens the window from its artwork instead of a separate button.
 </description>
-      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.1.0/Veya-1.1.0.dmg" length="23701877" type="application/octet-stream" sparkle:edSignature="USU5/KCJyDYh0fVTiIIza2gptGQxRTYm5XMa3Xm6Ljk7HnXMYaxm6C/8OpQ36MQUjo4Bho6xtoqlm/O3uphgCg==" />
+      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.1.0/Veya-1.1.0.dmg" length="23701877" type="application/octet-stream" sparkle:edSignature="USU5/KCJyDYh0fVTiIIza2gptGQxRTYm5XMa3Xm6Ljk7HnXMYaxm6C/8OpQ36MQUjo4Bho6xtoqlm/O3uphgCg=="></enclosure>
     </item>
     <item>
       <title>1.0.0</title>
@@ -41,7 +73,10 @@
 - Automatic updates with Sparkle, with an opt-in beta channel (PBI-902).
 - Homebrew cask in the project tap: `brew install --cask sapiev/veya/veya` (PBI-903).
 </description>
-      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.0.0/Veya-1.0.0.dmg" length="23701331" type="application/octet-stream" sparkle:edSignature="RVKLF3612sL5Cf7W+hTpHem3jaiK1U4Edfu1X9oO0rUJVjA2G3uuU3V4dnoKBdUS3o6FoodgzyD2+jIolkAxDQ==" />
+      <enclosure url="https://github.com/Sapiev/Veya/releases/download/v1.0.0/Veya-1.0.0.dmg" length="23701331" type="application/octet-stream" sparkle:edSignature="RVKLF3612sL5Cf7W+hTpHem3jaiK1U4Edfu1X9oO0rUJVjA2G3uuU3V4dnoKBdUS3o6FoodgzyD2+jIolkAxDQ=="></enclosure>
     </item>
   </channel>
-</rss>
+</rss><!-- sparkle-signatures:
+edSignature: igoalLS8FJlF8TfISbfq/x/OEmHUPFMleWnRU/pkwAIN5s3b2ESbRzDNX/Ie6XGLWKCQkVIsjWWariakhkQ6Aw==
+length: 4647
+-->
