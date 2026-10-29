@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use futures_util::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 
 use crate::account::{MAX_BODY_BYTES, read_capped, web_api_client};
@@ -10,6 +11,8 @@ use crate::account::{MAX_BODY_BYTES, read_capped, web_api_client};
 const EPISODES_URL: &str = "https://api.spotify.com/v1/episodes";
 /// The Web API's per-request limit for `ids`.
 const MAX_IDS: usize = 50;
+/// Pages in flight at once: a long show is a few requests, not a queue of them.
+const MAX_CONCURRENT_PAGES: usize = 4;
 const EPISODE_PREFIX: &str = "spotify:episode:";
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -77,52 +80,13 @@ async fn episode_progress_at(
         return Ok(Vec::new());
     }
     let http = web_api_client().map_err(network)?;
-    let mut found = HashMap::new();
-    for chunk in ids.chunks(MAX_IDS) {
-        // Ids are validated base62, so they need no escaping.
-        let response = http
-            .get(format!("{url}?ids={}", chunk.join(",")))
-            .bearer_auth(access_token)
-            .send()
-            .await
-            .map_err(network)?;
-        match response.status().as_u16() {
-            200..=299 => {}
-            403 => return Err(PodcastError::MissingScope),
-            status => return Err(PodcastError::Request { status }),
-        }
-        let body = read_capped(response, MAX_BODY_BYTES, network, || {
-            PodcastError::Malformed {
-                message: "response too large".to_owned(),
-            }
-        })
+    let chunks: Vec<String> = ids.chunks(MAX_IDS).map(|chunk| chunk.join(",")).collect();
+    let pages: Vec<_> = futures_util::stream::iter(chunks)
+        .map(|chunk| progress_page(&http, url, access_token, chunk))
+        .buffered(MAX_CONCURRENT_PAGES)
+        .try_collect()
         .await?;
-        let page: Episodes =
-            serde_json::from_slice(&body).map_err(|e| PodcastError::Malformed {
-                message: e.to_string(),
-            })?;
-        let mut without_point = 0;
-        let mut listed = 0;
-        for value in page.episodes {
-            let Ok(Some(episode)) = Option::<Episode>::deserialize(value) else {
-                continue;
-            };
-            listed += 1;
-            match episode
-                .resume_point
-                .and_then(|p| ResumePoint::deserialize(p).ok())
-            {
-                Some(point) => {
-                    found.insert(episode.id, point);
-                }
-                None => without_point += 1,
-            }
-        }
-        // Spotify omits every resume point when the token lacks the scope.
-        if listed > 0 && without_point == listed {
-            return Err(PodcastError::MissingScope);
-        }
-    }
+    let found: HashMap<String, ResumePoint> = pages.into_iter().flatten().collect();
     Ok(uris
         .into_iter()
         .zip(ids)
@@ -134,6 +98,59 @@ async fn episode_progress_at(
             })
         })
         .collect())
+}
+
+/// One request for up to `MAX_IDS` episodes; a page whose episodes all lack a resume point is a missing scope.
+async fn progress_page(
+    http: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+    ids: String,
+) -> Result<HashMap<String, ResumePoint>, PodcastError> {
+    let mut found = HashMap::new();
+    // Ids are validated base62, so they need no escaping.
+    let response = http
+        .get(format!("{url}?ids={ids}"))
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(network)?;
+    match response.status().as_u16() {
+        200..=299 => {}
+        403 => return Err(PodcastError::MissingScope),
+        status => return Err(PodcastError::Request { status }),
+    }
+    let body = read_capped(response, MAX_BODY_BYTES, network, || {
+        PodcastError::Malformed {
+            message: "response too large".to_owned(),
+        }
+    })
+    .await?;
+    let page: Episodes = serde_json::from_slice(&body).map_err(|e| PodcastError::Malformed {
+        message: e.to_string(),
+    })?;
+    let mut without_point = 0;
+    let mut listed = 0;
+    for value in page.episodes {
+        let Ok(Some(episode)) = Option::<Episode>::deserialize(value) else {
+            continue;
+        };
+        listed += 1;
+        match episode
+            .resume_point
+            .and_then(|p| ResumePoint::deserialize(p).ok())
+        {
+            Some(point) => {
+                found.insert(episode.id, point);
+            }
+            None => without_point += 1,
+        }
+    }
+    // Spotify omits every resume point when the token lacks the scope.
+    if listed > 0 && without_point == listed {
+        return Err(PodcastError::MissingScope);
+    }
+    Ok(found)
 }
 
 /// The base62 id of a `spotify:episode:<22 base62>` URI; the trust boundary
